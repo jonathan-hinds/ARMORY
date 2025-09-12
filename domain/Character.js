@@ -16,9 +16,7 @@ class Character {
     this.resources = { health: 0, mana: 0, stamina: 0 };
     this.derived = {};
     this.rotationIndex = 0;
-    this.stunnedUntil = 0;
-    this.damageBuffs = []; // {amount, expires}
-    this.poisons = []; // {potency, tick, nextTick, expires}
+    this.statuses = []; // [{type, ...}] generic status effects
   }
 }
 

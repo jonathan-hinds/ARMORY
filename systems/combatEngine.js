@@ -1,20 +1,34 @@
 const { takeAction } = require('./rotationEngine');
 const { applyEffects } = require('./effectsEngine');
 
+function getBuffMult(char, stat) {
+  return 1 + char.statuses
+    .filter(s => s.type === 'buff' && s.stat === stat)
+    .reduce((sum, s) => sum + s.amount, 0);
+}
+
 function tickStatuses(char, now, log) {
-  char.damageBuffs = char.damageBuffs.filter(buff => {
-    if (buff.expires > now) return true;
-    log.push(`${char.name}'s damage buff fades.`);
-    return false;
-  });
-  char.poisons = char.poisons.filter(p => {
-    while (p.nextTick <= now && p.nextTick <= p.expires) {
-      const dmg = Math.max(1, p.potency * (1 - char.derived.magicResist));
-      char.resources.health -= dmg;
-      log.push(`${char.name} suffers ${dmg.toFixed(0)} poison.`);
-      p.nextTick += p.tick;
+  char.statuses = char.statuses.filter(s => {
+    if (s.type === 'buff') {
+      if (s.expires > now) return true;
+      log.push(`${char.name}'s ${s.stat} buff fades.`);
+      return false;
     }
-    return p.expires > now;
+    if (s.type === 'poison') {
+      while (s.nextTick <= now && s.nextTick <= s.expires) {
+        const dmg = Math.max(1, s.potency * (1 - char.derived.magicResist));
+        char.resources.health -= dmg;
+        log.push(`${char.name} suffers ${dmg.toFixed(0)} poison.`);
+        s.nextTick += s.tick;
+      }
+      return s.expires > now;
+    }
+    if (s.type === 'stun') {
+      if (s.expires > now) return true;
+      log.push(`${char.name} is no longer stunned.`);
+      return false;
+    }
+    return s.expires > now;
   });
 }
 
@@ -31,7 +45,7 @@ function runCombat(a, b, abilities) {
     tickStatuses(target, now, log);
     if (actor.resources.health <= 0 || target.resources.health <= 0) break;
 
-    if (actor.stunnedUntil > now) {
+    if (actor.statuses.some(s => s.type === 'stun' && s.expires > now)) {
       log.push(`${actor.name} is stunned and misses the turn.`);
       actor.nextActionTime += actor.derived.attackIntervalSeconds;
       continue;
@@ -43,7 +57,7 @@ function runCombat(a, b, abilities) {
     } else {
       // basic attack
       const base = actor.basicType === 'melee' ? actor.derived.minMeleeAttack : actor.derived.minMagicAttack;
-      const dmgMult = 1 + actor.damageBuffs.reduce((s, b) => s + b.amount, 0);
+      const dmgMult = getBuffMult(actor, 'damage');
       const resist = actor.basicType === 'melee' ? target.derived.meleeResist : target.derived.magicResist;
       const final = Math.max(1, base * dmgMult * (1 - resist));
       target.resources.health -= final;
