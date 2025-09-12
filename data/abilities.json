@@ -1,0 +1,12 @@
+[
+  {"id":"slash","name":"Slash","school":"physical","costType":"stamina","costValue":5,"cooldown":2,"scaling":["strength"],"effects":[{"type":"PhysicalDamage","potency":10}]},
+  {"id":"fireball","name":"Fireball","school":"magical","costType":"mana","costValue":8,"cooldown":3,"scaling":["intellect"],"effects":[{"type":"MagicDamage","potency":12}]},
+  {"id":"heal","name":"Heal","school":"magical","costType":"mana","costValue":6,"cooldown":5,"scaling":["wisdom"],"effects":[{"type":"Heal","potency":15}]},
+  {"id":"berserk","name":"Berserk","school":"physical","costType":"stamina","costValue":5,"cooldown":10,"scaling":[],"effects":[{"type":"BuffStatPct","stat":"damage","potency":0.2,"duration":5}]},
+  {"id":"bash","name":"Bash","school":"physical","costType":"stamina","costValue":7,"cooldown":4,"scaling":["strength"],"effects":[{"type":"PhysicalDamage","potency":8},{"type":"Stun","duration":2}]},
+  {"id":"poisonStab","name":"Poison Stab","school":"physical","costType":"stamina","costValue":6,"cooldown":4,"scaling":["agility"],"effects":[{"type":"PhysicalDamage","potency":5},{"type":"Poison","potency":2,"duration":6,"tick":2}]},
+  {"id":"smite","name":"Smite","school":"magical","costType":"mana","costValue":10,"cooldown":6,"scaling":["intellect"],"effects":[{"type":"MagicDamage","potency":14},{"type":"Stun","duration":1}]},
+  {"id":"venomCloud","name":"Venom Cloud","school":"magical","costType":"mana","costValue":9,"cooldown":8,"scaling":["intellect"],"effects":[{"type":"Poison","potency":3,"duration":8,"tick":2}]},
+  {"id":"quickShot","name":"Quick Shot","school":"physical","costType":"stamina","costValue":4,"cooldown":1,"scaling":["agility"],"effects":[{"type":"PhysicalDamage","potency":6}]},
+  {"id":"arcaneBlast","name":"Arcane Blast","school":"magical","costType":"mana","costValue":12,"cooldown":8,"scaling":["intellect"],"effects":[{"type":"MagicDamage","potency":18}]}
+]

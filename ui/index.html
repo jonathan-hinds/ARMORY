@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>ARMORY RPG</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="login">
+    <form id="loginForm">
+      <input id="loginName" placeholder="Name">
+      <input id="loginPass" type="password" placeholder="Password">
+      <button type="submit">Login</button>
+    </form>
+    <form id="registerForm">
+      <input id="regName" placeholder="Name">
+      <input id="regPass" type="password" placeholder="Password">
+      <button type="submit">Register</button>
+    </form>
+  </div>
+  <div id="game" class="hidden">
+    <div id="tabs">
+      <button data-tab="shop">Shop</button>
+      <button data-tab="character">Character</button>
+      <button data-tab="inventory">Inventory</button>
+      <button data-tab="battle">Battle</button>
+      <button data-tab="rotation">Rotation</button>
+    </div>
+    <div id="content">
+      <div id="shop" class="tab hidden">Shop</div>
+      <div id="character" class="tab hidden">Character</div>
+      <div id="inventory" class="tab hidden">Inventory</div>
+      <div id="battle" class="tab hidden">Battle</div>
+      <div id="rotation" class="tab hidden">Rotation</div>
+    </div>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

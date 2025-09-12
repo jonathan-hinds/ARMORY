@@ -1,0 +1,15 @@
+[
+  {"id":"rustySword","name":"Rusty Sword","type":"weapon","baseMin":5,"baseMax":8,"scaling":{"strength":"C","agility":"D"}},
+  {"id":"oakStaff","name":"Oak Staff","type":"weapon","baseMin":3,"baseMax":7,"scaling":{"intellect":"B","wisdom":"D"}},
+  {"id":"dagger","name":"Dagger","type":"weapon","baseMin":4,"baseMax":6,"scaling":{"agility":"B"}},
+  {"id":"leatherCap","name":"Leather Cap","type":"armor","slot":"helmet","meleeResist":0.02,"bonuses":{"agility":1}},
+  {"id":"clothHood","name":"Cloth Hood","type":"armor","slot":"helmet","magicResist":0.05,"bonuses":{"intellect":1}},
+  {"id":"leatherTunic","name":"Leather Tunic","type":"armor","slot":"chest","meleeResist":0.05,"bonuses":{"stamina":2}},
+  {"id":"clothRobe","name":"Cloth Robe","type":"armor","slot":"chest","magicResist":0.08,"bonuses":{"intellect":2}},
+  {"id":"leatherPants","name":"Leather Pants","type":"armor","slot":"legs","meleeResist":0.03,"bonuses":{"agility":1}},
+  {"id":"clothPants","name":"Cloth Pants","type":"armor","slot":"legs","magicResist":0.04,"bonuses":{"wisdom":1}},
+  {"id":"leatherBoots","name":"Leather Boots","type":"armor","slot":"feet","meleeResist":0.02,"bonuses":{"agility":1}},
+  {"id":"clothShoes","name":"Cloth Shoes","type":"armor","slot":"feet","magicResist":0.03,"bonuses":{"intellect":1}},
+  {"id":"leatherGloves","name":"Leather Gloves","type":"armor","slot":"hands","meleeResist":0.02,"bonuses":{"agility":1}},
+  {"id":"clothGloves","name":"Cloth Gloves","type":"armor","slot":"hands","magicResist":0.03,"bonuses":{"intellect":1}}
+]
