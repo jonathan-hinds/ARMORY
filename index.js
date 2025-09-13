@@ -6,6 +6,8 @@ const {
   createCharacter,
   getPlayerCharacters,
 } = require("./systems/playerService");
+const { getAbilities } = require("./systems/abilityService");
+const { updateRotation } = require("./systems/characterService");
 const app = express();
 
 app.use(express.json());
@@ -69,6 +71,28 @@ app.post("/players/:playerId/characters", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "character creation failed" });
+  }
+});
+
+app.get("/abilities", async (req, res) => {
+  try {
+    const abilities = await getAbilities();
+    res.json(abilities);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to load abilities" });
+  }
+});
+
+app.put("/characters/:characterId/rotation", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { rotation } = req.body;
+  try {
+    const character = await updateRotation(characterId, rotation);
+    res.json(character);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
   }
 });
 
