@@ -15,9 +15,21 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #character-list li { margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; }
 #character-list li .info { white-space:pre; margin-right:8px; }
 
-#rotation-container { margin-top:8px; }
-#rotation-container .lists { display:flex; gap:32px; align-items:flex-start; }
-#rotation-container .pool { flex:1; }
+#rotation-container {
+  margin-top:8px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+}
+#rotation-container .lists {
+  display:flex;
+  gap:32px;
+  align-items:flex-start;
+  justify-content:center;
+}
+#rotation-container .pool {
+  max-width:400px;
+}
 #rotation-container .ability-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:8px; margin-bottom:16px; }
 #rotation-container .ability-card { border:1px solid #000; padding:8px; text-align:center; cursor:move; }
 #rotation-container ul { list-style:none; padding:0; margin:0; border:1px solid #000; min-width:150px; min-height:200px; }
