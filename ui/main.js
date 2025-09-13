@@ -175,7 +175,7 @@ async function initRotation() {
   renderAbilityPool();
   renderRotationList();
   const list = document.getElementById('rotation-list');
-  list.addEventListener('dragover', e => e.preventDefault());
+  list.addEventListener('dragover', handleDragOverList);
   list.addEventListener('drop', handleDrop);
   document.getElementById('save-rotation').addEventListener('click', saveRotation);
 }
@@ -203,6 +203,8 @@ function renderAbilityPool() {
 
 function renderRotationList() {
   const list = document.getElementById('rotation-list');
+  const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight;
+  const prevScroll = list.scrollTop;
   list.innerHTML = '';
   rotation.forEach(id => {
     const ability = abilityCatalog.find(a => a.id === id);
@@ -222,10 +224,23 @@ function renderRotationList() {
     attachTooltip(li, () => abilityTooltip(ability));
     list.appendChild(li);
   });
+  list.scrollTop = atBottom ? list.scrollHeight : prevScroll;
 }
 
 function handleDragStart(e) {
   e.dataTransfer.setData('text/plain', e.target.dataset.id);
+}
+
+function handleDragOverList(e) {
+  e.preventDefault();
+  const list = e.currentTarget;
+  const rect = list.getBoundingClientRect();
+  const margin = 20;
+  if (e.clientY < rect.top + margin) {
+    list.scrollTop -= 10;
+  } else if (e.clientY > rect.bottom - margin) {
+    list.scrollTop += 10;
+  }
 }
 
 function handleDrop(e) {
@@ -236,7 +251,9 @@ function handleDrop(e) {
   const target = e.target.closest('li');
   let insertIndex = children.length;
   if (target) {
-    insertIndex = children.indexOf(target);
+    const rect = target.getBoundingClientRect();
+    const after = (e.clientY - rect.top) > rect.height / 2;
+    insertIndex = children.indexOf(target) + (after ? 1 : 0);
   }
   const existing = rotation.indexOf(id);
   if (existing >= 0) {
