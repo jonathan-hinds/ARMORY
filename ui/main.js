@@ -206,18 +206,19 @@ function renderRotationList() {
   const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight;
   const prevScroll = list.scrollTop;
   list.innerHTML = '';
-  rotation.forEach(id => {
+  rotation.forEach((id, idx) => {
     const ability = abilityCatalog.find(a => a.id === id);
     if (!ability) return;
     const li = document.createElement('li');
     li.textContent = ability.name;
     li.dataset.id = id;
+    li.dataset.index = idx;
     li.draggable = true;
     li.addEventListener('dragstart', handleDragStart);
     li.addEventListener('dblclick', () => {
-      const idx = rotation.indexOf(id);
-      if (idx >= 0) {
-        rotation.splice(idx, 1);
+      const i = parseInt(li.dataset.index, 10);
+      if (i >= 0) {
+        rotation.splice(i, 1);
         renderRotationList();
       }
     });
@@ -228,7 +229,15 @@ function renderRotationList() {
 }
 
 function handleDragStart(e) {
-  e.dataTransfer.setData('text/plain', e.target.dataset.id);
+  const id = parseInt(e.target.dataset.id, 10);
+  const payload = { id };
+  if (e.target.dataset.index !== undefined) {
+    payload.from = 'rotation';
+    payload.index = parseInt(e.target.dataset.index, 10);
+  } else {
+    payload.from = 'pool';
+  }
+  e.dataTransfer.setData('text/plain', JSON.stringify(payload));
 }
 
 function handleDragOverList(e) {
@@ -245,7 +254,7 @@ function handleDragOverList(e) {
 
 function handleDrop(e) {
   e.preventDefault();
-  const id = parseInt(e.dataTransfer.getData('text/plain'), 10);
+  const data = JSON.parse(e.dataTransfer.getData('text/plain'));
   const list = document.getElementById('rotation-list');
   const children = Array.from(list.children);
   const target = e.target.closest('li');
@@ -255,12 +264,12 @@ function handleDrop(e) {
     const after = (e.clientY - rect.top) > rect.height / 2;
     insertIndex = children.indexOf(target) + (after ? 1 : 0);
   }
-  const existing = rotation.indexOf(id);
-  if (existing >= 0) {
+  if (data.from === 'rotation') {
+    const existing = data.index;
     rotation.splice(existing, 1);
     if (existing < insertIndex) insertIndex--;
   }
-  rotation.splice(insertIndex, 0, id);
+  rotation.splice(insertIndex, 0, data.id);
   renderRotationList();
 }
 
