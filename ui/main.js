@@ -181,16 +181,23 @@ async function initRotation() {
 }
 
 function renderAbilityPool() {
-  const pool = document.getElementById('ability-pool');
-  pool.innerHTML = '';
+  const phys = document.getElementById('physical-abilities');
+  const mag = document.getElementById('magical-abilities');
+  phys.innerHTML = '';
+  mag.innerHTML = '';
   abilityCatalog.forEach(ab => {
-    const li = document.createElement('li');
-    li.textContent = ab.name;
-    li.dataset.id = ab.id;
-    li.draggable = true;
-    li.addEventListener('dragstart', handleDragStart);
-    attachTooltip(li, () => abilityTooltip(ab));
-    pool.appendChild(li);
+    const card = document.createElement('div');
+    card.textContent = ab.name;
+    card.className = 'ability-card';
+    card.dataset.id = ab.id;
+    card.draggable = true;
+    card.addEventListener('dragstart', handleDragStart);
+    attachTooltip(card, () => abilityTooltip(ab));
+    if (ab.school === 'physical') {
+      phys.appendChild(card);
+    } else if (ab.school === 'magical') {
+      mag.appendChild(card);
+    }
   });
 }
 
