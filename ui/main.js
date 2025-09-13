@@ -177,6 +177,9 @@ async function initRotation() {
   const list = document.getElementById('rotation-list');
   list.addEventListener('dragover', handleDragOverList);
   list.addEventListener('drop', handleDrop);
+  const del = document.getElementById('rotation-delete');
+  del.addEventListener('dragover', e => e.preventDefault());
+  del.addEventListener('drop', handleDropRemove);
   document.getElementById('save-rotation').addEventListener('click', saveRotation);
 }
 
@@ -271,6 +274,15 @@ function handleDrop(e) {
   }
   rotation.splice(insertIndex, 0, data.id);
   renderRotationList();
+}
+
+function handleDropRemove(e) {
+  e.preventDefault();
+  const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+  if (data.from === 'rotation') {
+    rotation.splice(data.index, 1);
+    renderRotationList();
+  }
 }
 
 function saveRotation() {
