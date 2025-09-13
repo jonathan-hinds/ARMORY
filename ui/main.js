@@ -6,6 +6,10 @@ const charSelectDiv = document.getElementById('character-select');
 const gameDiv = document.getElementById('game');
 const nameInput = document.getElementById('player-name');
 const authError = document.getElementById('auth-error');
+const nameDialog = document.getElementById('name-dialog');
+const newCharName = document.getElementById('new-char-name');
+const nameOk = document.getElementById('name-ok');
+const nameCancel = document.getElementById('name-cancel');
 
 async function postJSON(url, data) {
   const res = await fetch(url, {
@@ -24,10 +28,13 @@ function renderCharacters() {
     const li = document.createElement('li');
     const stats = c.attributes;
     const name = c.name || `Character ${c.id}`;
-    li.textContent = `${name} (${c.basicType}) - STR:${stats.strength} STA:${stats.stamina} AGI:${stats.agility} INT:${stats.intellect} WIS:${stats.wisdom}`;
+    const info = document.createElement('span');
+    info.className = 'info';
+    info.textContent = `${name} Lv${c.level || 1} (${c.basicType}) - STR:${stats.strength} STA:${stats.stamina} AGI:${stats.agility} INT:${stats.intellect} WIS:${stats.wisdom}`;
     const btn = document.createElement('button');
     btn.textContent = 'Select';
     btn.addEventListener('click', () => enterGame(c));
+    li.appendChild(info);
     li.appendChild(btn);
     list.appendChild(li);
   });
@@ -68,8 +75,18 @@ document.getElementById('register-btn').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('create-character').addEventListener('click', async () => {
-  const name = prompt('Character name?');
+document.getElementById('create-character').addEventListener('click', () => {
+  newCharName.value = '';
+  nameDialog.classList.remove('hidden');
+  newCharName.focus();
+});
+
+nameCancel.addEventListener('click', () => {
+  nameDialog.classList.add('hidden');
+});
+
+nameOk.addEventListener('click', async () => {
+  const name = newCharName.value.trim();
   if (!name) return;
   try {
     const res = await fetch(`/players/${currentPlayer.id}/characters`, {
@@ -84,6 +101,7 @@ document.getElementById('create-character').addEventListener('click', async () =
   } catch {
     console.error('character creation failed');
   }
+  nameDialog.classList.add('hidden');
 });
 
 function enterGame(character) {

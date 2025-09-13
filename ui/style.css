@@ -7,7 +7,15 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .tab-pane { display:none; }
 .tab-pane.active { display:block; }
 .hidden { display:none; }
-#auth, #character-select { border:1px solid #000; padding:8px; max-width:300px; margin:20px auto; }
+#auth, #character-select { border:1px solid #000; padding:8px; margin:20px auto; }
+#auth { max-width:300px; }
+#character-select { max-width:600px; }
 #auth input { width:100%; margin-bottom:8px; }
 #character-list { list-style:none; padding:0; }
-#character-list li { margin-bottom:4px; }
+#character-list li { margin-bottom:4px; display:flex; justify-content:space-between; align-items:center; }
+#character-list li .info { white-space:pre; margin-right:8px; }
+
+#name-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; }
+#name-dialog .dialog-box { border:1px solid #000; padding:8px; }
+#name-dialog input { width:200px; margin-top:4px; }
+#name-dialog .dialog-buttons { margin-top:8px; text-align:right; }
