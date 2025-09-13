@@ -21,7 +21,7 @@ app.get("/", (req, res) => {
 });
 
 app.post("/register", async (req, res) => {
-  const { name } = req.body;
+  const name = req.body.name && req.body.name.trim();
   if (!name) {
     return res.status(400).json({ error: "name required" });
   }
@@ -29,13 +29,17 @@ app.post("/register", async (req, res) => {
     const result = await registerPlayer(name);
     res.json(result);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "registration failed" });
+    if (err.message === "name taken") {
+      res.status(409).json({ error: "name taken" });
+    } else {
+      console.error(err);
+      res.status(500).json({ error: "registration failed" });
+    }
   }
 });
 
 app.post("/login", async (req, res) => {
-  const { name } = req.body;
+  const name = req.body.name && req.body.name.trim();
   if (!name) {
     return res.status(400).json({ error: "name required" });
   }
