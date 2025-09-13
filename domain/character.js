@@ -2,6 +2,7 @@ class Character {
   constructor({
     id,
     playerId,
+    name,
     attributes,
     basicType,
     level = 1,
@@ -11,6 +12,7 @@ class Character {
   }) {
     this.id = id;
     this.playerId = playerId;
+    this.name = name;
     this.attributes = attributes; // {strength, stamina, agility, intellect, wisdom}
     this.basicType = basicType; // 'melee' or 'magic'
     this.level = level;
