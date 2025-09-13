@@ -1,0 +1,124 @@
+[
+  {
+    "id": 1,
+    "name": "Quick Slash",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 5,
+    "cooldown": 2,
+    "scaling": ["strength"],
+    "effects": [
+      { "type": "PhysicalDamage", "value": 8 }
+    ]
+  },
+  {
+    "id": 2,
+    "name": "Heavy Strike",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 8,
+    "cooldown": 5,
+    "scaling": ["strength"],
+    "effects": [
+      { "type": "PhysicalDamage", "value": 15 },
+      { "type": "Stun", "duration": 2 }
+    ]
+  },
+  {
+    "id": 3,
+    "name": "Battle Cry",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 6,
+    "cooldown": 10,
+    "scaling": [],
+    "effects": [
+      { "type": "BuffDamagePct", "amount": 0.2, "duration": 5 }
+    ]
+  },
+  {
+    "id": 4,
+    "name": "Fireball",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 10,
+    "cooldown": 3,
+    "scaling": ["intellect"],
+    "effects": [
+      { "type": "MagicDamage", "value": 10 }
+    ]
+  },
+  {
+    "id": 5,
+    "name": "Ice Spike",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 8,
+    "cooldown": 4,
+    "scaling": ["intellect"],
+    "effects": [
+      { "type": "MagicDamage", "value": 8 },
+      { "type": "Stun", "duration": 1 }
+    ]
+  },
+  {
+    "id": 6,
+    "name": "Healing Light",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 12,
+    "cooldown": 5,
+    "scaling": ["wisdom"],
+    "effects": [
+      { "type": "Heal", "value": 15 }
+    ]
+  },
+  {
+    "id": 7,
+    "name": "Poison Dart",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 6,
+    "cooldown": 4,
+    "scaling": ["agility"],
+    "effects": [
+      { "type": "Poison", "damage": 3, "duration": 6, "interval": 2 }
+    ]
+  },
+  {
+    "id": 8,
+    "name": "Arcane Surge",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 15,
+    "cooldown": 12,
+    "scaling": [],
+    "effects": [
+      { "type": "BuffDamagePct", "amount": 0.3, "duration": 6 }
+    ]
+  },
+  {
+    "id": 9,
+    "name": "Shadow Strike",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 7,
+    "cooldown": 3,
+    "scaling": ["agility"],
+    "effects": [
+      { "type": "PhysicalDamage", "value": 9 }
+    ]
+  },
+  {
+    "id": 10,
+    "name": "Mana Bolt",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 5,
+    "cooldown": 2,
+    "scaling": ["intellect"],
+    "effects": [
+      { "type": "MagicDamage", "value": 6 }
+    ]
+  }
+]
