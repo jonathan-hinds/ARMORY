@@ -29,6 +29,10 @@ function rollBasicType() {
 
 async function registerPlayer(name) {
   const players = await readJSON(PLAYERS_FILE);
+  const exists = players.some(p => p.name.toLowerCase() === name.toLowerCase());
+  if (exists) {
+    throw new Error('name taken');
+  }
   const playerId = players.length + 1;
   const player = new Player({ id: playerId, name, gold: 0, items: [], characterId: null });
   players.push(player);
@@ -38,7 +42,7 @@ async function registerPlayer(name) {
 
 async function loginPlayer(name) {
   const players = await readJSON(PLAYERS_FILE);
-  const player = players.find(p => p.name === name);
+  const player = players.find(p => p.name.toLowerCase() === name.toLowerCase());
   if (!player) {
     throw new Error('player not found');
   }

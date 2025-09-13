@@ -21,7 +21,14 @@ async function postJSON(url, data) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data)
   });
-  if (!res.ok) throw new Error('request failed');
+  if (!res.ok) {
+    let message = 'request failed';
+    try {
+      const err = await res.json();
+      if (err && err.error) message = err.error;
+    } catch {}
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -55,8 +62,8 @@ document.getElementById('login-btn').addEventListener('click', async () => {
     authDiv.classList.add('hidden');
     charSelectDiv.classList.remove('hidden');
     authError.classList.add('hidden');
-  } catch {
-    authError.textContent = 'Login failed';
+  } catch (err) {
+    authError.textContent = err.message;
     authError.classList.remove('hidden');
   }
 });
@@ -73,8 +80,8 @@ document.getElementById('register-btn').addEventListener('click', async () => {
     authDiv.classList.add('hidden');
     charSelectDiv.classList.remove('hidden');
     authError.classList.add('hidden');
-  } catch {
-    authError.textContent = 'Registration failed';
+  } catch (err) {
+    authError.textContent = err.message;
     authError.classList.remove('hidden');
   }
 });
