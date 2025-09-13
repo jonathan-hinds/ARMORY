@@ -26,3 +26,8 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #name-dialog .dialog-box { border:1px solid #000; padding:8px; }
 #name-dialog input { width:200px; margin-top:4px; }
 #name-dialog .dialog-buttons { margin-top:8px; text-align:right; }
+
+.tooltip { position:absolute; background:#fff; border:1px solid #000; padding:4px; pointer-events:none; z-index:1000; }
+.tooltip.hidden { display:none; }
+.tooltip-grid { display:grid; grid-template-columns:auto auto; gap:2px 8px; }
+.tooltip-grid .label { font-weight:bold; text-align:right; }

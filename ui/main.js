@@ -5,6 +5,35 @@ let abilityCatalog = [];
 let rotation = [];
 let rotationInitialized = false;
 
+function abilityTooltip(ability) {
+  const container = document.createElement('div');
+  container.className = 'tooltip-grid';
+  const add = (label, value) => {
+    const l = document.createElement('div');
+    l.className = 'label';
+    l.textContent = label;
+    container.appendChild(l);
+    const v = document.createElement('div');
+    v.innerHTML = value;
+    container.appendChild(v);
+  };
+  add('School', ability.school);
+  add('Cost', `${ability.costValue} ${ability.costType}`);
+  add('Cooldown', `${ability.cooldown}s`);
+  add('Scaling', ability.scaling.length ? ability.scaling.join(', ') : 'None');
+  const effectLines = ability.effects.map(e => {
+    if (e.type === 'PhysicalDamage') return `Physical Damage ${e.value}`;
+    if (e.type === 'MagicDamage') return `Magic Damage ${e.value}`;
+    if (e.type === 'Heal') return `Heal ${e.value}`;
+    if (e.type === 'BuffDamagePct') return `+${Math.round(e.amount * 100)}% Damage for ${e.duration}s`;
+    if (e.type === 'Stun') return `Stun ${e.duration}s`;
+    if (e.type === 'Poison') return `Poison ${e.damage} dmg/${e.interval}s for ${e.duration}s`;
+    return e.type;
+  }).join('<br/>');
+  add('Effects', effectLines);
+  return container;
+}
+
 const authDiv = document.getElementById('auth');
 const charSelectDiv = document.getElementById('character-select');
 const gameDiv = document.getElementById('game');
@@ -160,6 +189,7 @@ function renderAbilityPool() {
     li.dataset.id = ab.id;
     li.draggable = true;
     li.addEventListener('dragstart', handleDragStart);
+    attachTooltip(li, () => abilityTooltip(ab));
     pool.appendChild(li);
   });
 }
@@ -182,6 +212,7 @@ function renderRotationList() {
         renderRotationList();
       }
     });
+    attachTooltip(li, () => abilityTooltip(ability));
     list.appendChild(li);
   });
 }
