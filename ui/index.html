@@ -36,11 +36,26 @@
       <button data-tab="rotation">Rotation</button>
     </nav>
     <section id="content">
-      <div id="shop" class="tab-pane">Shop content</div>
-      <div id="character" class="tab-pane hidden">Character content</div>
-      <div id="inventory" class="tab-pane hidden">Inventory content</div>
-      <div id="battle" class="tab-pane hidden">Battle content</div>
-      <div id="rotation" class="tab-pane hidden">Rotation content</div>
+      <div id="shop" class="tab-pane active">Shop content</div>
+      <div id="character" class="tab-pane">Character content</div>
+      <div id="inventory" class="tab-pane">Inventory content</div>
+      <div id="battle" class="tab-pane">Battle content</div>
+      <div id="rotation" class="tab-pane">
+        <div id="rotation-container">
+          <div class="lists">
+            <div>
+              <h3>Abilities</h3>
+              <ul id="ability-pool"></ul>
+            </div>
+            <div>
+              <h3>Rotation</h3>
+              <ul id="rotation-list" class="drop-zone"></ul>
+            </div>
+          </div>
+          <button id="save-rotation">Save Rotation</button>
+          <div id="rotation-error" class="hidden"></div>
+        </div>
+      </div>
     </section>
   </div>
   <script src="main.js"></script>
