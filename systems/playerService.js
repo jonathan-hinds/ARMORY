@@ -29,13 +29,31 @@ function rollBasicType() {
 
 async function registerPlayer(name) {
   const players = await readJSON(PLAYERS_FILE);
-  const characters = await readJSON(CHARACTERS_FILE);
-
   const playerId = players.length + 1;
+  const player = new Player({ id: playerId, name, gold: 0, items: [], characterId: null });
+  players.push(player);
+  await writeJSON(PLAYERS_FILE, players);
+  return { player };
+}
+
+async function loginPlayer(name) {
+  const players = await readJSON(PLAYERS_FILE);
+  const player = players.find(p => p.name === name);
+  if (!player) {
+    throw new Error('player not found');
+  }
+  const characters = await getPlayerCharacters(player.id);
+  return { player, characters };
+}
+
+async function getPlayerCharacters(playerId) {
+  const characters = await readJSON(CHARACTERS_FILE);
+  return characters.filter(c => c.playerId === playerId);
+}
+
+async function createCharacter(playerId) {
+  const characters = await readJSON(CHARACTERS_FILE);
   const characterId = characters.length + 1;
-
-  const player = new Player({ id: playerId, name, gold: 0, items: [], characterId });
-
   const character = new Character({
     id: characterId,
     playerId,
@@ -51,14 +69,9 @@ async function registerPlayer(name) {
       hands: null,
     },
   });
-
-  players.push(player);
   characters.push(character);
-
-  await writeJSON(PLAYERS_FILE, players);
   await writeJSON(CHARACTERS_FILE, characters);
-
-  return { player, character };
+  return character;
 }
 
-module.exports = { registerPlayer };
+module.exports = { registerPlayer, loginPlayer, createCharacter, getPlayerCharacters };
