@@ -22,7 +22,9 @@ function renderCharacters() {
   list.innerHTML = '';
   characters.forEach(c => {
     const li = document.createElement('li');
-    li.textContent = `Character ${c.id} (${c.basicType})`;
+    const stats = c.attributes;
+    const name = c.name || `Character ${c.id}`;
+    li.textContent = `${name} (${c.basicType}) - STR:${stats.strength} STA:${stats.stamina} AGI:${stats.agility} INT:${stats.intellect} WIS:${stats.wisdom}`;
     const btn = document.createElement('button');
     btn.textContent = 'Select';
     btn.addEventListener('click', () => enterGame(c));
@@ -67,8 +69,14 @@ document.getElementById('register-btn').addEventListener('click', async () => {
 });
 
 document.getElementById('create-character').addEventListener('click', async () => {
+  const name = prompt('Character name?');
+  if (!name) return;
   try {
-    const res = await fetch(`/players/${currentPlayer.id}/characters`, { method: 'POST' });
+    const res = await fetch(`/players/${currentPlayer.id}/characters`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
     if (!res.ok) throw new Error('create failed');
     const character = await res.json();
     characters.push(character);

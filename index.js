@@ -59,8 +59,12 @@ app.get("/players/:playerId/characters", async (req, res) => {
 
 app.post("/players/:playerId/characters", async (req, res) => {
   const playerId = parseInt(req.params.playerId, 10);
+  const { name } = req.body;
+  if (!name) {
+    return res.status(400).json({ error: "name required" });
+  }
   try {
-    const character = await createCharacter(playerId);
+    const character = await createCharacter(playerId, name);
     res.json(character);
   } catch (err) {
     console.error(err);

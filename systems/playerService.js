@@ -51,12 +51,13 @@ async function getPlayerCharacters(playerId) {
   return characters.filter(c => c.playerId === playerId);
 }
 
-async function createCharacter(playerId) {
+async function createCharacter(playerId, name) {
   const characters = await readJSON(CHARACTERS_FILE);
   const characterId = characters.length + 1;
   const character = new Character({
     id: characterId,
     playerId,
+    name,
     attributes: rollAttributes(),
     basicType: rollBasicType(),
     rotation: [],
