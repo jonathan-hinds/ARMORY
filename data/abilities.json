@@ -21,7 +21,7 @@
     "scaling": ["strength"],
     "effects": [
       { "type": "PhysicalDamage", "value": 15 },
-      { "type": "Stun", "duration": 2 }
+      { "type": "Stun", "turns": 1 }
     ]
   },
   {
@@ -58,7 +58,7 @@
     "scaling": ["intellect"],
     "effects": [
       { "type": "MagicDamage", "value": 8 },
-      { "type": "Stun", "duration": 1 }
+      { "type": "Stun", "turns": 1 }
     ]
   },
   {
