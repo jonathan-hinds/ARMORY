@@ -450,29 +450,57 @@ function selectMode(mode) {
 function renderCharacter() {
   const pane = document.getElementById('character');
   pane.innerHTML = '';
-  const add = (label, value) => {
-    const div = document.createElement('div');
-    div.textContent = `${label}: ${value}`;
-    pane.appendChild(div);
-  };
   const d = computeDerived(currentCharacter);
   const xpNeeded = xpForNextLevel(currentCharacter.level || 1);
-  add('Name', currentCharacter.name);
-  add('Level', currentCharacter.level);
-  add('XP', `${currentCharacter.xp || 0} / ${xpNeeded}`);
-  add('Gold', currentPlayer.gold || 0);
+
+  const table = document.createElement('table');
+  table.className = 'stats-table';
+
+  const addSection = label => {
+    const tr = document.createElement('tr');
+    tr.className = 'section';
+    const td = document.createElement('td');
+    td.textContent = label;
+    td.colSpan = 2;
+    tr.appendChild(td);
+    table.appendChild(tr);
+  };
+
+  const addRow = (label, value) => {
+    const tr = document.createElement('tr');
+    const l = document.createElement('td');
+    l.textContent = label;
+    const v = document.createElement('td');
+    v.textContent = value;
+    tr.appendChild(l);
+    tr.appendChild(v);
+    table.appendChild(tr);
+  };
+
+  addSection('Info');
+  addRow('Name', currentCharacter.name);
+  addRow('Level', currentCharacter.level);
+  addRow('XP', `${currentCharacter.xp || 0} / ${xpNeeded}`);
+  addRow('Gold', currentPlayer.gold || 0);
+
   const attr = currentCharacter.attributes || {};
-  add('Strength', attr.strength || 0);
-  add('Stamina', attr.stamina || 0);
-  add('Agility', attr.agility || 0);
-  add('Intellect', attr.intellect || 0);
-  add('Wisdom', attr.wisdom || 0);
-  add('Melee Attack', `${d.minMeleeAttack}-${d.maxMeleeAttack}`);
-  add('Magic Attack', `${d.minMagicAttack}-${d.maxMagicAttack}`);
-  add('Attack Interval', `${d.attackIntervalSeconds.toFixed(2)}s`);
-  add('Health', d.health);
-  add('Mana', d.mana);
-  add('Stamina Pool', d.stamina);
+  addSection('Attributes');
+  addRow('Strength', attr.strength || 0);
+  addRow('Stamina', attr.stamina || 0);
+  addRow('Agility', attr.agility || 0);
+  addRow('Intellect', attr.intellect || 0);
+  addRow('Wisdom', attr.wisdom || 0);
+
+  addSection('Derived');
+  addRow('Melee Attack', `${d.minMeleeAttack}-${d.maxMeleeAttack}`);
+  addRow('Magic Attack', `${d.minMagicAttack}-${d.maxMagicAttack}`);
+  addRow('Attack Interval', `${d.attackIntervalSeconds.toFixed(2)}s`);
+  addRow('Health', d.health);
+  addRow('Mana', d.mana);
+  addRow('Stamina Pool', d.stamina);
+
+  pane.appendChild(table);
+
   if ((currentCharacter.xp || 0) >= xpNeeded) {
     const btn = document.createElement('button');
     btn.textContent = 'Level Up';
@@ -482,36 +510,86 @@ function renderCharacter() {
 }
 
 function showLevelUpForm() {
-  const pane = document.getElementById('character');
-  if (document.getElementById('levelup-form')) return;
-  const form = document.createElement('div');
-  form.id = 'levelup-form';
+  if (document.getElementById('levelup-dialog')) return;
+  const dialog = document.createElement('div');
+  dialog.id = 'levelup-dialog';
+  const box = document.createElement('div');
+  box.className = 'dialog-box';
+  dialog.appendChild(box);
+
   let remaining = 2;
   const alloc = { strength: 0, stamina: 0, agility: 0, intellect: 0, wisdom: 0 };
+  const baseAttrs = currentCharacter.attributes || {};
+  const baseDerived = computeDerived(currentCharacter);
+
   const remDiv = document.createElement('div');
   remDiv.textContent = `Points remaining: ${remaining}`;
-  form.appendChild(remDiv);
+  box.appendChild(remDiv);
+
+  const attrTable = document.createElement('table');
+  attrTable.className = 'stats-table';
   const stats = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
+  let confirm;
   stats.forEach(stat => {
-    const row = document.createElement('div');
-    const label = document.createElement('span');
-    label.textContent = `${stat.toUpperCase()}: ${currentCharacter.attributes[stat]}`;
+    const tr = document.createElement('tr');
+    const label = document.createElement('td');
+    label.textContent = stat.toUpperCase();
+    const val = document.createElement('td');
+    val.textContent = baseAttrs[stat];
+    const btnTd = document.createElement('td');
     const btn = document.createElement('button');
     btn.textContent = '+';
     btn.addEventListener('click', () => {
       if (remaining > 0) {
         alloc[stat]++;
         remaining--;
-        label.textContent = `${stat.toUpperCase()}: ${currentCharacter.attributes[stat] + alloc[stat]}`;
+        val.textContent = baseAttrs[stat] + alloc[stat];
         remDiv.textContent = `Points remaining: ${remaining}`;
-        if (remaining === 0) confirm.disabled = false;
+        updateDerived();
+        confirm.disabled = remaining !== 0;
       }
     });
-    row.appendChild(label);
-    row.appendChild(btn);
-    form.appendChild(row);
+    btnTd.appendChild(btn);
+    tr.appendChild(label);
+    tr.appendChild(val);
+    tr.appendChild(btnTd);
+    attrTable.appendChild(tr);
   });
-  const confirm = document.createElement('button');
+  box.appendChild(attrTable);
+
+  const derivedTable = document.createElement('table');
+  derivedTable.className = 'stats-table';
+  const header = document.createElement('tr');
+  ['Stat', 'Current', 'New'].forEach(h => {
+    const th = document.createElement('th');
+    th.textContent = h;
+    header.appendChild(th);
+  });
+  derivedTable.appendChild(header);
+
+  const derivedRows = {};
+  const addDerivedRow = (label, cur) => {
+    const tr = document.createElement('tr');
+    const l = document.createElement('td'); l.textContent = label;
+    const c = document.createElement('td'); c.textContent = cur;
+    const n = document.createElement('td'); n.textContent = cur;
+    tr.appendChild(l); tr.appendChild(c); tr.appendChild(n);
+    derivedTable.appendChild(tr);
+    derivedRows[label] = n;
+  };
+
+  addDerivedRow('Melee Attack', `${baseDerived.minMeleeAttack}-${baseDerived.maxMeleeAttack}`);
+  addDerivedRow('Magic Attack', `${baseDerived.minMagicAttack}-${baseDerived.maxMagicAttack}`);
+  addDerivedRow('Attack Interval', `${baseDerived.attackIntervalSeconds.toFixed(2)}s`);
+  addDerivedRow('Health', baseDerived.health);
+  addDerivedRow('Mana', baseDerived.mana);
+  addDerivedRow('Stamina Pool', baseDerived.stamina);
+
+  box.appendChild(derivedTable);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'dialog-buttons';
+  confirm = document.createElement('button');
   confirm.textContent = 'Confirm';
   confirm.disabled = true;
   confirm.addEventListener('click', () => {
@@ -528,12 +606,36 @@ function showLevelUpForm() {
         currentCharacter = char;
         const idx = characters.findIndex(c => c.id === char.id);
         if (idx >= 0) characters[idx] = char;
+        dialog.remove();
         renderCharacter();
       })
       .catch(() => {
         alert('Level up failed');
       });
   });
-  form.appendChild(confirm);
-  pane.appendChild(form);
+  const cancel = document.createElement('button');
+  cancel.textContent = 'Cancel';
+  cancel.addEventListener('click', () => dialog.remove());
+
+  buttons.appendChild(confirm);
+  buttons.appendChild(cancel);
+  box.appendChild(buttons);
+
+  document.body.appendChild(dialog);
+
+  function updateDerived() {
+    const attrs = {};
+    stats.forEach(s => {
+      attrs[s] = baseAttrs[s] + alloc[s];
+    });
+    const d = computeDerived({ attributes: attrs });
+    derivedRows['Melee Attack'].textContent = `${d.minMeleeAttack}-${d.maxMeleeAttack}`;
+    derivedRows['Magic Attack'].textContent = `${d.minMagicAttack}-${d.maxMagicAttack}`;
+    derivedRows['Attack Interval'].textContent = `${d.attackIntervalSeconds.toFixed(2)}s`;
+    derivedRows['Health'].textContent = d.health;
+    derivedRows['Mana'].textContent = d.mana;
+    derivedRows['Stamina Pool'].textContent = d.stamina;
+  }
+
+  updateDerived();
 }
