@@ -5,6 +5,30 @@ let abilityCatalog = [];
 let rotation = [];
 let rotationInitialized = false;
 
+function xpForNextLevel(level) {
+  return level * 100;
+}
+
+function computeDerived(character) {
+  const attr = character.attributes || {};
+  const strength = attr.strength || 0;
+  const stamina = attr.stamina || 0;
+  const agility = attr.agility || 0;
+  const intellect = attr.intellect || 0;
+  const wisdom = attr.wisdom || 0;
+  const attackInterval = 2.0 + 3 * Math.exp(-0.1 * agility);
+  return {
+    minMeleeAttack: strength * 2,
+    maxMeleeAttack: strength * 2 + 4,
+    minMagicAttack: intellect * 2,
+    maxMagicAttack: intellect * 2 + 4,
+    attackIntervalSeconds: attackInterval,
+    health: 100 + stamina * 10,
+    mana: 50 + wisdom * 8,
+    stamina: 50 + stamina * 8,
+  };
+}
+
 function abilityTooltip(ability) {
   const container = document.createElement('div');
   container.className = 'tooltip-grid';
@@ -160,6 +184,8 @@ function initTabs() {
       });
       if (target === 'rotation') {
         initRotation();
+      } else if (target === 'character') {
+        renderCharacter();
       }
     });
   });
@@ -393,10 +419,21 @@ function selectMode(mode) {
           updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
           updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
         } else if (data.type === 'end') {
+          const win = data.winnerId === youId;
           const outcome = document.createElement('div');
-          outcome.textContent = data.winnerId === youId ? 'You won!' : 'You lost!';
+          outcome.textContent = win ? 'You won!' : 'You lost!';
+          const reward = document.createElement('div');
+          reward.textContent = `+${data.xpGain} XP, +${data.gpGain} GP`;
           logDiv.appendChild(outcome);
+          logDiv.appendChild(reward);
           logDiv.scrollTop = logDiv.scrollHeight;
+          currentCharacter = data.character;
+          const idx = characters.findIndex(c => c.id === data.character.id);
+          if (idx >= 0) characters[idx] = data.character;
+          currentPlayer.gold = data.gold;
+          if (document.getElementById('character').classList.contains('active')) {
+            renderCharacter();
+          }
           closeBtn.classList.remove('hidden');
           es.close();
         } else if (data.type === 'error') {
@@ -408,4 +445,95 @@ function selectMode(mode) {
   } else {
     battleArea.textContent = 'Mode not implemented';
   }
+}
+
+function renderCharacter() {
+  const pane = document.getElementById('character');
+  pane.innerHTML = '';
+  const add = (label, value) => {
+    const div = document.createElement('div');
+    div.textContent = `${label}: ${value}`;
+    pane.appendChild(div);
+  };
+  const d = computeDerived(currentCharacter);
+  const xpNeeded = xpForNextLevel(currentCharacter.level || 1);
+  add('Name', currentCharacter.name);
+  add('Level', currentCharacter.level);
+  add('XP', `${currentCharacter.xp || 0} / ${xpNeeded}`);
+  add('Gold', currentPlayer.gold || 0);
+  const attr = currentCharacter.attributes || {};
+  add('Strength', attr.strength || 0);
+  add('Stamina', attr.stamina || 0);
+  add('Agility', attr.agility || 0);
+  add('Intellect', attr.intellect || 0);
+  add('Wisdom', attr.wisdom || 0);
+  add('Melee Attack', `${d.minMeleeAttack}-${d.maxMeleeAttack}`);
+  add('Magic Attack', `${d.minMagicAttack}-${d.maxMagicAttack}`);
+  add('Attack Interval', `${d.attackIntervalSeconds.toFixed(2)}s`);
+  add('Health', d.health);
+  add('Mana', d.mana);
+  add('Stamina Pool', d.stamina);
+  if ((currentCharacter.xp || 0) >= xpNeeded) {
+    const btn = document.createElement('button');
+    btn.textContent = 'Level Up';
+    btn.addEventListener('click', showLevelUpForm);
+    pane.appendChild(btn);
+  }
+}
+
+function showLevelUpForm() {
+  const pane = document.getElementById('character');
+  if (document.getElementById('levelup-form')) return;
+  const form = document.createElement('div');
+  form.id = 'levelup-form';
+  let remaining = 2;
+  const alloc = { strength: 0, stamina: 0, agility: 0, intellect: 0, wisdom: 0 };
+  const remDiv = document.createElement('div');
+  remDiv.textContent = `Points remaining: ${remaining}`;
+  form.appendChild(remDiv);
+  const stats = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
+  stats.forEach(stat => {
+    const row = document.createElement('div');
+    const label = document.createElement('span');
+    label.textContent = `${stat.toUpperCase()}: ${currentCharacter.attributes[stat]}`;
+    const btn = document.createElement('button');
+    btn.textContent = '+';
+    btn.addEventListener('click', () => {
+      if (remaining > 0) {
+        alloc[stat]++;
+        remaining--;
+        label.textContent = `${stat.toUpperCase()}: ${currentCharacter.attributes[stat] + alloc[stat]}`;
+        remDiv.textContent = `Points remaining: ${remaining}`;
+        if (remaining === 0) confirm.disabled = false;
+      }
+    });
+    row.appendChild(label);
+    row.appendChild(btn);
+    form.appendChild(row);
+  });
+  const confirm = document.createElement('button');
+  confirm.textContent = 'Confirm';
+  confirm.disabled = true;
+  confirm.addEventListener('click', () => {
+    fetch(`/characters/${currentCharacter.id}/levelup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ allocations: alloc }),
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('fail');
+        return res.json();
+      })
+      .then(char => {
+        currentCharacter = char;
+        const idx = characters.findIndex(c => c.id === char.id);
+        if (idx >= 0) characters[idx] = char;
+        renderCharacter();
+      })
+      .catch(() => {
+        alert('Level up failed');
+      });
+  });
+  form.appendChild(confirm);
+  pane.appendChild(form);
 }

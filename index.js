@@ -7,7 +7,7 @@ const {
   getPlayerCharacters,
 } = require("./systems/playerService");
 const { getAbilities } = require("./systems/abilityService");
-const { updateRotation } = require("./systems/characterService");
+const { updateRotation, levelUp } = require("./systems/characterService");
 const { queueMatch } = require("./systems/matchmaking");
 const app = express();
 
@@ -94,6 +94,18 @@ app.put("/characters/:characterId/rotation", async (req, res) => {
   const { rotation } = req.body;
   try {
     const character = await updateRotation(characterId, rotation);
+    res.json(character);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/characters/:characterId/levelup", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { allocations } = req.body || {};
+  try {
+    const character = await levelUp(characterId, allocations || {});
     res.json(character);
   } catch (err) {
     console.error(err);

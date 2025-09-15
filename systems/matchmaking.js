@@ -1,10 +1,12 @@
 const path = require('path');
-const { readJSON } = require('../store/jsonStore');
+const { readJSON, writeJSON } = require('../store/jsonStore');
 const { getAbilities } = require('./abilityService');
 const { runCombat } = require('./combatEngine');
+const { xpForNextLevel } = require('./characterService');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const CHARACTERS_FILE = path.join(DATA_DIR, 'characters.json');
+const PLAYERS_FILE = path.join(DATA_DIR, 'players.json');
 
 const queue = [];
 
@@ -35,9 +37,39 @@ async function queueMatch(characterId, send) {
           b.send({ type: 'update', you: event.b, opponent: event.a, log: event.log });
         }
       })
-        .then(result => {
-          a.send({ type: 'end', winnerId: result.winnerId });
-          b.send({ type: 'end', winnerId: result.winnerId });
+        .then(async result => {
+          const players = await readJSON(PLAYERS_FILE);
+          const characters = await readJSON(CHARACTERS_FILE);
+          function reward(charWrapper, won) {
+            const char = characters.find(c => c.id === charWrapper.character.id);
+            const player = players.find(p => p.id === char.playerId);
+            const pct = won ? 0.05 + Math.random() * 0.05 : 0.01 + Math.random() * 0.01;
+            const xpGain = Math.round(xpForNextLevel(char.level || 1) * pct);
+            char.xp = (char.xp || 0) + xpGain;
+            const gpGain = won ? 10 : 2;
+            player.gold = (player.gold || 0) + gpGain;
+            return { xpGain, gpGain, character: char, gold: player.gold };
+          }
+          const rewardA = reward(a, result.winnerId === a.character.id);
+          const rewardB = reward(b, result.winnerId === b.character.id);
+          await writeJSON(CHARACTERS_FILE, characters);
+          await writeJSON(PLAYERS_FILE, players);
+          a.send({
+            type: 'end',
+            winnerId: result.winnerId,
+            xpGain: rewardA.xpGain,
+            gpGain: rewardA.gpGain,
+            character: rewardA.character,
+            gold: rewardA.gold,
+          });
+          b.send({
+            type: 'end',
+            winnerId: result.winnerId,
+            xpGain: rewardB.xpGain,
+            gpGain: rewardB.gpGain,
+            character: rewardB.character,
+            gold: rewardB.gold,
+          });
           a.resolve();
           b.resolve();
         })
