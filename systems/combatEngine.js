@@ -56,6 +56,27 @@ async function runCombat(charA, charB, abilityMap, onUpdate) {
         log.push(`${actor.character.name} uses ${action.ability.name}`);
         action.ability.effects.forEach(e => applyEffect(actor, target, e, now, log));
       } else {
+        const basicLabel = actor.character.basicType === 'melee' ? 'melee' : 'magic';
+        let message;
+        if (action.reason === 'cooldown' && action.ability) {
+          const remaining =
+            typeof action.remainingCooldown === 'number'
+              ? Math.max(0, action.remainingCooldown)
+              : null;
+          const remainingText =
+            remaining !== null ? ` (${remaining.toFixed(1)}s remaining)` : '';
+          message = `${action.ability.name} is on cooldown${remainingText}, so ${actor.character.name} performs a ${basicLabel} basic attack.`;
+        } else if (action.reason === 'resource' && action.ability) {
+          const available = typeof action.available === 'number' ? action.available : 0;
+          message = `${actor.character.name} lacks ${action.resourceType} (${available}/${action.required}) for ${action.ability.name} and performs a ${basicLabel} basic attack.`;
+        } else if (action.reason === 'missingAbility') {
+          message = `${actor.character.name} cannot use unknown ability ${action.abilityId} and performs a ${basicLabel} basic attack.`;
+        } else if (action.reason === 'noRotation') {
+          message = `${actor.character.name} has no rotation ready and performs a ${basicLabel} basic attack.`;
+        }
+
+        log.push(message || `${actor.character.name} performs a ${basicLabel} basic attack.`);
+
         const effect =
           actor.character.basicType === 'melee'
             ? { type: 'PhysicalDamage', value: 0 }
