@@ -19,18 +19,33 @@ function createCombatant(character) {
   };
 }
 
-async function runCombat(charA, charB, abilityMap) {
+function state(c) {
+  return {
+    id: c.character.id,
+    name: c.character.name,
+    health: c.health,
+    mana: c.mana,
+    stamina: c.stamina,
+    maxHealth: c.derived.health,
+    maxMana: c.derived.mana,
+    maxStamina: c.derived.stamina,
+  };
+}
+
+async function runCombat(charA, charB, abilityMap, onUpdate) {
   const a = createCombatant(charA);
   const b = createCombatant(charB);
   const nextTimes = [0, 0];
   const combatants = [a, b];
   const log = [];
   let now = 0;
+  if (onUpdate) onUpdate({ type: 'start', a: state(a), b: state(b), log: [] });
   while (a.health > 0 && b.health > 0) {
     const idx = nextTimes[0] <= nextTimes[1] ? 0 : 1;
     const actor = combatants[idx];
     const target = combatants[1 - idx];
     now = nextTimes[idx];
+    const before = log.length;
     tick(actor, now, log);
     tick(target, now, log);
     if (actor.stunnedUntil > now) {
@@ -51,6 +66,8 @@ async function runCombat(charA, charB, abilityMap) {
     nextTimes[idx] += actor.derived.attackIntervalSeconds;
     const next = Math.min(nextTimes[0], nextTimes[1]);
     const wait = Math.max(0, next - now);
+    const newLogs = log.slice(before);
+    if (onUpdate) onUpdate({ type: 'update', a: state(a), b: state(b), log: newLogs });
     if (a.health > 0 && b.health > 0) {
       // wait in real time until the next scheduled action
       await new Promise(res => setTimeout(res, wait * 1000));
