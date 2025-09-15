@@ -310,3 +310,37 @@ function saveRotation() {
     errorDiv.classList.remove('hidden');
   });
 }
+
+// Battle modes
+const battleArea = document.getElementById('battle-area');
+document.querySelectorAll('#battle-modes button').forEach(btn => {
+  btn.addEventListener('click', () => selectMode(btn.dataset.mode));
+});
+
+function selectMode(mode) {
+  if (mode === 'matchmaking') {
+    battleArea.innerHTML = '<button id="queue-match">Queue for Match</button><div id="battle-log"></div>';
+    document.getElementById('queue-match').addEventListener('click', () => {
+      const logDiv = document.getElementById('battle-log');
+      logDiv.textContent = 'Waiting for opponent...';
+      fetch('/matchmaking/queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ characterId: currentCharacter.id })
+      }).then(res => {
+        if (!res.ok) throw new Error('queue failed');
+        return res.json();
+      }).then(result => {
+        const { winnerId, log } = result;
+        logDiv.innerHTML = log.map(l => `<div>${l}</div>`).join('');
+        const outcome = document.createElement('div');
+        outcome.textContent = winnerId === currentCharacter.id ? 'You won!' : 'You lost!';
+        logDiv.appendChild(outcome);
+      }).catch(err => {
+        logDiv.textContent = err.message;
+      });
+    });
+  } else {
+    battleArea.textContent = 'Mode not implemented';
+  }
+}
