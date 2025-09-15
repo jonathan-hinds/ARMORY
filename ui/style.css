@@ -55,3 +55,12 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .tooltip.hidden { display:none; }
 .tooltip-grid { display:grid; grid-template-columns:auto auto; gap:2px 8px; }
 .tooltip-grid .label { font-weight:bold; text-align:right; }
+
+#battle-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; }
+#battle-dialog .dialog-box { border:1px solid #000; padding:8px; width:300px; }
+#battle-dialog .combatant { margin-bottom:8px; }
+#battle-dialog .name { font-weight:bold; margin-bottom:2px; }
+.bar { border:1px solid #000; height:10px; margin-bottom:4px; }
+.bar .fill { background:#000; height:100%; width:100%; }
+#battle-log { border:1px solid #000; height:150px; overflow-y:auto; margin-top:8px; padding:4px; }
+#battle-dialog .dialog-buttons { text-align:right; margin-top:8px; }

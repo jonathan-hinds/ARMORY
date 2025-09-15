@@ -319,26 +319,91 @@ document.querySelectorAll('#battle-modes button').forEach(btn => {
 
 function selectMode(mode) {
   if (mode === 'matchmaking') {
-    battleArea.innerHTML = '<button id="queue-match">Queue for Match</button><div id="battle-log"></div>';
+    battleArea.innerHTML = '<button id="queue-match">Queue for Match</button>';
     document.getElementById('queue-match').addEventListener('click', () => {
-      const logDiv = document.getElementById('battle-log');
-      logDiv.textContent = 'Waiting for opponent...';
-      fetch('/matchmaking/queue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ characterId: currentCharacter.id })
-      }).then(res => {
-        if (!res.ok) throw new Error('queue failed');
-        return res.json();
-      }).then(result => {
-        const { winnerId, log } = result;
-        logDiv.innerHTML = log.map(l => `<div>${l}</div>`).join('');
-        const outcome = document.createElement('div');
-        outcome.textContent = winnerId === currentCharacter.id ? 'You won!' : 'You lost!';
-        logDiv.appendChild(outcome);
-      }).catch(err => {
-        logDiv.textContent = err.message;
-      });
+      battleArea.innerHTML = 'Waiting for opponent...';
+      const es = new EventSource(`/matchmaking/queue?characterId=${currentCharacter.id}`);
+      let youId = null;
+      let youBars, oppBars, logDiv, closeBtn;
+      const updateBar = (el, cur, max) => {
+        el.style.width = `${Math.max(0, (cur / max) * 100)}%`;
+      };
+      es.onmessage = ev => {
+        const data = JSON.parse(ev.data);
+        if (data.type === 'start') {
+          youId = data.you.id;
+          const dialog = document.createElement('div');
+          dialog.id = 'battle-dialog';
+          dialog.innerHTML = `
+            <div class="dialog-box">
+              <div id="you" class="combatant">
+                <div class="name">${data.you.name}</div>
+                <div class="bar health"><div class="fill"></div></div>
+                <div class="bar mana"><div class="fill"></div></div>
+                <div class="bar stamina"><div class="fill"></div></div>
+              </div>
+              <div id="opponent" class="combatant">
+                <div class="name">${data.opponent.name}</div>
+                <div class="bar health"><div class="fill"></div></div>
+                <div class="bar mana"><div class="fill"></div></div>
+                <div class="bar stamina"><div class="fill"></div></div>
+              </div>
+              <div id="battle-log"></div>
+              <div class="dialog-buttons"><button id="battle-close" class="hidden">Close</button></div>
+            </div>`;
+          document.body.appendChild(dialog);
+          youBars = {
+            health: dialog.querySelector('#you .health .fill'),
+            mana: dialog.querySelector('#you .mana .fill'),
+            stamina: dialog.querySelector('#you .stamina .fill'),
+            maxHealth: data.you.maxHealth,
+            maxMana: data.you.maxMana,
+            maxStamina: data.you.maxStamina,
+          };
+          oppBars = {
+            health: dialog.querySelector('#opponent .health .fill'),
+            mana: dialog.querySelector('#opponent .mana .fill'),
+            stamina: dialog.querySelector('#opponent .stamina .fill'),
+            maxHealth: data.opponent.maxHealth,
+            maxMana: data.opponent.maxMana,
+            maxStamina: data.opponent.maxStamina,
+          };
+          logDiv = dialog.querySelector('#battle-log');
+          closeBtn = dialog.querySelector('#battle-close');
+          closeBtn.addEventListener('click', () => {
+            dialog.remove();
+          });
+          updateBar(youBars.health, data.you.health, youBars.maxHealth);
+          updateBar(youBars.mana, data.you.mana, youBars.maxMana);
+          updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
+          updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
+          updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
+          updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
+        } else if (data.type === 'update') {
+          data.log.forEach(l => {
+            const d = document.createElement('div');
+            d.textContent = l;
+            logDiv.appendChild(d);
+            logDiv.scrollTop = logDiv.scrollHeight;
+          });
+          updateBar(youBars.health, data.you.health, youBars.maxHealth);
+          updateBar(youBars.mana, data.you.mana, youBars.maxMana);
+          updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
+          updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
+          updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
+          updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
+        } else if (data.type === 'end') {
+          const outcome = document.createElement('div');
+          outcome.textContent = data.winnerId === youId ? 'You won!' : 'You lost!';
+          logDiv.appendChild(outcome);
+          logDiv.scrollTop = logDiv.scrollHeight;
+          closeBtn.classList.remove('hidden');
+          es.close();
+        } else if (data.type === 'error') {
+          battleArea.textContent = data.message;
+          es.close();
+        }
+      };
     });
   } else {
     battleArea.textContent = 'Mode not implemented';

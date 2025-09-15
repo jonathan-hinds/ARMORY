@@ -101,15 +101,27 @@ app.put("/characters/:characterId/rotation", async (req, res) => {
   }
 });
 
-app.post("/matchmaking/queue", async (req, res) => {
-  const { characterId } = req.body;
+app.get("/matchmaking/queue", async (req, res) => {
+  const characterId = parseInt(req.query.characterId, 10);
+  if (!characterId) {
+    return res.status(400).end();
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  const send = data => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
   try {
-    const result = await queueMatch(characterId);
-    res.json(result);
+    await queueMatch(characterId, send);
   } catch (err) {
     console.error(err);
-    res.status(400).json({ error: err.message });
+    send({ type: "error", message: err.message });
   }
+  res.end();
 });
 
 app.listen(PORT, () => {
