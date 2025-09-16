@@ -1,21 +1,13 @@
-const path = require('path');
-const { readJSON, writeJSON } = require('../store/jsonStore');
+const PlayerModel = require('../models/Player');
+const CharacterModel = require('../models/Character');
+const {
+  ensureEquipmentShape,
+  serializeCharacter,
+  serializePlayer,
+  EQUIPMENT_SLOTS,
+} = require('../models/utils');
 const { getEquipmentMap } = require('./equipmentService');
 const { compute } = require('./derivedStats');
-
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const PLAYERS_FILE = path.join(DATA_DIR, 'players.json');
-const CHARACTERS_FILE = path.join(DATA_DIR, 'characters.json');
-
-const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
-
-function ensureEquipmentShape(equipment) {
-  const result = {};
-  EQUIPMENT_SLOTS.forEach(slot => {
-    result[slot] = equipment && equipment[slot] ? equipment[slot] : null;
-  });
-  return result;
-}
 
 function slotOrder(slot) {
   const idx = EQUIPMENT_SLOTS.indexOf(slot);
@@ -26,19 +18,20 @@ async function getInventory(playerId, characterId) {
   if (!playerId || !characterId) {
     throw new Error('playerId and characterId required');
   }
-  const [players, characters, equipmentMap] = await Promise.all([
-    readJSON(PLAYERS_FILE),
-    readJSON(CHARACTERS_FILE),
+  const [playerDoc, characterDoc, equipmentMap] = await Promise.all([
+    PlayerModel.findOne({ playerId }).lean(),
+    CharacterModel.findOne({ characterId }).lean(),
     getEquipmentMap(),
   ]);
-  const player = players.find(p => p.id === playerId);
-  if (!player) {
+  if (!playerDoc) {
     throw new Error('player not found');
   }
-  const character = characters.find(c => c.id === characterId);
-  if (!character || character.playerId !== player.id) {
+  if (!characterDoc || characterDoc.playerId !== playerId) {
     throw new Error('character not found');
   }
+
+  const player = serializePlayer(playerDoc);
+  const character = serializeCharacter(characterDoc);
 
   const equipmentIds = ensureEquipmentShape(character.equipment || {});
   const equippedItems = {};
@@ -102,24 +95,19 @@ async function setEquipment(playerId, characterId, slot, itemId) {
   if (!EQUIPMENT_SLOTS.includes(slot)) {
     throw new Error('invalid equipment slot');
   }
-  const [players, characters, equipmentMap] = await Promise.all([
-    readJSON(PLAYERS_FILE),
-    readJSON(CHARACTERS_FILE),
+  const [playerDoc, characterDoc, equipmentMap] = await Promise.all([
+    PlayerModel.findOne({ playerId }).lean(),
+    CharacterModel.findOne({ characterId }),
     getEquipmentMap(),
   ]);
-  const playerIdx = players.findIndex(p => p.id === playerId);
-  if (playerIdx === -1) {
+  if (!playerDoc) {
     throw new Error('player not found');
   }
-  const characterIdx = characters.findIndex(c => c.id === characterId);
-  if (characterIdx === -1) {
+  if (!characterDoc || characterDoc.playerId !== playerId) {
     throw new Error('character not found');
   }
-  const character = characters[characterIdx];
-  if (character.playerId !== playerId) {
-    throw new Error('character not owned by player');
-  }
 
+  const character = characterDoc;
   if (!character.equipment) {
     character.equipment = {};
   }
@@ -137,16 +125,14 @@ async function setEquipment(playerId, characterId, slot, itemId) {
     if (item.slot !== slot) {
       throw new Error('item cannot be equipped in this slot');
     }
-    const player = players[playerIdx];
-    const owned = (Array.isArray(player.items) ? player.items : []).filter(id => id === itemId).length;
+    const owned = (Array.isArray(playerDoc.items) ? playerDoc.items : []).filter(id => id === itemId).length;
     if (owned <= 0) {
       throw new Error('item not owned');
     }
   }
 
   character.equipment[slot] = itemId || null;
-  characters[characterIdx] = character;
-  await writeJSON(CHARACTERS_FILE, characters);
+  await character.save();
 
   return getInventory(playerId, characterId);
 }

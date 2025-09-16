@@ -1,11 +1,24 @@
-const path = require('path');
-const { readJSON, writeJSON } = require('../store/jsonStore');
-const Player = require('../domain/player');
-const Character = require('../domain/character');
+const PlayerModel = require('../models/Player');
+const CharacterModel = require('../models/Character');
+const {
+  ensureEquipmentShape,
+  serializeCharacter,
+  serializePlayer,
+} = require('../models/utils');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const PLAYERS_FILE = path.join(DATA_DIR, 'players.json');
-const CHARACTERS_FILE = path.join(DATA_DIR, 'characters.json');
+async function getNextId(Model, field) {
+  const latest = await Model.findOne().sort({ [field]: -1 }).select(field).lean();
+  if (!latest || typeof latest[field] !== 'number') {
+    return 1;
+  }
+  return latest[field] + 1;
+}
+
+async function findPlayerByName(name) {
+  return PlayerModel.findOne({ name })
+    .collation({ locale: 'en', strength: 2 })
+    .lean();
+}
 
 function rollAttributes() {
   const stats = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
@@ -28,55 +41,51 @@ function rollBasicType() {
 }
 
 async function registerPlayer(name) {
-  const players = await readJSON(PLAYERS_FILE);
-  const exists = players.some(p => p.name.toLowerCase() === name.toLowerCase());
-  if (exists) {
+  const existing = await findPlayerByName(name);
+  if (existing) {
     throw new Error('name taken');
   }
-  const playerId = players.length + 1;
-  const player = new Player({ id: playerId, name, gold: 0, items: [], characterId: null });
-  players.push(player);
-  await writeJSON(PLAYERS_FILE, players);
-  return { player };
+  const playerId = await getNextId(PlayerModel, 'playerId');
+  const playerDoc = await PlayerModel.create({
+    playerId,
+    name,
+    gold: 0,
+    items: [],
+    characterId: null,
+  });
+  return { player: serializePlayer(playerDoc) };
 }
 
 async function loginPlayer(name) {
-  const players = await readJSON(PLAYERS_FILE);
-  const player = players.find(p => p.name.toLowerCase() === name.toLowerCase());
-  if (!player) {
+  const playerDoc = await findPlayerByName(name);
+  if (!playerDoc) {
     throw new Error('player not found');
   }
-  const characters = await getPlayerCharacters(player.id);
-  return { player, characters };
+  const characters = await getPlayerCharacters(playerDoc.playerId);
+  return { player: serializePlayer(playerDoc), characters };
 }
 
 async function getPlayerCharacters(playerId) {
-  const characters = await readJSON(CHARACTERS_FILE);
-  return characters.filter(c => c.playerId === playerId);
+  const characterDocs = await CharacterModel.find({ playerId }).lean();
+  return characterDocs.map(serializeCharacter);
 }
 
 async function createCharacter(playerId, name) {
-  const characters = await readJSON(CHARACTERS_FILE);
-  const characterId = characters.length + 1;
-  const character = new Character({
-    id: characterId,
+  const playerDoc = await PlayerModel.findOne({ playerId }).lean();
+  if (!playerDoc) {
+    throw new Error('player not found');
+  }
+  const characterId = await getNextId(CharacterModel, 'characterId');
+  const characterDoc = await CharacterModel.create({
+    characterId,
     playerId,
     name,
     attributes: rollAttributes(),
     basicType: rollBasicType(),
     rotation: [],
-    equipment: {
-      weapon: null,
-      helmet: null,
-      chest: null,
-      legs: null,
-      feet: null,
-      hands: null,
-    },
+    equipment: ensureEquipmentShape({}),
   });
-  characters.push(character);
-  await writeJSON(CHARACTERS_FILE, characters);
-  return character;
+  return serializeCharacter(characterDoc);
 }
 
 module.exports = { registerPlayer, loginPlayer, createCharacter, getPlayerCharacters };
