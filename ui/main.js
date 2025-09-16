@@ -5,6 +5,27 @@ let abilityCatalog = [];
 let abilityCatalogPromise = null;
 let rotation = [];
 let rotationInitialized = false;
+let rotationDamageType = 'melee';
+
+const rotationDamageTypeSelect = document.getElementById('rotation-damage-type');
+
+function normalizeDamageType(value) {
+  return value === 'magic' ? 'magic' : 'melee';
+}
+
+function setRotationDamageType(value) {
+  rotationDamageType = normalizeDamageType(value);
+  if (rotationDamageTypeSelect) {
+    rotationDamageTypeSelect.value = rotationDamageType;
+  }
+}
+
+if (rotationDamageTypeSelect) {
+  setRotationDamageType(rotationDamageTypeSelect.value || rotationDamageType);
+  rotationDamageTypeSelect.addEventListener('change', e => {
+    setRotationDamageType(e.target.value);
+  });
+}
 
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
 const SLOT_LABELS = {
@@ -64,6 +85,14 @@ function titleCase(value) {
     .map(part => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
     .join(' ')
     .trim();
+}
+
+function displayDamageType(type) {
+  if (!type) return 'Melee';
+  if (type === 'magic') return 'Magic';
+  if (type === 'melee') return 'Melee';
+  const formatted = titleCase(type);
+  return formatted || 'Melee';
 }
 
 function describeEffect(effect) {
@@ -301,6 +330,7 @@ function applyInventoryData(data) {
     if (idx >= 0) {
       characters[idx] = data.character;
     }
+    setRotationDamageType(data.character.basicType);
   }
   if (currentPlayer && typeof data.gold === 'number') {
     currentPlayer.gold = data.gold;
@@ -419,7 +449,8 @@ function renderCharacters() {
     const name = c.name || `Character ${c.id}`;
     const info = document.createElement('span');
     info.className = 'info';
-    info.textContent = `${name} Lv${c.level || 1} (${c.basicType}) - STR:${stats.strength} STA:${stats.stamina} AGI:${stats.agility} INT:${stats.intellect} WIS:${stats.wisdom}`;
+    const typeLabel = displayDamageType(c.basicType);
+    info.textContent = `${name} Lv${c.level || 1} (Damage: ${typeLabel}) - STR:${stats.strength} STA:${stats.stamina} AGI:${stats.agility} INT:${stats.intellect} WIS:${stats.wisdom}`;
     const btn = document.createElement('button');
     btn.textContent = 'Select';
     btn.addEventListener('click', () => enterGame(c));
@@ -495,6 +526,7 @@ nameOk.addEventListener('click', async () => {
 
 async function enterGame(character) {
   currentCharacter = character;
+  setRotationDamageType(character ? character.basicType : null);
   charSelectDiv.classList.add('hidden');
   gameDiv.classList.remove('hidden');
   inventoryView = null;
@@ -540,6 +572,7 @@ async function initRotation() {
   rotationInitialized = true;
   await loadAbilityCatalog();
   rotation = [...(currentCharacter.rotation || [])];
+  setRotationDamageType(currentCharacter ? currentCharacter.basicType : null);
   renderAbilityPool();
   renderRotationList();
   const list = document.getElementById('rotation-list');
@@ -656,26 +689,38 @@ function handleDropRemove(e) {
 function saveRotation() {
   const errorDiv = document.getElementById('rotation-error');
   if (rotation.length < 3) {
-    errorDiv.textContent = 'Need at least 3 abilities';
-    errorDiv.classList.remove('hidden');
+    showMessage(errorDiv, 'Need at least 3 abilities', true);
     return;
   }
+  clearMessage(errorDiv);
   fetch(`/characters/${currentCharacter.id}/rotation`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rotation })
+    body: JSON.stringify({ rotation, basicType: rotationDamageType })
   }).then(res => {
     if (!res.ok) throw new Error('save failed');
     return res.json();
   }).then(char => {
-    currentCharacter.rotation = rotation.slice();
+    const nextCharacter = { ...char, rotation: rotation.slice() };
+    currentCharacter = nextCharacter;
     const idx = characters.findIndex(c => c.id === char.id);
-    if (idx >= 0) characters[idx] = char;
-    errorDiv.textContent = 'Saved';
-    errorDiv.classList.remove('hidden');
-  }).catch(() => {
-    errorDiv.textContent = 'Save failed';
-    errorDiv.classList.remove('hidden');
+    if (idx >= 0) characters[idx] = nextCharacter;
+    setRotationDamageType(nextCharacter.basicType);
+    if (inventoryView && inventoryView.character) {
+      inventoryView.character.basicType = nextCharacter.basicType;
+      inventoryView.character.rotation = nextCharacter.rotation.slice();
+    }
+    if (inventoryView && inventoryView.derived) {
+      inventoryView.derived.basicAttackEffectType =
+        nextCharacter.basicType === 'magic' ? 'MagicDamage' : 'PhysicalDamage';
+    }
+    showMessage(errorDiv, 'Saved', false);
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+  }).catch(err => {
+    const message = err && err.message ? err.message : 'Save failed';
+    showMessage(errorDiv, message, true);
   });
 }
 
@@ -687,6 +732,7 @@ function updateAfterBattleEnd(data) {
     if (idx >= 0) {
       characters[idx] = data.character;
     }
+    setRotationDamageType(data.character.basicType);
   }
   if (currentPlayer && typeof data.gold === 'number') {
     currentPlayer.gold = data.gold;
@@ -917,8 +963,8 @@ function renderOpponentPreview(opponent) {
   header.appendChild(nameEl);
   const metaEl = document.createElement('div');
   metaEl.className = 'opponent-meta';
-  const typeText = opponent.basicType === 'magic' ? 'MAGIC' : 'MELEE';
-  metaEl.textContent = `Lv${opponent.level || 1} ${typeText}`;
+  const typeText = displayDamageType(opponent.basicType);
+  metaEl.textContent = `Lv${opponent.level || 1} Damage: ${typeText}`;
   header.appendChild(metaEl);
   container.appendChild(header);
 
@@ -1534,7 +1580,7 @@ async function renderCharacter() {
   addRow('Level', currentCharacter.level || 1);
   addRow('XP', `${currentCharacter.xp || 0} / ${xpNeeded}`);
   addRow('Gold', currentPlayer ? currentPlayer.gold || 0 : 0);
-  addRow('Basic Type', currentCharacter.basicType);
+  addRow('Damage Type', displayDamageType(currentCharacter.basicType));
 
   pane.appendChild(table);
 
