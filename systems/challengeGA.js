@@ -518,7 +518,7 @@ function buildOpponentPreview(character, equipmentMap, metrics) {
   return preview;
 }
 
-async function prepareChallenge(characterId, { includePlayer = false } = {}) {
+async function buildChallengeContext(characterId, { includePlayer = false } = {}) {
   const characterDoc = await CharacterModel.findOne({ characterId });
   if (!characterDoc) {
     throw new Error('character not found');
@@ -531,8 +531,7 @@ async function prepareChallenge(characterId, { includePlayer = false } = {}) {
     ? PlayerModel.findOne({ playerId: characterDoc.playerId })
     : Promise.resolve(null);
 
-  const [stateBundle, abilities, equipmentMap, playerDoc] = await Promise.all([
-    getState(characterId),
+  const [abilities, equipmentMap, playerDoc] = await Promise.all([
     getAbilities(),
     getEquipmentMap(),
     playerPromise,
@@ -557,7 +556,7 @@ async function prepareChallenge(characterId, { includePlayer = false } = {}) {
     totalPoints: totalAttributePoints(character.attributes || {}),
     gearBudget: playerGear.gearScore,
     playerCosts: playerGear.playerCosts,
-    round: stateBundle.state.round || 1,
+    round: 1,
   };
 
   return {
@@ -569,6 +568,23 @@ async function prepareChallenge(characterId, { includePlayer = false } = {}) {
     equipmentMap,
     itemsBySlot,
     playerGear,
+    context,
+  };
+}
+
+async function prepareChallenge(characterId, { includePlayer = false } = {}) {
+  const [stateBundle, contextBundle] = await Promise.all([
+    getState(characterId),
+    buildChallengeContext(characterId, { includePlayer }),
+  ]);
+
+  const context = {
+    ...contextBundle.context,
+    round: stateBundle.state.round || 1,
+  };
+
+  return {
+    ...contextBundle,
     context,
     state: stateBundle.state,
     states: stateBundle.states,
@@ -881,4 +897,15 @@ async function runChallengeFight(characterId, send) {
   });
 }
 
-module.exports = { getChallengeStatus, startChallenge, runChallengeFight };
+module.exports = {
+  getChallengeStatus,
+  startChallenge,
+  runChallengeFight,
+  rewardForRound,
+  buildChallengeContext,
+  findChampion,
+  buildAICharacter,
+  buildOpponentPreview,
+  normalizeGenome,
+  computePlayerGear,
+};
