@@ -45,6 +45,13 @@ let inventoryView = null;
 let inventoryPromise = null;
 let tabsInitialized = false;
 
+let adventureStatus = null;
+let adventurePollTimer = null;
+let adventureTickTimer = null;
+let adventurePollInFlight = false;
+let adventureElements = null;
+let adventureSelectedDays = null;
+
 function xpForNextLevel(level) {
   return level * 100;
 }
@@ -163,6 +170,30 @@ function formatResistances(resistances) {
   return entries
     .map(([type, value]) => `${statLabel(type)} Resist ${Math.round(value * 100)}%`)
     .join(', ');
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return '0s';
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (!parts.length || seconds) parts.push(`${seconds}s`);
+  return parts.join(' ');
+}
+
+function formatClockTime(timestamp) {
+  if (!Number.isFinite(timestamp)) return '';
+  try {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (err) {
+    return '';
+  }
 }
 
 function itemTooltip(item) {
@@ -923,6 +954,551 @@ function launchCombatStream(url, { waitingText = 'Preparing battle...', onEnd } 
   return es;
 }
 
+function stopAdventurePolling() {
+  if (adventurePollTimer) {
+    clearInterval(adventurePollTimer);
+    adventurePollTimer = null;
+  }
+  if (adventureTickTimer) {
+    clearInterval(adventureTickTimer);
+    adventureTickTimer = null;
+  }
+  adventurePollInFlight = false;
+}
+
+async function fetchAdventureStatus() {
+  if (!currentCharacter) {
+    throw new Error('Select a character first.');
+  }
+  const res = await fetch(`/adventure/status?characterId=${currentCharacter.id}`);
+  if (!res.ok) {
+    let message = 'Failed to load adventure.';
+    try {
+      const err = await res.json();
+      if (err && err.error) message = err.error;
+    } catch {}
+    throw new Error(message);
+  }
+  const data = await res.json();
+  applyAdventureUpdates(data);
+  return data;
+}
+
+function applyAdventureUpdates(status) {
+  if (!status) return;
+  let characterChanged = false;
+  if (status.character && typeof status.character.id === 'number') {
+    if (!currentCharacter || currentCharacter.id !== status.character.id) {
+      characterChanged = true;
+    } else if (
+      currentCharacter.xp !== status.character.xp ||
+      currentCharacter.level !== status.character.level ||
+      currentCharacter.basicType !== status.character.basicType
+    ) {
+      characterChanged = true;
+    }
+    currentCharacter = status.character;
+    const idx = characters.findIndex(c => c.id === status.character.id);
+    if (idx >= 0) {
+      characters[idx] = status.character;
+    }
+    setRotationDamageType(status.character.basicType);
+    if (inventoryView && inventoryView.character && inventoryView.character.id === status.character.id) {
+      inventoryView.character = { ...inventoryView.character, ...status.character };
+    }
+  }
+  let playerChanged = false;
+  if (status.player && currentPlayer && status.player.id === currentPlayer.id) {
+    if (currentPlayer.gold !== status.player.gold) {
+      playerChanged = true;
+    }
+    currentPlayer.gold = status.player.gold;
+    if (inventoryView) {
+      inventoryView.gold = status.player.gold;
+    }
+  }
+  if (characterChanged && isTabActive('character')) {
+    renderCharacter();
+  }
+  if (characterChanged && isTabActive('inventory')) {
+    renderInventory();
+  }
+  if (playerChanged && isTabActive('shop')) {
+    renderShop();
+  }
+}
+
+function createAdventureLayout() {
+  if (!battleArea) return null;
+  battleArea.innerHTML = '';
+  const panel = document.createElement('div');
+  panel.className = 'adventure-panel';
+
+  const statusText = document.createElement('div');
+  statusText.className = 'adventure-status-text';
+  panel.appendChild(statusText);
+
+  const progressSection = document.createElement('div');
+  progressSection.className = 'adventure-progress';
+  const progressBar = document.createElement('div');
+  progressBar.className = 'adventure-progress-bar';
+  const progressFill = document.createElement('div');
+  progressFill.className = 'fill';
+  progressBar.appendChild(progressFill);
+  progressSection.appendChild(progressBar);
+  const progressLabel = document.createElement('div');
+  progressLabel.className = 'adventure-progress-label';
+  progressSection.appendChild(progressLabel);
+  panel.appendChild(progressSection);
+
+  const timers = document.createElement('div');
+  timers.className = 'adventure-timers';
+  const timeRemaining = document.createElement('div');
+  timeRemaining.className = 'adventure-time-remaining';
+  timers.appendChild(timeRemaining);
+  const nextEvent = document.createElement('div');
+  nextEvent.className = 'adventure-next-event';
+  timers.appendChild(nextEvent);
+  panel.appendChild(timers);
+
+  const actions = document.createElement('div');
+  actions.className = 'adventure-actions';
+  const dayLabel = document.createElement('label');
+  dayLabel.className = 'adventure-day-picker';
+  dayLabel.textContent = 'Adventure length:';
+  const daySelect = document.createElement('select');
+  daySelect.addEventListener('change', () => {
+    const value = parseInt(daySelect.value, 10);
+    if (Number.isFinite(value)) {
+      adventureSelectedDays = value;
+    }
+    updateAdventureStartLabel();
+  });
+  dayLabel.appendChild(daySelect);
+  actions.appendChild(dayLabel);
+  const startBtn = document.createElement('button');
+  startBtn.textContent = 'Start Adventure';
+  actions.appendChild(startBtn);
+  panel.appendChild(actions);
+
+  const message = document.createElement('div');
+  message.className = 'adventure-message message hidden';
+  panel.appendChild(message);
+
+  const logSection = document.createElement('div');
+  logSection.className = 'adventure-log';
+  const logTitle = document.createElement('h3');
+  logTitle.textContent = 'Adventure Log';
+  logSection.appendChild(logTitle);
+  const logList = document.createElement('div');
+  logList.className = 'adventure-events';
+  logSection.appendChild(logList);
+  panel.appendChild(logSection);
+
+  const historySection = document.createElement('div');
+  historySection.className = 'adventure-history';
+  const historyTitle = document.createElement('h3');
+  historyTitle.textContent = 'Past Adventures';
+  historySection.appendChild(historyTitle);
+  const historyList = document.createElement('div');
+  historyList.className = 'adventure-history-entries';
+  historySection.appendChild(historyList);
+  panel.appendChild(historySection);
+
+  battleArea.appendChild(panel);
+
+  startBtn.addEventListener('click', onAdventureStart);
+
+  return {
+    container: panel,
+    statusText,
+    progressBar,
+    progressFill,
+    progressLabel,
+    timeRemaining,
+    nextEvent,
+    startBtn,
+    daySelect,
+    message,
+    logList,
+    historyList,
+  };
+}
+
+function updateAdventureStartLabel() {
+  if (!adventureElements || !adventureElements.startBtn) return;
+  const button = adventureElements.startBtn;
+  if (button.dataset.state === 'starting') return;
+  if (adventureStatus && adventureStatus.active) {
+    button.textContent = 'Adventure in progress';
+    return;
+  }
+  const days = Number.isFinite(adventureSelectedDays) ? adventureSelectedDays : null;
+  if (days && days > 0) {
+    button.textContent = days === 1 ? 'Start 1-Day Adventure' : `Start ${days}-Day Adventure`;
+  } else {
+    button.textContent = 'Start Adventure';
+  }
+}
+
+function renderAdventureHistory(historyEntries) {
+  if (!adventureElements || !adventureElements.historyList) return;
+  const list = adventureElements.historyList;
+  list.innerHTML = '';
+  const entries = Array.isArray(historyEntries) ? historyEntries : [];
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'adventure-history-empty';
+    empty.textContent = 'No completed adventures yet.';
+    list.appendChild(empty);
+    return;
+  }
+  entries.forEach(entry => {
+    if (!entry) return;
+    const item = document.createElement('div');
+    item.className = 'adventure-history-entry';
+    if (entry.outcome === 'defeat') {
+      item.classList.add('outcome-defeat');
+    } else {
+      item.classList.add('outcome-complete');
+    }
+    const header = document.createElement('div');
+    header.className = 'history-header';
+    if (entry.outcome === 'defeat') {
+      const defeatDay = entry.lastDay || entry.daysCompleted || entry.plannedDays || 1;
+      const opponentName = entry.defeatedBy && entry.defeatedBy.name ? entry.defeatedBy.name : null;
+      header.textContent = opponentName
+        ? `Defeated on day ${defeatDay} by ${opponentName}`
+        : `Defeated on day ${defeatDay}`;
+    } else {
+      const planned = entry.plannedDays || entry.daysCompleted || 1;
+      header.textContent = `Completed ${planned} day${planned === 1 ? '' : 's'} adventure`;
+    }
+    item.appendChild(header);
+
+    const detailParts = [];
+    if (Number.isFinite(entry.plannedDays)) {
+      detailParts.push(`Planned ${entry.plannedDays} day${entry.plannedDays === 1 ? '' : 's'}`);
+    }
+    if (Number.isFinite(entry.daysCompleted)) {
+      detailParts.push(`Completed ${entry.daysCompleted} day${entry.daysCompleted === 1 ? '' : 's'}`);
+    }
+    if (entry.outcome === 'defeat' && Number.isFinite(entry.lastDay) && entry.lastDay !== entry.daysCompleted) {
+      detailParts.push(`Reached day ${entry.lastDay}`);
+    }
+    if (detailParts.length) {
+      const details = document.createElement('div');
+      details.className = 'history-details';
+      details.textContent = detailParts.join(' • ');
+      item.appendChild(details);
+    }
+
+    const timeParts = [];
+    const startTime = formatClockTime(entry.startedAt);
+    const endTime = formatClockTime(entry.endedAt);
+    if (startTime) timeParts.push(`Start ${startTime}`);
+    if (endTime) timeParts.push(`End ${endTime}`);
+    if (timeParts.length) {
+      const timeline = document.createElement('div');
+      timeline.className = 'history-timeline';
+      timeline.textContent = timeParts.join(' • ');
+      item.appendChild(timeline);
+    }
+
+    const rewards = entry.rewards || {};
+    const rewardParts = [];
+    if (Number.isFinite(rewards.xp) && rewards.xp > 0) {
+      rewardParts.push(`+${rewards.xp} XP`);
+    }
+    if (Number.isFinite(rewards.gold) && rewards.gold > 0) {
+      rewardParts.push(`+${rewards.gold} gold`);
+    }
+    const rewardLine = document.createElement('div');
+    rewardLine.className = 'history-rewards';
+    rewardLine.textContent = rewardParts.length ? rewardParts.join(' • ') : 'No XP or gold earned';
+    item.appendChild(rewardLine);
+
+    const items = Array.isArray(rewards.items)
+      ? rewards.items.filter(it => it && (it.name || it.rarity))
+      : [];
+    if (items.length) {
+      const itemsLine = document.createElement('div');
+      itemsLine.className = 'history-items';
+      const names = items.map(it => {
+        if (it.name && it.rarity) return `${it.rarity} ${it.name}`;
+        if (it.name) return it.name;
+        if (it.rarity) return `${it.rarity} item`;
+        return 'Item';
+      });
+      itemsLine.textContent = `Items: ${names.join(', ')}`;
+      item.appendChild(itemsLine);
+    }
+
+    list.appendChild(item);
+  });
+}
+
+function renderAdventureStatus(status, { refreshEvents = true } = {}) {
+  adventureStatus = status;
+  if (!adventureElements || !adventureElements.container || !battleArea.contains(adventureElements.container)) {
+    adventureElements = createAdventureLayout();
+  }
+  if (!adventureElements) return;
+  const now = Date.now();
+  const active = !!status.active;
+  const startedAt = status.startedAt || 0;
+  const endsAt = status.endsAt || startedAt;
+  const totalDuration = Math.max(1, endsAt - startedAt || status.totalDurationMs || 1);
+  const elapsed = Math.max(0, Math.min(now, endsAt) - startedAt);
+  const ratio = Math.min(1, Math.max(0, elapsed / totalDuration));
+  const config = status.config || {};
+  if (adventureElements.daySelect) {
+    const select = adventureElements.daySelect;
+    const optionValues = Array.isArray(config.dayOptions) ? config.dayOptions.slice() : [];
+    const normalizedOptions = optionValues
+      .map(value => {
+        const num = parseInt(value, 10);
+        return Number.isFinite(num) && num > 0 ? num : null;
+      })
+      .filter(value => value != null)
+      .sort((a, b) => a - b);
+    const options = normalizedOptions.length ? Array.from(new Set(normalizedOptions)) : [(status.totalDays || 1)];
+    const currentOptions = Array.from(select.options).map(opt => parseInt(opt.value, 10));
+    const changed =
+      options.length !== currentOptions.length || options.some((value, idx) => value !== currentOptions[idx]);
+    if (changed) {
+      select.innerHTML = '';
+      options.forEach(value => {
+        const option = document.createElement('option');
+        option.value = String(value);
+        option.textContent = `${value} day${value === 1 ? '' : 's'}`;
+        select.appendChild(option);
+      });
+    }
+    let desired = adventureSelectedDays;
+    if (status.active) {
+      desired = status.totalDays || desired;
+    }
+    const defaultDays = Number.isFinite(config.defaultDays) ? config.defaultDays : options[options.length - 1];
+    if (!Number.isFinite(desired) || !options.includes(desired)) {
+      desired = options.includes(defaultDays) ? defaultDays : options[options.length - 1];
+    }
+    adventureSelectedDays = desired;
+    if (String(select.value) !== String(desired)) {
+      select.value = String(desired);
+    }
+    select.disabled = status.active || options.length <= 1;
+    if (!status.active) {
+      updateAdventureStartLabel();
+    }
+  }
+  const latestHistory = Array.isArray(status.history) && status.history.length ? status.history[0] : null;
+  if (adventureElements.statusText) {
+    if (active) {
+      adventureElements.statusText.textContent = `On Adventure • Day ${status.currentDay || 1} of ${status.totalDays || 1}`;
+    } else if (status.completedAt) {
+      if (status.outcome === 'defeat') {
+        const defeatDay = latestHistory && latestHistory.lastDay ? latestHistory.lastDay : status.currentDay || 1;
+        const opponent = latestHistory && latestHistory.defeatedBy && latestHistory.defeatedBy.name
+          ? ` against ${latestHistory.defeatedBy.name}`
+          : '';
+        adventureElements.statusText.textContent = `Adventure ended in defeat on day ${defeatDay}${opponent}`;
+      } else {
+        const planned = latestHistory && latestHistory.plannedDays ? latestHistory.plannedDays : status.totalDays || 1;
+        adventureElements.statusText.textContent = `Adventure complete • ${planned} day${planned === 1 ? '' : 's'}`;
+      }
+    } else {
+      adventureElements.statusText.textContent = 'Ready for adventure';
+    }
+  }
+  if (adventureElements.progressFill) {
+    adventureElements.progressFill.style.width = `${Math.round(ratio * 100)}%`;
+  }
+  if (adventureElements.progressLabel) {
+    const pct = Math.round(ratio * 100);
+    adventureElements.progressLabel.textContent = `${pct}% complete`;
+  }
+  if (adventureElements.timeRemaining) {
+    if (active && endsAt) {
+      adventureElements.timeRemaining.textContent = `Time Remaining: ${formatDuration(Math.max(0, endsAt - now))}`;
+    } else if (status.completedAt) {
+      adventureElements.timeRemaining.textContent = status.outcome === 'defeat'
+        ? 'Adventure ended early'
+        : 'Adventure complete';
+    } else {
+      adventureElements.timeRemaining.textContent = 'Idle';
+    }
+  }
+  if (adventureElements.nextEvent) {
+    if (active && status.nextEventAt) {
+      const untilNext = Math.max(0, status.nextEventAt - now);
+      adventureElements.nextEvent.textContent = `Next event in ${formatDuration(untilNext)}`;
+    } else if (!active && status.config) {
+      adventureElements.nextEvent.textContent = `Duration per day: ${status.config.dayDurationMinutes || 0} minutes`;
+    } else {
+      adventureElements.nextEvent.textContent = '';
+    }
+  }
+  if (adventureElements.startBtn) {
+    if (active) {
+      adventureElements.startBtn.disabled = true;
+      delete adventureElements.startBtn.dataset.state;
+      adventureElements.startBtn.textContent = 'Adventure in progress';
+    } else {
+      adventureElements.startBtn.disabled = false;
+      delete adventureElements.startBtn.dataset.state;
+      updateAdventureStartLabel();
+    }
+  }
+  if (adventureElements.message) {
+    if (status.message) {
+      showMessage(adventureElements.message, status.message, true);
+    } else {
+      clearMessage(adventureElements.message);
+    }
+  }
+  if (refreshEvents && adventureElements.logList) {
+    const events = Array.isArray(status.events) ? status.events.slice().sort((a, b) => a.timestamp - b.timestamp) : [];
+    adventureElements.logList.innerHTML = '';
+    if (!events.length) {
+      const empty = document.createElement('div');
+      empty.className = 'adventure-event empty';
+      empty.textContent = 'No events yet.';
+      adventureElements.logList.appendChild(empty);
+    } else {
+      events.forEach(event => {
+        const entry = document.createElement('div');
+        entry.className = 'adventure-event';
+        if (event.type) entry.classList.add(`type-${event.type}`);
+        const header = document.createElement('div');
+        header.className = 'event-header';
+        const dayLabel = document.createElement('span');
+        dayLabel.textContent = `Day ${event.day || 1}`;
+        header.appendChild(dayLabel);
+        const timeLabel = document.createElement('span');
+        timeLabel.textContent = formatClockTime(event.timestamp);
+        header.appendChild(timeLabel);
+        entry.appendChild(header);
+        const message = document.createElement('div');
+        message.className = 'event-message';
+        message.textContent = event.message || '';
+        entry.appendChild(message);
+        const metaParts = [];
+        if (event.type === 'gold' && typeof event.amount === 'number') {
+          metaParts.push(`+${event.amount} gold`);
+        }
+        if (event.type === 'xp' && typeof event.amount === 'number') {
+          metaParts.push(`+${event.amount} XP`);
+        }
+        if (event.type === 'item' && event.item) {
+          const rarity = event.item.rarity ? `${event.item.rarity} • ` : '';
+          metaParts.push(`${rarity}${event.item.name}`);
+        }
+        if (event.rewards) {
+          if (event.rewards.xp) metaParts.push(`+${event.rewards.xp} XP`);
+          if (event.rewards.gold) metaParts.push(`+${event.rewards.gold} gold`);
+        }
+        if (event.result) {
+          metaParts.push(event.result === 'victory' ? 'Victory' : 'Defeat');
+        }
+        if (metaParts.length) {
+          const meta = document.createElement('div');
+          meta.className = 'event-meta';
+          meta.textContent = metaParts.join(' • ');
+          entry.appendChild(meta);
+        }
+        adventureElements.logList.appendChild(entry);
+      });
+      adventureElements.logList.scrollTop = adventureElements.logList.scrollHeight;
+    }
+  }
+  if (refreshEvents && adventureElements.historyList) {
+    renderAdventureHistory(status.history);
+  }
+  if (!active) {
+    stopAdventurePolling();
+  }
+}
+
+function ensureAdventureTimers(status) {
+  if (!status || !status.active) {
+    stopAdventurePolling();
+    return;
+  }
+  if (!adventureTickTimer) {
+    adventureTickTimer = setInterval(() => {
+      if (adventureStatus) {
+        renderAdventureStatus(adventureStatus, { refreshEvents: false });
+      }
+    }, 1000);
+  }
+  if (!adventurePollTimer) {
+    adventurePollTimer = setInterval(() => {
+      if (adventurePollInFlight || !currentCharacter) return;
+      adventurePollInFlight = true;
+      fetchAdventureStatus()
+        .then(data => {
+          renderAdventureStatus(data);
+          ensureAdventureTimers(data);
+        })
+        .catch(err => {
+          if (adventureElements && adventureElements.message) {
+            showMessage(adventureElements.message, err.message || 'Failed to refresh adventure.', true);
+          }
+        })
+        .finally(() => {
+          adventurePollInFlight = false;
+        });
+    }, 10000);
+  }
+}
+
+async function onAdventureStart() {
+  if (!currentCharacter || !adventureElements || !adventureElements.startBtn) return;
+  const button = adventureElements.startBtn;
+  if (button.disabled) return;
+  button.disabled = true;
+  button.dataset.state = 'starting';
+  button.textContent = 'Starting...';
+  if (adventureElements.message) clearMessage(adventureElements.message);
+  try {
+    const daysValue = adventureElements.daySelect ? parseInt(adventureElements.daySelect.value, 10) : adventureSelectedDays;
+    const payload = { characterId: currentCharacter.id };
+    if (Number.isFinite(daysValue) && daysValue > 0) {
+      payload.days = daysValue;
+      adventureSelectedDays = daysValue;
+    }
+    const status = await postJSON('/adventure/start', payload);
+    applyAdventureUpdates(status);
+    renderAdventureStatus(status);
+    ensureAdventureTimers(status);
+  } catch (err) {
+    if (adventureElements && adventureElements.message) {
+      showMessage(adventureElements.message, err.message || 'Failed to start adventure.', true);
+    }
+    button.disabled = false;
+    delete button.dataset.state;
+    updateAdventureStartLabel();
+  }
+}
+
+async function renderAdventurePanel() {
+  if (!currentCharacter) {
+    battleArea.textContent = 'Select a character first.';
+    return;
+  }
+  stopAdventurePolling();
+  battleArea.textContent = 'Loading adventure...';
+  try {
+    const status = await fetchAdventureStatus();
+    adventureElements = null;
+    renderAdventureStatus(status);
+    ensureAdventureTimers(status);
+  } catch (err) {
+    battleArea.textContent = err.message || 'Failed to load adventure.';
+  }
+}
+
 // Battle modes
 const battleArea = document.getElementById('battle-area');
 document.querySelectorAll('#battle-modes button').forEach(btn => {
@@ -930,6 +1506,7 @@ document.querySelectorAll('#battle-modes button').forEach(btn => {
 });
 
 function selectMode(mode) {
+  stopAdventurePolling();
   if (mode === 'matchmaking') {
     battleArea.innerHTML = '<button id="queue-match">Queue for Match</button>';
     const button = document.getElementById('queue-match');
@@ -945,6 +1522,8 @@ function selectMode(mode) {
     }
   } else if (mode === 'challenge') {
     renderChallengePanel();
+  } else if (mode === 'adventure') {
+    renderAdventurePanel();
   } else {
     battleArea.textContent = 'Mode not implemented';
   }

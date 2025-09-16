@@ -1,0 +1,57 @@
+{
+  "dayDurationMinutes": 30,
+  "totalDays": 4,
+  "dayOptions": [1, 2, 3, 4],
+  "eventIntervalMinutes": { "min": 5, "max": 10 },
+  "maxLogEntries": 60,
+  "maxHistoryEntries": 24,
+  "events": [
+    {
+      "id": "gold-small",
+      "type": "gold",
+      "weight": 4,
+      "amount": { "min": 12, "max": 24 },
+      "message": "Recovered a hidden pouch with {amount} gold coins."
+    },
+    {
+      "id": "gold-large",
+      "type": "gold",
+      "weight": 1.6,
+      "amount": { "min": 30, "max": 55 },
+      "message": "Unearthed a treasure hoard worth {amount} gold!"
+    },
+    {
+      "id": "xp-small",
+      "type": "xp",
+      "weight": 4,
+      "amount": { "min": 15, "max": 32 },
+      "message": "Practiced new techniques and earned {amount} experience."
+    },
+    {
+      "id": "xp-large",
+      "type": "xp",
+      "weight": 1.6,
+      "amount": { "min": 35, "max": 70 },
+      "message": "Mastered an ancient maneuver for {amount} experience!"
+    },
+    {
+      "id": "item-reward",
+      "type": "item",
+      "weight": 1.4,
+      "rarityWeights": {
+        "Common": 0.5,
+        "Uncommon": 0.3,
+        "Rare": 0.15,
+        "Epic": 0.045,
+        "Legendary": 0.005
+      },
+      "message": "Recovered a {rarity} item: {item}."
+    },
+    {
+      "id": "combat",
+      "type": "combat",
+      "weight": 2.8,
+      "message": "Ambushed by {opponent}!"
+    }
+  ]
+}
