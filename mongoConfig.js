@@ -5,5 +5,5 @@
 // variable is not set. Replace the placeholder string with your actual
 // connection string before deploying.
 module.exports = {
-  mongoUri: 'REPLACE_WITH_YOUR_MONGO_URI',
+  mongoUri: 'mongodb+srv://jonathandhd:bluecow3@cluster0.fwdtteo.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0',
 };
