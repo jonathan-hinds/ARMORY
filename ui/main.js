@@ -371,6 +371,8 @@ function selectMode(mode) {
       es.onmessage = ev => {
         const data = JSON.parse(ev.data);
         if (data.type === 'start') {
+          youName = data.you.name;
+          opponentName = data.opponent.name;
           youId = data.you.id;
           opponentId = data.opponent.id;
           const dialog = document.createElement('div');
