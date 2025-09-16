@@ -139,3 +139,23 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .loadout-summary .stats-table { width:100%; }
 .simple-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
 .simple-list li { border:1px solid #000; padding:4px 6px; background:#fff; }
+.challenge-panel { border:1px solid #000; padding:12px; display:flex; flex-direction:column; gap:12px; background:#fff; }
+.challenge-round { font-weight:bold; text-transform:uppercase; text-align:center; font-size:18px; }
+.challenge-reward, .challenge-next, .challenge-last, .challenge-metrics { border:1px solid #000; padding:6px; background:#fff; }
+.challenge-actions { display:flex; justify-content:center; gap:8px; }
+.challenge-message { align-self:center; }
+.challenge-empty { border:1px dashed #000; padding:8px; text-align:center; }
+.opponent-preview { border:1px solid #000; padding:8px; display:flex; flex-direction:column; gap:8px; background:#fff; }
+.opponent-header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #000; padding-bottom:4px; }
+.opponent-name { font-weight:bold; text-transform:uppercase; }
+.opponent-meta { font-size:12px; }
+.opponent-metrics { border:1px dashed #000; padding:4px; text-align:center; }
+.opponent-behavior { border:1px solid #000; padding:4px; text-align:center; }
+.equipment-section, .rotation-section { display:flex; flex-direction:column; gap:4px; }
+.equipment-section .section-title, .rotation-section .section-title { font-weight:bold; text-transform:uppercase; border-bottom:1px solid #000; padding-bottom:2px; }
+.equipment-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:4px; }
+.equipment-entry { border:1px solid #000; padding:4px; display:flex; justify-content:space-between; background:#fff; }
+.equipment-entry.empty { border-style:dashed; }
+.equipment-entry .slot { font-weight:bold; margin-right:4px; }
+.rotation-list { display:flex; flex-wrap:wrap; gap:4px; }
+.rotation-chip { border:1px solid #000; padding:2px 6px; background:#fff; font-size:12px; }

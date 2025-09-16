@@ -2,6 +2,7 @@ let currentPlayer = null;
 let characters = [];
 let currentCharacter = null;
 let abilityCatalog = [];
+let abilityCatalogPromise = null;
 let rotation = [];
 let rotationInitialized = false;
 
@@ -14,9 +15,11 @@ const SLOT_LABELS = {
   feet: 'Feet',
   hands: 'Hands',
 };
+const STAT_KEYS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 
 let equipmentCatalog = null;
 let catalogPromise = null;
+let equipmentIndex = null;
 let inventoryView = null;
 let inventoryPromise = null;
 let tabsInitialized = false;
@@ -244,6 +247,31 @@ async function postJSON(url, data) {
   return res.json();
 }
 
+async function loadAbilityCatalog(force = false) {
+  if (!force && abilityCatalog.length) {
+    return abilityCatalog;
+  }
+  if (!abilityCatalogPromise) {
+    abilityCatalogPromise = (async () => {
+      const res = await fetch('/abilities');
+      if (!res.ok) {
+        throw new Error('failed to load abilities');
+      }
+      const data = await res.json();
+      abilityCatalog = data;
+      return abilityCatalog;
+    })()
+      .catch(err => {
+        abilityCatalog = [];
+        throw err;
+      })
+      .finally(() => {
+        abilityCatalogPromise = null;
+      });
+  }
+  return abilityCatalogPromise;
+}
+
 function showMessage(el, text, isError = false) {
   if (!el) return;
   if (text) {
@@ -289,12 +317,41 @@ async function ensureCatalog() {
       }
       const data = await res.json();
       equipmentCatalog = data;
+      equipmentIndex = buildEquipmentIndex(data);
       return data;
-    })().finally(() => {
-      catalogPromise = null;
-    });
+    })()
+      .catch(err => {
+        equipmentCatalog = null;
+        equipmentIndex = null;
+        throw err;
+      })
+      .finally(() => {
+        catalogPromise = null;
+      });
   }
   return catalogPromise;
+}
+
+function buildEquipmentIndex(catalog = equipmentCatalog) {
+  const index = {};
+  if (!catalog) return index;
+  const weapons = Array.isArray(catalog.weapons) ? catalog.weapons : [];
+  const armor = Array.isArray(catalog.armor) ? catalog.armor : [];
+  [...weapons, ...armor].forEach(item => {
+    if (item && item.id != null) {
+      index[item.id] = item;
+    }
+  });
+  return index;
+}
+
+function getEquipmentById(id) {
+  if (id == null) return null;
+  if (!equipmentCatalog) return null;
+  if (!equipmentIndex) {
+    equipmentIndex = buildEquipmentIndex();
+  }
+  return equipmentIndex[id] || null;
 }
 
 function getCatalogItems() {
@@ -481,8 +538,7 @@ function initTabs() {
 async function initRotation() {
   if (rotationInitialized) return;
   rotationInitialized = true;
-  const res = await fetch('/abilities');
-  abilityCatalog = await res.json();
+  await loadAbilityCatalog();
   rotation = [...(currentCharacter.rotation || [])];
   renderAbilityPool();
   renderRotationList();
@@ -623,6 +679,204 @@ function saveRotation() {
   });
 }
 
+function updateAfterBattleEnd(data) {
+  if (!data) return;
+  if (data.character) {
+    currentCharacter = data.character;
+    const idx = characters.findIndex(c => c.id === data.character.id);
+    if (idx >= 0) {
+      characters[idx] = data.character;
+    }
+  }
+  if (currentPlayer && typeof data.gold === 'number') {
+    currentPlayer.gold = data.gold;
+  }
+  const shouldRender = {
+    shop: isTabActive('shop'),
+    inventory: isTabActive('inventory'),
+    character: isTabActive('character'),
+  };
+  refreshInventory(true)
+    .then(() => {
+      if (shouldRender.character) renderCharacter();
+      if (shouldRender.inventory) renderInventory();
+      if (shouldRender.shop) renderShop();
+    })
+    .catch(() => {
+      if (shouldRender.character) renderCharacter();
+    });
+}
+
+function launchCombatStream(url, { waitingText = 'Preparing battle...', onEnd } = {}) {
+  if (!currentCharacter) return null;
+  battleArea.textContent = waitingText;
+  const es = new EventSource(url);
+  let youId = null;
+  let opponentId = null;
+  let youBars = null;
+  let oppBars = null;
+  let logDiv = null;
+  let closeBtn = null;
+  let appendLogEntry = null;
+
+  const updateBar = (bar, current, maxValue) => {
+    if (!bar) return;
+    if (typeof maxValue === 'number') {
+      bar.max = maxValue;
+    }
+    const max = typeof bar.max === 'number' && bar.max > 0 ? bar.max : 0;
+    const nextCurrent = typeof current === 'number' ? current : bar.current || 0;
+    bar.current = nextCurrent;
+    const clampedCurrent = max > 0 ? Math.min(Math.max(nextCurrent, 0), max) : Math.max(nextCurrent, 0);
+    const ratio = max > 0 ? clampedCurrent / max : 0;
+    if (bar.fill) {
+      bar.fill.style.width = `${Math.max(0, Math.min(ratio, 1)) * 100}%`;
+    }
+    const displayCurrent = Math.round(Math.max(nextCurrent, 0));
+    const displayMax = Math.round(max);
+    if (bar.labelText) {
+      bar.labelText.textContent = `${bar.prefix}: ${displayCurrent} / ${displayMax}`;
+    }
+    if (bar.labelContainer) {
+      const coverageThreshold = 0.65;
+      let useLightText = ratio >= coverageThreshold;
+      if (bar.element && bar.fill && bar.labelText) {
+        const barWidth = bar.element.clientWidth;
+        const fillWidth = bar.fill.clientWidth;
+        const textWidth = bar.labelText.getBoundingClientRect().width;
+        const constrainedTextWidth = Math.min(textWidth, barWidth);
+        const textStart = Math.max(0, (barWidth - constrainedTextWidth) / 2);
+        const textEnd = textStart + constrainedTextWidth;
+        const coverage = Math.max(0, Math.min(fillWidth, textEnd) - textStart);
+        const coverageRatio = constrainedTextWidth > 0 ? coverage / constrainedTextWidth : 0;
+        useLightText = coverageRatio >= coverageThreshold;
+      }
+      bar.labelContainer.style.color = useLightText ? '#fff' : '#000';
+    }
+  };
+
+  const createBar = (dialogEl, selector, prefix, maxValue) => {
+    const barEl = dialogEl.querySelector(selector);
+    if (!barEl) return null;
+    const fillEl = barEl.querySelector('.fill');
+    const labelContainer = barEl.querySelector('.label');
+    const labelText = barEl.querySelector('.label .value') || labelContainer;
+    return {
+      element: barEl,
+      fill: fillEl,
+      labelContainer,
+      labelText,
+      prefix,
+      max: typeof maxValue === 'number' ? maxValue : 0,
+      current: 0,
+    };
+  };
+
+  const createBarGroup = (dialogEl, combatantId, stats) => {
+    const s = stats || {};
+    return {
+      health: createBar(dialogEl, `#${combatantId} .bar.health`, 'HP', s.maxHealth),
+      mana: createBar(dialogEl, `#${combatantId} .bar.mana`, 'MP', s.maxMana),
+      stamina: createBar(dialogEl, `#${combatantId} .bar.stamina`, 'SP', s.maxStamina),
+      maxHealth: typeof s.maxHealth === 'number' ? s.maxHealth : 0,
+      maxMana: typeof s.maxMana === 'number' ? s.maxMana : 0,
+      maxStamina: typeof s.maxStamina === 'number' ? s.maxStamina : 0,
+    };
+  };
+
+  const applyResourceState = (group, state) => {
+    if (!group || !state) return;
+    if (typeof state.maxHealth === 'number') group.maxHealth = state.maxHealth;
+    if (typeof state.maxMana === 'number') group.maxMana = state.maxMana;
+    if (typeof state.maxStamina === 'number') group.maxStamina = state.maxStamina;
+    updateBar(group.health, state.health, group.maxHealth);
+    updateBar(group.mana, state.mana, group.maxMana);
+    updateBar(group.stamina, state.stamina, group.maxStamina);
+  };
+
+  es.onmessage = ev => {
+    const data = JSON.parse(ev.data);
+    if (data.type === 'start') {
+      youId = data.you.id;
+      opponentId = data.opponent.id;
+      const dialog = document.createElement('div');
+      dialog.id = 'battle-dialog';
+      dialog.innerHTML = `
+        <div class="dialog-box">
+          <div class="combatants-row">
+            <div id="you" class="combatant">
+              <div class="name">${data.you.name}</div>
+              <div class="bars">
+                <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+              </div>
+            </div>
+            <div id="opponent" class="combatant">
+              <div class="name">${data.opponent.name}</div>
+              <div class="bars">
+                <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+              </div>
+            </div>
+          </div>
+          <div id="battle-log"></div>
+          <div class="dialog-buttons"><button id="battle-close" class="hidden">Close</button></div>
+        </div>`;
+      document.body.appendChild(dialog);
+      youBars = createBarGroup(dialog, 'you', data.you);
+      oppBars = createBarGroup(dialog, 'opponent', data.opponent);
+      logDiv = dialog.querySelector('#battle-log');
+      closeBtn = dialog.querySelector('#battle-close');
+      closeBtn.addEventListener('click', () => dialog.remove());
+      appendLogEntry = (payload, forcedType) => {
+        if (!logDiv) return;
+        const entry = typeof payload === 'string' ? { message: payload } : payload;
+        if (!entry || !entry.message) return;
+        const message = document.createElement('div');
+        message.classList.add('log-message');
+        const type = forcedType || classifyLogEntry(entry, youId, opponentId);
+        message.classList.add(type || 'neutral');
+        message.textContent = entry.message;
+        logDiv.appendChild(message);
+        logDiv.scrollTop = logDiv.scrollHeight;
+      };
+      applyResourceState(youBars, data.you);
+      applyResourceState(oppBars, data.opponent);
+    } else if (data.type === 'update') {
+      if (appendLogEntry && Array.isArray(data.log)) {
+        data.log.forEach(l => appendLogEntry(l));
+      }
+      applyResourceState(youBars, data.you);
+      applyResourceState(oppBars, data.opponent);
+    } else if (data.type === 'end') {
+      const win = data.winnerId === youId;
+      if (appendLogEntry) {
+        appendLogEntry({ message: win ? 'Victory!' : 'Defeat...' }, 'neutral');
+        appendLogEntry({ message: `+${data.xpGain} XP, +${data.gpGain} GP` }, 'neutral');
+        if (data.challenge && data.challenge.rewards) {
+          appendLogEntry(
+            {
+              message: `Next Round ${data.challenge.round}: potential rewards +${data.challenge.rewards.xpGain} XP, +${data.challenge.rewards.goldGain} GP`,
+            },
+            'neutral',
+          );
+        }
+      }
+      if (closeBtn) closeBtn.classList.remove('hidden');
+      if (onEnd) onEnd(data);
+      es.close();
+    } else if (data.type === 'error') {
+      battleArea.textContent = data.message || 'Battle failed';
+      if (onEnd) onEnd(null);
+      es.close();
+    }
+  };
+
+  return es;
+}
+
 // Battle modes
 const battleArea = document.getElementById('battle-area');
 document.querySelectorAll('#battle-modes button').forEach(btn => {
@@ -632,181 +886,300 @@ document.querySelectorAll('#battle-modes button').forEach(btn => {
 function selectMode(mode) {
   if (mode === 'matchmaking') {
     battleArea.innerHTML = '<button id="queue-match">Queue for Match</button>';
-    document.getElementById('queue-match').addEventListener('click', () => {
-      battleArea.innerHTML = 'Waiting for opponent...';
-      const es = new EventSource(`/matchmaking/queue?characterId=${currentCharacter.id}`);
-      let youId = null;
-      let opponentId = null;
-      let youBars, oppBars, logDiv, closeBtn, appendLogEntry;
-      const updateBar = (bar, current, maxValue) => {
-        if (!bar) return;
-        if (typeof maxValue === 'number') {
-          bar.max = maxValue;
-        }
-        const max = typeof bar.max === 'number' && bar.max > 0 ? bar.max : 0;
-        const nextCurrent = typeof current === 'number' ? current : bar.current || 0;
-        bar.current = nextCurrent;
-        const clampedCurrent = max > 0 ? Math.min(Math.max(nextCurrent, 0), max) : Math.max(nextCurrent, 0);
-        const ratio = max > 0 ? clampedCurrent / max : 0;
-        if (bar.fill) {
-          bar.fill.style.width = `${Math.max(0, Math.min(ratio, 1)) * 100}%`;
-        }
-        const displayCurrent = Math.round(Math.max(nextCurrent, 0));
-        const displayMax = Math.round(max);
-        if (bar.labelText) {
-          bar.labelText.textContent = `${bar.prefix}: ${displayCurrent} / ${displayMax}`;
-        }
-        if (bar.labelContainer) {
-          const coverageThreshold = 0.65;
-          let useLightText = ratio >= coverageThreshold;
-          if (bar.element && bar.fill && bar.labelText) {
-            const barWidth = bar.element.clientWidth;
-            const fillWidth = bar.fill.clientWidth;
-            const textWidth = bar.labelText.getBoundingClientRect().width;
-            const constrainedTextWidth = Math.min(textWidth, barWidth);
-            const textStart = Math.max(0, (barWidth - constrainedTextWidth) / 2);
-            const textEnd = textStart + constrainedTextWidth;
-            const coverage = Math.max(0, Math.min(fillWidth, textEnd) - textStart);
-            const coverageRatio = constrainedTextWidth > 0 ? coverage / constrainedTextWidth : 0;
-            useLightText = coverageRatio >= coverageThreshold;
-          }
-          bar.labelContainer.style.color = useLightText ? '#fff' : '#000';
-        }
-      };
-
-      const createBar = (dialogEl, selector, prefix, maxValue) => {
-        const barEl = dialogEl.querySelector(selector);
-        if (!barEl) return null;
-        const fillEl = barEl.querySelector('.fill');
-        const labelContainer = barEl.querySelector('.label');
-        const labelText = barEl.querySelector('.label .value') || labelContainer;
-        return {
-          element: barEl,
-          fill: fillEl,
-          labelContainer,
-          labelText,
-          prefix,
-          max: typeof maxValue === 'number' ? maxValue : 0,
-          current: 0,
-        };
-      };
-
-      const createBarGroup = (dialogEl, combatantId, stats) => {
-        const s = stats || {};
-        return {
-          health: createBar(dialogEl, `#${combatantId} .bar.health`, 'HP', s.maxHealth),
-          mana: createBar(dialogEl, `#${combatantId} .bar.mana`, 'MP', s.maxMana),
-          stamina: createBar(dialogEl, `#${combatantId} .bar.stamina`, 'SP', s.maxStamina),
-          maxHealth: typeof s.maxHealth === 'number' ? s.maxHealth : 0,
-          maxMana: typeof s.maxMana === 'number' ? s.maxMana : 0,
-          maxStamina: typeof s.maxStamina === 'number' ? s.maxStamina : 0,
-        };
-      };
-
-      const applyResourceState = (group, state) => {
-        if (!group || !state) return;
-        if (typeof state.maxHealth === 'number') group.maxHealth = state.maxHealth;
-        if (typeof state.maxMana === 'number') group.maxMana = state.maxMana;
-        if (typeof state.maxStamina === 'number') group.maxStamina = state.maxStamina;
-        updateBar(group.health, state.health, group.maxHealth);
-        updateBar(group.mana, state.mana, group.maxMana);
-        updateBar(group.stamina, state.stamina, group.maxStamina);
-      };
-      es.onmessage = ev => {
-        const data = JSON.parse(ev.data);
-        if (data.type === 'start') {
-          youName = data.you.name;
-          opponentName = data.opponent.name;
-          youId = data.you.id;
-          opponentId = data.opponent.id;
-          const dialog = document.createElement('div');
-          dialog.id = 'battle-dialog';
-          dialog.innerHTML = `
-            <div class="dialog-box">
-              <div class="combatants-row">
-                <div id="you" class="combatant">
-                  <div class="name">${data.you.name}</div>
-                  <div class="bars">
-                    <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
-                    <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
-                    <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
-                  </div>
-                </div>
-                <div id="opponent" class="combatant">
-                  <div class="name">${data.opponent.name}</div>
-                  <div class="bars">
-                    <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
-                    <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
-                    <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
-                  </div>
-                </div>
-              </div>
-              <div id="battle-log"></div>
-              <div class="dialog-buttons"><button id="battle-close" class="hidden">Close</button></div>
-            </div>`;
-          document.body.appendChild(dialog);
-          youBars = createBarGroup(dialog, 'you', data.you);
-          oppBars = createBarGroup(dialog, 'opponent', data.opponent);
-          logDiv = dialog.querySelector('#battle-log');
-          closeBtn = dialog.querySelector('#battle-close');
-          closeBtn.addEventListener('click', () => {
-            dialog.remove();
-          });
-          appendLogEntry = (payload, forcedType) => {
-            if (!logDiv) return;
-            const entry = typeof payload === 'string' ? { message: payload } : payload;
-            if (!entry || !entry.message) return;
-            const message = document.createElement('div');
-            message.classList.add('log-message');
-            const type = forcedType || classifyLogEntry(entry, youId, opponentId);
-            message.classList.add(type || 'neutral');
-            message.textContent = entry.message;
-            logDiv.appendChild(message);
-            logDiv.scrollTop = logDiv.scrollHeight;
-          };
-          applyResourceState(youBars, data.you);
-          applyResourceState(oppBars, data.opponent);
-        } else if (data.type === 'update') {
-          if (appendLogEntry && Array.isArray(data.log)) {
-            data.log.forEach(l => appendLogEntry(l));
-          }
-          applyResourceState(youBars, data.you);
-          applyResourceState(oppBars, data.opponent);
-        } else if (data.type === 'end') {
-          const win = data.winnerId === youId;
-          if (appendLogEntry) {
-            appendLogEntry({ message: win ? 'Victory!' : 'Defeat...' }, 'neutral');
-            appendLogEntry({ message: `+${data.xpGain} XP, +${data.gpGain} GP` }, 'neutral');
-          }
-          currentCharacter = data.character;
-          const idx = characters.findIndex(c => c.id === data.character.id);
-          if (idx >= 0) characters[idx] = data.character;
-          currentPlayer.gold = data.gold;
-          const shouldRender = {
-            shop: isTabActive('shop'),
-            inventory: isTabActive('inventory'),
-            character: isTabActive('character'),
-          };
-          refreshInventory(true)
-            .then(() => {
-              if (shouldRender.character) renderCharacter();
-              if (shouldRender.inventory) renderInventory();
-              if (shouldRender.shop) renderShop();
-            })
-            .catch(() => {
-              if (shouldRender.character) renderCharacter();
-            });
-          closeBtn.classList.remove('hidden');
-          es.close();
-        } else if (data.type === 'error') {
-          battleArea.textContent = data.message;
-          es.close();
-        }
-      };
-    });
+    const button = document.getElementById('queue-match');
+    if (button) {
+      button.addEventListener('click', () => {
+        launchCombatStream(`/matchmaking/queue?characterId=${currentCharacter.id}`, {
+          waitingText: 'Waiting for opponent...',
+          onEnd: data => {
+            if (data) updateAfterBattleEnd(data);
+          },
+        });
+      });
+    }
+  } else if (mode === 'challenge') {
+    renderChallengePanel();
   } else {
     battleArea.textContent = 'Mode not implemented';
   }
+}
+
+function renderOpponentPreview(opponent) {
+  if (!opponent) return null;
+  const container = document.createElement('div');
+  container.className = 'opponent-preview';
+
+  const header = document.createElement('div');
+  header.className = 'opponent-header';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'opponent-name';
+  nameEl.textContent = opponent.name || 'Unknown';
+  header.appendChild(nameEl);
+  const metaEl = document.createElement('div');
+  metaEl.className = 'opponent-meta';
+  const typeText = opponent.basicType === 'magic' ? 'MAGIC' : 'MELEE';
+  metaEl.textContent = `Lv${opponent.level || 1} ${typeText}`;
+  header.appendChild(metaEl);
+  container.appendChild(header);
+
+  if (opponent.metrics) {
+    const metrics = document.createElement('div');
+    metrics.className = 'opponent-metrics';
+    const dmg = Math.round(opponent.metrics.damageToPlayer || 0);
+    const duration = opponent.metrics.duration != null ? opponent.metrics.duration.toFixed(1) : '0.0';
+    const resultText = opponent.metrics.win ? 'Victory' : 'Defeat';
+    metrics.textContent = `Simulation: ${resultText} (${dmg} dmg over ${duration}s)`;
+    container.appendChild(metrics);
+  }
+
+  const attributesTable = document.createElement('table');
+  attributesTable.className = 'stats-table';
+  const attrHeader = document.createElement('tr');
+  attrHeader.className = 'section';
+  const attrHeaderCell = document.createElement('td');
+  attrHeaderCell.colSpan = STAT_KEYS.length;
+  attrHeaderCell.textContent = 'Attributes';
+  attrHeader.appendChild(attrHeaderCell);
+  attributesTable.appendChild(attrHeader);
+  const attrRow = document.createElement('tr');
+  STAT_KEYS.forEach(stat => {
+    const cell = document.createElement('td');
+    const value = opponent.attributes && opponent.attributes[stat] != null ? opponent.attributes[stat] : 0;
+    cell.textContent = `${statLabel(stat)} ${value}`;
+    attrRow.appendChild(cell);
+  });
+  attributesTable.appendChild(attrRow);
+  container.appendChild(attributesTable);
+
+  const derived = opponent.derived || {};
+  const derivedTable = document.createElement('table');
+  derivedTable.className = 'stats-table';
+  const derivedHeader = document.createElement('tr');
+  derivedHeader.className = 'section';
+  const derivedHeaderCell = document.createElement('td');
+  derivedHeaderCell.colSpan = 4;
+  derivedHeaderCell.textContent = 'Derived Stats';
+  derivedHeader.appendChild(derivedHeaderCell);
+  derivedTable.appendChild(derivedHeader);
+
+  const derivedRow1 = document.createElement('tr');
+  derivedRow1.innerHTML = `<td>Health</td><td>${Math.round(derived.health || 0)}</td><td>Attack Interval</td><td>${(derived.attackIntervalSeconds || 0).toFixed(2)}s</td>`;
+  derivedTable.appendChild(derivedRow1);
+  const derivedRow2 = document.createElement('tr');
+  derivedRow2.innerHTML = `<td>Melee</td><td>${Math.round(derived.minMeleeAttack || 0)}-${Math.round(derived.maxMeleeAttack || 0)}</td><td>Magic</td><td>${Math.round(derived.minMagicAttack || 0)}-${Math.round(derived.maxMagicAttack || 0)}</td>`;
+  derivedTable.appendChild(derivedRow2);
+  const derivedRow3 = document.createElement('tr');
+  derivedRow3.innerHTML = `<td>Mana</td><td>${Math.round(derived.mana || 0)}</td><td>Stamina</td><td>${Math.round(derived.stamina || 0)}</td>`;
+  derivedTable.appendChild(derivedRow3);
+  const derivedRow4 = document.createElement('tr');
+  const meleeResist = Math.round((derived.meleeResist || 0) * 100);
+  const magicResist = Math.round((derived.magicResist || 0) * 100);
+  derivedRow4.innerHTML = `<td>Melee Resist</td><td>${meleeResist}%</td><td>Magic Resist</td><td>${magicResist}%</td>`;
+  derivedTable.appendChild(derivedRow4);
+  container.appendChild(derivedTable);
+
+  if (opponent.behavior && typeof opponent.behavior.healThreshold === 'number') {
+    const behaviorDiv = document.createElement('div');
+    behaviorDiv.className = 'opponent-behavior';
+    behaviorDiv.textContent = `Heals below ${Math.round(opponent.behavior.healThreshold * 100)}% health`;
+    container.appendChild(behaviorDiv);
+  }
+
+  const equipmentSection = document.createElement('div');
+  equipmentSection.className = 'equipment-section';
+  const equipmentTitle = document.createElement('div');
+  equipmentTitle.className = 'section-title';
+  equipmentTitle.textContent = 'Equipment';
+  equipmentSection.appendChild(equipmentTitle);
+  const equipmentList = document.createElement('div');
+  equipmentList.className = 'equipment-list';
+  EQUIPMENT_SLOTS.forEach(slot => {
+    const entry = document.createElement('div');
+    entry.className = 'equipment-entry';
+    const label = document.createElement('div');
+    label.className = 'slot';
+    label.textContent = slotLabel(slot);
+    entry.appendChild(label);
+    const value = document.createElement('div');
+    value.className = 'value';
+    const itemId = opponent.equipment ? opponent.equipment[slot] : null;
+    const item = getEquipmentById(itemId);
+    if (item) {
+      value.textContent = item.name;
+      attachTooltip(entry, () => itemTooltip(item));
+    } else {
+      value.textContent = 'Empty';
+      entry.classList.add('empty');
+    }
+    entry.appendChild(value);
+    equipmentList.appendChild(entry);
+  });
+  equipmentSection.appendChild(equipmentList);
+  container.appendChild(equipmentSection);
+
+  const rotationSection = document.createElement('div');
+  rotationSection.className = 'rotation-section';
+  const rotationTitle = document.createElement('div');
+  rotationTitle.className = 'section-title';
+  rotationTitle.textContent = 'Rotation';
+  rotationSection.appendChild(rotationTitle);
+  const rotationList = document.createElement('div');
+  rotationList.className = 'rotation-list';
+  if (Array.isArray(opponent.rotation) && opponent.rotation.length) {
+    opponent.rotation.forEach(id => {
+      const ability = abilityCatalog.find(a => a.id === id);
+      const chip = document.createElement('span');
+      chip.className = 'rotation-chip';
+      chip.textContent = ability ? ability.name : `Ability ${id}`;
+      if (ability) {
+        attachTooltip(chip, () => abilityTooltip(ability));
+      }
+      rotationList.appendChild(chip);
+    });
+  } else {
+    const placeholder = document.createElement('span');
+    placeholder.className = 'rotation-chip';
+    placeholder.textContent = 'No abilities';
+    rotationList.appendChild(placeholder);
+  }
+  rotationSection.appendChild(rotationList);
+  container.appendChild(rotationSection);
+
+  return container;
+}
+
+async function renderChallengePanel(statusOverride) {
+  if (!currentCharacter) {
+    battleArea.textContent = 'Select a character first.';
+    return;
+  }
+  battleArea.textContent = 'Loading challenge...';
+  try {
+    await ensureCatalog();
+    await loadAbilityCatalog();
+  } catch (err) {
+    battleArea.textContent = err.message || 'Failed to load challenge.';
+    return;
+  }
+
+  let status = statusOverride || null;
+  if (!status) {
+    try {
+      const res = await fetch(`/challenge/status?characterId=${currentCharacter.id}`);
+      if (!res.ok) {
+        let message = 'Failed to load challenge.';
+        try {
+          const err = await res.json();
+          if (err && err.error) message = err.error;
+        } catch {}
+        throw new Error(message);
+      }
+      status = await res.json();
+    } catch (err) {
+      battleArea.textContent = err.message || 'Failed to load challenge.';
+      return;
+    }
+  }
+
+  battleArea.innerHTML = '';
+  const panel = document.createElement('div');
+  panel.className = 'challenge-panel';
+
+  const round = document.createElement('div');
+  round.className = 'challenge-round';
+  round.textContent = `Round ${status.round || 1}`;
+  panel.appendChild(round);
+
+  if (status.rewards) {
+    const reward = document.createElement('div');
+    reward.className = 'challenge-reward';
+    reward.textContent = `Current Reward: +${status.rewards.xpGain} XP, +${status.rewards.goldGain} GP`;
+    panel.appendChild(reward);
+  }
+
+  if (status.nextRewards) {
+    const next = document.createElement('div');
+    next.className = 'challenge-next';
+    next.textContent = `Next Reward: +${status.nextRewards.xpGain} XP, +${status.nextRewards.goldGain} GP`;
+    panel.appendChild(next);
+  }
+
+  if (status.lastOutcome) {
+    const last = document.createElement('div');
+    last.className = 'challenge-last';
+    const resultText = status.lastOutcome === 'win' ? 'Victory' : 'Defeat';
+    const rewardText = status.lastReward
+      ? ` (${status.lastReward.xp || 0} XP, ${status.lastReward.gold || 0} GP)`
+      : '';
+    last.textContent = `Last Result: ${resultText}${rewardText}`;
+    panel.appendChild(last);
+    if (status.lastMetrics) {
+      const metrics = document.createElement('div');
+      metrics.className = 'challenge-metrics';
+      const dmg = status.lastMetrics.damageToPlayer != null ? status.lastMetrics.damageToPlayer : 0;
+      const duration = status.lastMetrics.duration != null ? status.lastMetrics.duration.toFixed(1) : '0.0';
+      metrics.textContent = `Previous foe dealt ${dmg} damage over ${duration}s`;
+      panel.appendChild(metrics);
+    }
+  }
+
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'challenge-message message hidden';
+  panel.appendChild(messageDiv);
+
+  if (status.opponent) {
+    const preview = renderOpponentPreview(status.opponent);
+    if (preview) panel.appendChild(preview);
+
+    const actions = document.createElement('div');
+    actions.className = 'challenge-actions';
+    const fightBtn = document.createElement('button');
+    fightBtn.textContent = 'Fight Challenger';
+    fightBtn.addEventListener('click', () => {
+      fightBtn.disabled = true;
+      clearMessage(messageDiv);
+      launchCombatStream(`/challenge/fight?characterId=${currentCharacter.id}`, {
+        waitingText: 'Engaging challenge...',
+        onEnd: data => {
+          if (data) {
+            updateAfterBattleEnd(data);
+            renderChallengePanel(data.challenge);
+          } else {
+            renderChallengePanel();
+          }
+        },
+      });
+    });
+    actions.appendChild(fightBtn);
+    panel.appendChild(actions);
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'challenge-empty';
+    empty.textContent = 'No opponent is ready. Start a new challenge to forge a nemesis.';
+    panel.appendChild(empty);
+
+    const actions = document.createElement('div');
+    actions.className = 'challenge-actions';
+    const startBtn = document.createElement('button');
+    startBtn.textContent = 'Start Challenge';
+    startBtn.addEventListener('click', async () => {
+      startBtn.disabled = true;
+      startBtn.textContent = 'Generating...';
+      clearMessage(messageDiv);
+      try {
+        const data = await postJSON('/challenge/start', { characterId: currentCharacter.id });
+        renderChallengePanel(data);
+      } catch (err) {
+        showMessage(messageDiv, err.message || 'Failed to start challenge.', true);
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Challenge';
+      }
+    });
+    actions.appendChild(startBtn);
+    panel.appendChild(actions);
+  }
+
+  battleArea.appendChild(panel);
 }
 
 async function renderShop() {
