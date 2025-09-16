@@ -1,6 +1,7 @@
 let currentPlayer = null;
 let characters = [];
 let currentCharacter = null;
+let lastSelectedCharacterId = null;
 let abilityCatalog = [];
 let abilityCatalogPromise = null;
 let rotation = [];
@@ -23,6 +24,7 @@ let equipmentIndex = null;
 let inventoryView = null;
 let inventoryPromise = null;
 let tabsInitialized = false;
+const activeEventSources = new Set();
 
 function xpForNextLevel(level) {
   return level * 100;
@@ -229,6 +231,8 @@ const nameDialog = document.getElementById('name-dialog');
 const newCharName = document.getElementById('new-char-name');
 const nameOk = document.getElementById('name-ok');
 const nameCancel = document.getElementById('name-cancel');
+const activeCharacterSummary = document.getElementById('active-character-summary');
+const switchCharacterBtn = document.getElementById('switch-character-btn');
 
 async function postJSON(url, data) {
   const res = await fetch(url, {
@@ -292,6 +296,59 @@ function clearMessage(el) {
   showMessage(el, '');
 }
 
+function formatCharacterSummary(character) {
+  if (!character) return '';
+  const name = character.name || `Character ${character.id}`;
+  const level = character.level != null ? character.level : 1;
+  const type = character.basicType ? String(character.basicType).toUpperCase() : '';
+  const typePart = type ? ` ${type}` : '';
+  return `${name} (Lv${level}${typePart})`;
+}
+
+function updateActiveCharacterDisplay() {
+  if (!activeCharacterSummary) return;
+  if (currentCharacter) {
+    activeCharacterSummary.textContent = `Active Character: ${formatCharacterSummary(currentCharacter)}`;
+  } else if (lastSelectedCharacterId) {
+    const last = characters.find(c => c.id === lastSelectedCharacterId);
+    if (last) {
+      activeCharacterSummary.textContent = `Last Played: ${formatCharacterSummary(last)}`;
+      return;
+    }
+    activeCharacterSummary.textContent = 'No character selected';
+  } else {
+    activeCharacterSummary.textContent = 'No character selected';
+  }
+}
+
+function removeDialog(id) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.remove();
+  }
+}
+
+function trackEventSource(es) {
+  if (!es || typeof es.close !== 'function') return es;
+  activeEventSources.add(es);
+  const originalClose = es.close.bind(es);
+  es.close = () => {
+    activeEventSources.delete(es);
+    originalClose();
+  };
+  return es;
+}
+
+function closeActiveEventSources() {
+  const sources = Array.from(activeEventSources);
+  sources.forEach(source => {
+    try {
+      source.close();
+    } catch {}
+  });
+  activeEventSources.clear();
+}
+
 function applyInventoryData(data) {
   if (!data) return;
   inventoryView = data;
@@ -301,6 +358,7 @@ function applyInventoryData(data) {
     if (idx >= 0) {
       characters[idx] = data.character;
     }
+    updateActiveCharacterDisplay();
   }
   if (currentPlayer && typeof data.gold === 'number') {
     currentPlayer.gold = data.gold;
@@ -412,21 +470,60 @@ function isTabActive(id) {
 
 function renderCharacters() {
   const list = document.getElementById('character-list');
+  if (!list) return;
   list.innerHTML = '';
+  if (!characters.length) {
+    const empty = document.createElement('li');
+    empty.className = 'empty';
+    empty.textContent = 'No characters yet. Roll a new champion to begin.';
+    list.appendChild(empty);
+    updateActiveCharacterDisplay();
+    return;
+  }
   characters.forEach(c => {
     const li = document.createElement('li');
-    const stats = c.attributes;
+    const stats = c.attributes || {};
     const name = c.name || `Character ${c.id}`;
     const info = document.createElement('span');
     info.className = 'info';
-    info.textContent = `${name} Lv${c.level || 1} (${c.basicType}) - STR:${stats.strength} STA:${stats.stamina} AGI:${stats.agility} INT:${stats.intellect} WIS:${stats.wisdom}`;
+    const typeLabel = c.basicType ? c.basicType.toUpperCase() : 'UNKNOWN';
+    const strength = stats.strength != null ? stats.strength : 0;
+    const stamina = stats.stamina != null ? stats.stamina : 0;
+    const agility = stats.agility != null ? stats.agility : 0;
+    const intellect = stats.intellect != null ? stats.intellect : 0;
+    const wisdom = stats.wisdom != null ? stats.wisdom : 0;
+    info.textContent = `${name} Lv${c.level || 1} (${typeLabel}) - STR:${strength} STA:${stamina} AGI:${agility} INT:${intellect} WIS:${wisdom}`;
     const btn = document.createElement('button');
-    btn.textContent = 'Select';
+    const isLast = lastSelectedCharacterId === c.id;
+    btn.textContent = isLast ? 'Resume' : 'Select';
     btn.addEventListener('click', () => enterGame(c));
+    if (isLast) {
+      li.classList.add('selected');
+    }
     li.appendChild(info);
     li.appendChild(btn);
     list.appendChild(li);
   });
+  updateActiveCharacterDisplay();
+}
+
+async function reloadCharactersFromServer() {
+  if (!currentPlayer) {
+    renderCharacters();
+    return;
+  }
+  try {
+    const res = await fetch(`/players/${currentPlayer.id}/characters`);
+    if (!res.ok) {
+      throw new Error('failed to load characters');
+    }
+    const data = await res.json();
+    characters = Array.isArray(data) ? data : [];
+  } catch (err) {
+    console.error('failed to refresh character roster', err);
+  } finally {
+    renderCharacters();
+  }
 }
 
 document.getElementById('login-btn').addEventListener('click', async () => {
@@ -474,6 +571,12 @@ nameCancel.addEventListener('click', () => {
   nameDialog.classList.add('hidden');
 });
 
+if (switchCharacterBtn) {
+  switchCharacterBtn.addEventListener('click', () => {
+    returnToMenu();
+  });
+}
+
 nameOk.addEventListener('click', async () => {
   const name = newCharName.value.trim();
   if (!name) return;
@@ -494,10 +597,20 @@ nameOk.addEventListener('click', async () => {
 });
 
 async function enterGame(character) {
+  if (!character) return;
+  closeActiveEventSources();
+  removeDialog('battle-dialog');
+  removeDialog('levelup-dialog');
   currentCharacter = character;
+  lastSelectedCharacterId = character.id;
+  updateActiveCharacterDisplay();
   charSelectDiv.classList.add('hidden');
   gameDiv.classList.remove('hidden');
+  if (typeof battleArea !== 'undefined' && battleArea) {
+    battleArea.textContent = '';
+  }
   inventoryView = null;
+  inventoryPromise = null;
   rotationInitialized = false;
   rotation = [];
   try {
@@ -506,6 +619,30 @@ async function enterGame(character) {
     console.error('inventory load failed', err);
   }
   initTabs();
+  activateTab('character');
+  renderCharacters();
+}
+
+function returnToMenu() {
+  if (currentCharacter) {
+    lastSelectedCharacterId = currentCharacter.id;
+  }
+  closeActiveEventSources();
+  removeDialog('battle-dialog');
+  removeDialog('levelup-dialog');
+  if (typeof battleArea !== 'undefined' && battleArea) {
+    battleArea.textContent = '';
+  }
+  gameDiv.classList.add('hidden');
+  charSelectDiv.classList.remove('hidden');
+  currentCharacter = null;
+  inventoryView = null;
+  inventoryPromise = null;
+  rotation = [];
+  rotationInitialized = false;
+  updateActiveCharacterDisplay();
+  renderCharacters();
+  reloadCharactersFromServer();
 }
 
 function initTabs() {
@@ -532,6 +669,13 @@ function initTabs() {
   }
   if (buttons.length) {
     buttons[0].click();
+  }
+}
+
+function activateTab(id) {
+  const button = document.querySelector(`#tabs button[data-tab="${id}"]`);
+  if (button) {
+    button.click();
   }
 }
 
@@ -687,6 +831,7 @@ function updateAfterBattleEnd(data) {
     if (idx >= 0) {
       characters[idx] = data.character;
     }
+    updateActiveCharacterDisplay();
   }
   if (currentPlayer && typeof data.gold === 'number') {
     currentPlayer.gold = data.gold;
@@ -710,7 +855,7 @@ function updateAfterBattleEnd(data) {
 function launchCombatStream(url, { waitingText = 'Preparing battle...', onEnd } = {}) {
   if (!currentCharacter) return null;
   battleArea.textContent = waitingText;
-  const es = new EventSource(url);
+  const es = trackEventSource(new EventSource(url));
   let youId = null;
   let opponentId = null;
   let youBars = null;
@@ -1648,6 +1793,7 @@ function showLevelUpForm() {
         currentCharacter = char;
         const idx = characters.findIndex(c => c.id === char.id);
         if (idx >= 0) characters[idx] = char;
+        updateActiveCharacterDisplay();
         dialog.remove();
         inventoryView = null;
         refreshInventory(true)
@@ -1684,3 +1830,5 @@ function showLevelUpForm() {
 
   updateDerived();
 }
+
+updateActiveCharacterDisplay();
