@@ -3,11 +3,28 @@ const { getAction } = require('./rotationEngine');
 const { applyEffect, tick } = require('./effectsEngine');
 const { pushLog } = require('./log');
 
-function createCombatant(character) {
-  const derived = compute(character);
+const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
+
+function resolveEquipment(character, equipmentMap) {
+  const resolved = {};
+  EQUIPMENT_SLOTS.forEach(slot => {
+    const itemId = character.equipment && character.equipment[slot];
+    if (itemId && equipmentMap && equipmentMap.has(itemId)) {
+      resolved[slot] = equipmentMap.get(itemId);
+    } else {
+      resolved[slot] = null;
+    }
+  });
+  return resolved;
+}
+
+function createCombatant(character, equipmentMap) {
+  const equipped = resolveEquipment(character, equipmentMap);
+  const derived = compute(character, equipped);
   return {
     character,
     derived,
+    equipment: equipped,
     health: derived.health,
     mana: derived.mana,
     stamina: derived.stamina,
@@ -17,6 +34,8 @@ function createCombatant(character) {
     buffs: [],
     dots: [],
     stunnedUntil: 0,
+    onHitEffects: derived.onHitEffects || [],
+    basicAttackEffectType: derived.basicAttackEffectType,
   };
 }
 
@@ -33,9 +52,40 @@ function state(c) {
   };
 }
 
-async function runCombat(charA, charB, abilityMap, onUpdate) {
-  const a = createCombatant(charA);
-  const b = createCombatant(charB);
+function cloneEffect(effect) {
+  return JSON.parse(JSON.stringify(effect));
+}
+
+function processOnHitEffects(source, target, trigger, context = {}, now, log) {
+  if (!source.onHitEffects || source.onHitEffects.length === 0) return;
+  source.onHitEffects.forEach(entry => {
+    if (!entry) return;
+    const triggerMatch = entry.trigger === 'any' || entry.trigger === trigger;
+    if (!triggerMatch) return;
+    if (entry.conditions) {
+      if (entry.conditions.damageType && context.damageType !== entry.conditions.damageType) {
+        return;
+      }
+      if (entry.conditions.school && (!context.ability || context.ability.school !== entry.conditions.school)) {
+        return;
+      }
+    }
+    const chance = typeof entry.chance === 'number' ? entry.chance : 1;
+    if (Math.random() > chance) return;
+    pushLog(log, `${source.character.name}'s ${entry.itemName} triggers an effect`, {
+      sourceId: source.character.id,
+      targetId: target.character.id,
+      kind: 'equipmentEffect',
+      itemId: entry.itemId,
+    });
+    const effect = cloneEffect(entry.effect);
+    applyEffect(source, target, effect, now, log);
+  });
+}
+
+async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdate) {
+  const a = createCombatant(charA, equipmentMap);
+  const b = createCombatant(charB, equipmentMap);
   const nextTimes = [0, 0];
   const combatants = [a, b];
   const log = [];
@@ -65,37 +115,52 @@ async function runCombat(charA, charB, abilityMap, onUpdate) {
           abilityId: action.ability.id,
         });
         action.ability.effects.forEach(e => applyEffect(actor, target, e, now, log));
+        processOnHitEffects(actor, target, 'ability', { ability: action.ability }, now, log);
       } else {
-        const basicLabel = actor.character.basicType === 'melee' ? 'melee' : 'magic';
+        const effectType =
+          actor.basicAttackEffectType || (actor.character.basicType === 'melee' ? 'PhysicalDamage' : 'MagicDamage');
         let message;
         if (action.reason === 'cooldown' && action.ability) {
           const remaining =
-            typeof action.remainingCooldown === 'number'
-              ? Math.max(0, action.remainingCooldown)
-              : null;
-          const remainingText =
-            remaining !== null ? ` (${remaining.toFixed(1)}s remaining)` : '';
-          message = `${action.ability.name} is on cooldown${remainingText}, so ${actor.character.name} performs a ${basicLabel} basic attack.`;
+            typeof action.remainingCooldown === 'number' ? Math.max(0, action.remainingCooldown) : null;
+          const remainingText = remaining !== null ? ` (${remaining.toFixed(1)}s remaining)` : '';
+          message = `${action.ability.name} is on cooldown${remainingText}, so ${actor.character.name} performs a ${
+            effectType === 'PhysicalDamage' ? 'melee' : 'magic'
+          } basic attack.`;
         } else if (action.reason === 'resource' && action.ability) {
           const available = typeof action.available === 'number' ? action.available : 0;
-          message = `${actor.character.name} lacks ${action.resourceType} (${available}/${action.required}) for ${action.ability.name} and performs a ${basicLabel} basic attack.`;
+          message = `${actor.character.name} lacks ${action.resourceType} (${available}/${action.required}) for ${
+            action.ability.name
+          } and performs a ${effectType === 'PhysicalDamage' ? 'melee' : 'magic'} basic attack.`;
         } else if (action.reason === 'missingAbility') {
-          message = `${actor.character.name} cannot use unknown ability ${action.abilityId} and performs a ${basicLabel} basic attack.`;
+          message = `${actor.character.name} cannot use unknown ability ${action.abilityId} and performs a ${
+            effectType === 'PhysicalDamage' ? 'melee' : 'magic'
+          } basic attack.`;
         } else if (action.reason === 'noRotation') {
-          message = `${actor.character.name} has no rotation ready and performs a ${basicLabel} basic attack.`;
+          message = `${actor.character.name} has no rotation ready and performs a ${
+            effectType === 'PhysicalDamage' ? 'melee' : 'magic'
+          } basic attack.`;
         }
 
-        pushLog(log, message || `${actor.character.name} performs a ${basicLabel} basic attack.`, {
+        pushLog(log, message || `${actor.character.name} performs a ${effectType === 'PhysicalDamage' ? 'melee' : 'magic'} basic attack.`, {
           sourceId: actor.character.id,
           targetId: target.character.id,
           kind: 'basicAttack',
         });
 
         const effect =
-          actor.character.basicType === 'melee'
+          effectType === 'PhysicalDamage'
             ? { type: 'PhysicalDamage', value: 0 }
             : { type: 'MagicDamage', value: 0 };
         applyEffect(actor, target, effect, now, log);
+        processOnHitEffects(
+          actor,
+          target,
+          'basic',
+          { damageType: effectType === 'PhysicalDamage' ? 'physical' : 'magical' },
+          now,
+          log,
+        );
       }
     }
     nextTimes[idx] += actor.derived.attackIntervalSeconds;
@@ -104,7 +169,6 @@ async function runCombat(charA, charB, abilityMap, onUpdate) {
     const newLogs = log.slice(before);
     if (onUpdate) onUpdate({ type: 'update', a: state(a), b: state(b), log: newLogs });
     if (a.health > 0 && b.health > 0) {
-      // wait in real time until the next scheduled action
       await new Promise(res => setTimeout(res, wait * 1000));
     }
   }

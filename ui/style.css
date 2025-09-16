@@ -80,3 +80,31 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #levelup-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; }
 #levelup-dialog .dialog-box { border:1px solid #000; padding:8px; width:300px; }
 #levelup-dialog .dialog-buttons { margin-top:8px; text-align:right; }
+
+#shop-header { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+#shop-gold { font-weight:bold; }
+.message { border:1px solid #000; padding:4px 6px; background:#fff; }
+.message.error { background:#000; color:#fff; }
+.item-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:8px; }
+.item-card { border:1px solid #000; padding:8px; display:flex; flex-direction:column; gap:6px; background:#fff; min-height:150px; }
+.item-card .name { font-weight:bold; text-transform:uppercase; }
+.item-card .meta { font-size:12px; }
+.item-card .cost { font-weight:bold; }
+.item-card .owned { font-size:12px; }
+.item-card button { margin-top:auto; }
+
+.inventory-layout { display:flex; gap:16px; flex-wrap:wrap; }
+.inventory-column { flex:1; min-width:220px; }
+.inventory-column h3 { margin-top:0; border-bottom:1px solid #000; padding-bottom:4px; }
+.equipment-panel { max-width:320px; }
+.equipment-slots { display:grid; grid-template-columns:repeat(2, minmax(140px,1fr)); gap:8px; margin-bottom:16px; }
+.equipment-slot { border:1px solid #000; padding:8px; min-height:110px; display:flex; flex-direction:column; background:#fff; }
+.equipment-slot.empty { border-style:dashed; }
+.equipment-slot .slot-name { font-weight:bold; margin-bottom:4px; }
+.equipment-slot .item-name { flex-grow:1; }
+.equipment-slot button { margin-top:8px; }
+
+.loadout-summary { display:flex; flex-direction:column; gap:12px; }
+.loadout-summary .stats-table { width:100%; }
+.simple-list { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:4px; }
+.simple-list li { border:1px solid #000; padding:4px 6px; background:#fff; }

@@ -1,6 +1,7 @@
 const path = require('path');
 const { readJSON, writeJSON } = require('../store/jsonStore');
 const { getAbilities } = require('./abilityService');
+const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
 const { xpForNextLevel } = require('./characterService');
 
@@ -23,12 +24,13 @@ async function queueMatch(characterId, send) {
   }
   const abilities = await getAbilities();
   const abilityMap = new Map(abilities.map(a => [a.id, a]));
+  const equipmentMap = await getEquipmentMap();
   return new Promise(resolve => {
     queue.push({ character, send, resolve });
     if (queue.length >= 2) {
       const a = queue.shift();
       const b = queue.shift();
-      runCombat(a.character, b.character, abilityMap, event => {
+      runCombat(a.character, b.character, abilityMap, equipmentMap, event => {
         if (event.type === 'start') {
           a.send({ type: 'start', you: event.a, opponent: event.b });
           b.send({ type: 'start', you: event.b, opponent: event.a });

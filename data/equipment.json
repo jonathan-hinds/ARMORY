@@ -1,0 +1,307 @@
+{
+  "weapons": [
+    {
+      "id": "weapon_rusted_shortsword",
+      "name": "Rusted Shortsword",
+      "slot": "weapon",
+      "type": "sword",
+      "rarity": "Common",
+      "cost": 35,
+      "damageType": "physical",
+      "baseDamage": { "min": 4, "max": 8 },
+      "scaling": { "strength": "D" },
+      "attributeBonuses": { "strength": 1 }
+    },
+    {
+      "id": "weapon_militia_spear",
+      "name": "Militia Spear",
+      "slot": "weapon",
+      "type": "spear",
+      "rarity": "Common",
+      "cost": 45,
+      "damageType": "physical",
+      "baseDamage": { "min": 5, "max": 9 },
+      "scaling": { "strength": "E", "agility": "D" },
+      "attributeBonuses": { "agility": 1 }
+    },
+    {
+      "id": "weapon_apprentice_wand",
+      "name": "Apprentice Wand",
+      "slot": "weapon",
+      "type": "wand",
+      "rarity": "Common",
+      "cost": 45,
+      "damageType": "magical",
+      "baseDamage": { "min": 3, "max": 7 },
+      "scaling": { "intellect": "D", "wisdom": "E" },
+      "attributeBonuses": { "intellect": 1 },
+      "resourceBonuses": { "mana": 10 }
+    },
+    {
+      "id": "weapon_soldiers_longsword",
+      "name": "Soldier's Longsword",
+      "slot": "weapon",
+      "type": "sword",
+      "rarity": "Uncommon",
+      "cost": 110,
+      "damageType": "physical",
+      "baseDamage": { "min": 8, "max": 14 },
+      "scaling": { "strength": "C" },
+      "attributeBonuses": { "strength": 2, "stamina": 1 }
+    },
+    {
+      "id": "weapon_hunter_twin_daggers",
+      "name": "Hunter's Twin Daggers",
+      "slot": "weapon",
+      "type": "dagger",
+      "rarity": "Uncommon",
+      "cost": 130,
+      "damageType": "physical",
+      "baseDamage": { "min": 6, "max": 10 },
+      "scaling": { "agility": "B" },
+      "attributeBonuses": { "agility": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.3,
+          "effect": { "type": "PhysicalDamage", "value": 4 }
+        }
+      ]
+    },
+    {
+      "id": "weapon_brutal_battleaxe",
+      "name": "Brutal Battleaxe",
+      "slot": "weapon",
+      "type": "axe",
+      "rarity": "Rare",
+      "cost": 250,
+      "damageType": "physical",
+      "baseDamage": { "min": 12, "max": 20 },
+      "scaling": { "strength": "B", "stamina": "D" },
+      "attributeBonuses": { "strength": 3 },
+      "resourceBonuses": { "stamina": 10 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.05,
+          "effect": { "type": "Stun", "duration": 1.5 }
+        }
+      ]
+    },
+    {
+      "id": "weapon_stormbinder_staff",
+      "name": "Stormbinder Staff",
+      "slot": "weapon",
+      "type": "staff",
+      "rarity": "Rare",
+      "cost": 260,
+      "damageType": "magical",
+      "baseDamage": { "min": 10, "max": 18 },
+      "scaling": { "intellect": "B", "wisdom": "C" },
+      "attributeBonuses": { "intellect": 3, "wisdom": 1 },
+      "resourceBonuses": { "mana": 20 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "chance": 0.25,
+          "conditions": { "school": "magical" },
+          "effect": { "type": "BuffDamagePct", "amount": 0.15, "duration": 4 }
+        }
+      ]
+    },
+    {
+      "id": "weapon_shadow_blades",
+      "name": "Shadow Blades",
+      "slot": "weapon",
+      "type": "dualblades",
+      "rarity": "Epic",
+      "cost": 420,
+      "damageType": "physical",
+      "baseDamage": { "min": 9, "max": 16 },
+      "scaling": { "agility": "A", "strength": "D" },
+      "attributeBonuses": { "agility": 4 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.2,
+          "effect": { "type": "BuffDamagePct", "amount": 0.2, "duration": 3 }
+        }
+      ]
+    },
+    {
+      "id": "weapon_arcane_orb",
+      "name": "Arcane Orb",
+      "slot": "weapon",
+      "type": "focus",
+      "rarity": "Epic",
+      "cost": 430,
+      "damageType": "magical",
+      "baseDamage": { "min": 14, "max": 22 },
+      "scaling": { "intellect": "A", "wisdom": "B" },
+      "attributeBonuses": { "wisdom": 3, "intellect": 2 },
+      "resourceBonuses": { "mana": 30 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "chance": 0.2,
+          "conditions": { "school": "magical" },
+          "effect": { "type": "MagicDamage", "value": 6 }
+        }
+      ]
+    },
+    {
+      "id": "weapon_dragonsbreath_greatsword",
+      "name": "Dragonsbreath Greatsword",
+      "slot": "weapon",
+      "type": "greatsword",
+      "rarity": "Legendary",
+      "cost": 800,
+      "damageType": "physical",
+      "baseDamage": { "min": 20, "max": 30 },
+      "scaling": { "strength": "S", "stamina": "B" },
+      "attributeBonuses": { "strength": 5, "stamina": 3 },
+      "resourceBonuses": { "stamina": 15 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.25,
+          "effect": { "type": "PhysicalDamage", "value": 12 }
+        },
+        {
+          "trigger": "basic",
+          "chance": 0.15,
+          "effect": { "type": "Stun", "duration": 2 }
+        }
+      ]
+    }
+  ],
+  "armor": [
+    {
+      "id": "armor_padded_hood",
+      "name": "Padded Hood",
+      "slot": "helmet",
+      "type": "cloth",
+      "rarity": "Common",
+      "cost": 40,
+      "attributeBonuses": { "intellect": 1, "wisdom": 1 },
+      "resourceBonuses": { "mana": 10 },
+      "resistances": { "magic": 0.03 }
+    },
+    {
+      "id": "armor_iron_visor",
+      "name": "Iron Visor",
+      "slot": "helmet",
+      "type": "plate",
+      "rarity": "Uncommon",
+      "cost": 95,
+      "attributeBonuses": { "stamina": 2 },
+      "resourceBonuses": { "health": 20 },
+      "resistances": { "melee": 0.06 }
+    },
+    {
+      "id": "armor_travelers_vest",
+      "name": "Traveler's Vest",
+      "slot": "chest",
+      "type": "leather",
+      "rarity": "Common",
+      "cost": 40,
+      "attributeBonuses": { "agility": 1 },
+      "resourceBonuses": { "stamina": 5 },
+      "resistances": { "melee": 0.04, "magic": 0.01 }
+    },
+    {
+      "id": "armor_guardian_cuirass",
+      "name": "Guardian Cuirass",
+      "slot": "chest",
+      "type": "plate",
+      "rarity": "Rare",
+      "cost": 220,
+      "attributeBonuses": { "stamina": 3, "strength": 1 },
+      "resourceBonuses": { "health": 60 },
+      "resistances": { "melee": 0.1, "magic": 0.03 }
+    },
+    {
+      "id": "armor_scout_trousers",
+      "name": "Scout's Trousers",
+      "slot": "legs",
+      "type": "leather",
+      "rarity": "Common",
+      "cost": 38,
+      "attributeBonuses": { "agility": 2 },
+      "resourceBonuses": { "stamina": 8 },
+      "resistances": { "melee": 0.03 }
+    },
+    {
+      "id": "armor_mystic_legwraps",
+      "name": "Mystic Legwraps",
+      "slot": "legs",
+      "type": "cloth",
+      "rarity": "Uncommon",
+      "cost": 120,
+      "attributeBonuses": { "intellect": 2 },
+      "resourceBonuses": { "mana": 20 },
+      "resistances": { "magic": 0.06 }
+    },
+    {
+      "id": "armor_leather_boots",
+      "name": "Leather Boots",
+      "slot": "feet",
+      "type": "leather",
+      "rarity": "Common",
+      "cost": 32,
+      "attributeBonuses": { "agility": 1 },
+      "resourceBonuses": { "stamina": 5 },
+      "resistances": { "melee": 0.02 },
+      "attackIntervalModifier": -0.1
+    },
+    {
+      "id": "armor_tempest_greaves",
+      "name": "Tempest Greaves",
+      "slot": "feet",
+      "type": "plate",
+      "rarity": "Epic",
+      "cost": 360,
+      "attributeBonuses": { "agility": 3, "stamina": 2 },
+      "resourceBonuses": { "stamina": 12 },
+      "resistances": { "melee": 0.05, "magic": 0.02 },
+      "attackIntervalModifier": -0.2,
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.15,
+          "effect": { "type": "BuffDamagePct", "amount": 0.1, "duration": 4 }
+        }
+      ]
+    },
+    {
+      "id": "armor_gripwrap_gloves",
+      "name": "Gripwrap Gloves",
+      "slot": "hands",
+      "type": "leather",
+      "rarity": "Common",
+      "cost": 30,
+      "attributeBonuses": { "strength": 1 },
+      "resourceBonuses": { "stamina": 5 },
+      "resistances": { "melee": 0.01 }
+    },
+    {
+      "id": "armor_venomweave_grips",
+      "name": "Venomweave Grips",
+      "slot": "hands",
+      "type": "cloth",
+      "rarity": "Rare",
+      "cost": 210,
+      "attributeBonuses": { "agility": 2, "intellect": 1 },
+      "resourceBonuses": { "stamina": 6 },
+      "resistances": { "magic": 0.04 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.2,
+          "conditions": { "damageType": "physical" },
+          "effect": { "type": "Poison", "damage": 4, "duration": 6, "interval": 2 }
+        }
+      ]
+    }
+  ]
+}
