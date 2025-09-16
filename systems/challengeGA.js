@@ -100,19 +100,6 @@ function randomName(round, index) {
   return `${base} ${round}.${index + 1}`;
 }
 
-function randomBehavior() {
-  const healThreshold = 0.3 + Math.random() * 0.4;
-  return { healThreshold };
-}
-
-function sanitizeBehavior(behavior) {
-  if (!behavior || typeof behavior.healThreshold !== 'number') {
-    return randomBehavior();
-  }
-  const clamped = Math.min(Math.max(behavior.healThreshold, 0.05), 0.95);
-  return { healThreshold: clamped };
-}
-
 function adjustAttributes(attributes, total) {
   const adjusted = {};
   STATS.forEach(stat => {
@@ -331,7 +318,6 @@ function normalizeGenome(genome, context) {
   const { totalPoints, abilityIds, gearBudget, itemsBySlot, playerCosts, equipmentMap } = context;
   const attributes = adjustAttributes(genome && genome.attributes ? genome.attributes : {}, totalPoints);
   const rotation = ensureRotation(genome && genome.rotation ? genome.rotation : [], abilityIds);
-  const behavior = sanitizeBehavior(genome && genome.behavior ? genome.behavior : null);
   const equipment = sanitizeEquipment(genome && genome.equipment ? genome.equipment : {}, gearBudget, equipmentMap);
   let basicType = genome && genome.basicType === 'magic' ? 'magic' : 'melee';
   if (!genome || !genome.basicType) {
@@ -342,7 +328,6 @@ function normalizeGenome(genome, context) {
     basicType,
     attributes,
     rotation,
-    behavior,
     equipment,
     name: named,
   };
@@ -351,7 +336,6 @@ function normalizeGenome(genome, context) {
 function randomGenome(context) {
   const attributes = randomAttributes(context.totalPoints);
   const rotation = randomRotation(context.abilityIds);
-  const behavior = randomBehavior();
   const equipment = randomEquipment(context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
   const basicType = randomBasicType(attributes);
   return normalizeGenome(
@@ -359,7 +343,6 @@ function randomGenome(context) {
       basicType,
       attributes,
       rotation,
-      behavior,
       equipment,
     },
     context,
@@ -371,15 +354,9 @@ function mutateGenome(genome, context) {
   const stat = STATS[randomInt(STATS.length)];
   attributes[stat] = (attributes[stat] || 0) + (Math.random() < 0.5 ? -1 : 1);
   const rotation = mutateRotation(genome.rotation || [], context.abilityIds);
-  const behavior = sanitizeBehavior({
-    healThreshold:
-      (genome.behavior && typeof genome.behavior.healThreshold === 'number'
-        ? genome.behavior.healThreshold
-        : randomBehavior().healThreshold) + (Math.random() - 0.5) * 0.2,
-  });
   const equipment = mutateEquipment(genome.equipment || {}, context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
   const basicType = Math.random() < 0.3 ? (genome.basicType === 'magic' ? 'melee' : 'magic') : genome.basicType;
-  return normalizeGenome({ basicType, attributes, rotation, behavior, equipment, name: genome.name }, context);
+  return normalizeGenome({ basicType, attributes, rotation, equipment, name: genome.name }, context);
 }
 
 function breedGenomes(parentA, parentB, context) {
@@ -397,13 +374,6 @@ function breedGenomes(parentA, parentB, context) {
     attributes[stat] = value;
   });
   const rotation = breedRotation(parentA.rotation || [], parentB.rotation || [], context.abilityIds);
-  const baseBehavior = {
-    healThreshold:
-      ((parentA.behavior && parentA.behavior.healThreshold) || 0.5 + (parentB.behavior && parentB.behavior.healThreshold) || 0.5) /
-        2 +
-      (Math.random() - 0.5) * 0.2,
-  };
-  const behavior = sanitizeBehavior(baseBehavior);
   let equipment = breedEquipment(parentA.equipment || {}, parentB.equipment || {}, context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
   if (Math.random() < MUTATION_RATE) {
     equipment = mutateEquipment(equipment, context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
@@ -416,7 +386,7 @@ function breedGenomes(parentA, parentB, context) {
   } else {
     basicType = randomBasicType(attributes);
   }
-  return normalizeGenome({ basicType, attributes, rotation, behavior, equipment }, context);
+  return normalizeGenome({ basicType, attributes, rotation, equipment }, context);
 }
 
 function computePlayerGear(character, equipmentMap) {
@@ -449,7 +419,6 @@ function buildAICharacter(genome, baseCharacter, index, round, options = {}) {
     xp: 0,
     rotation: clone(genome.rotation),
     equipment: ensureEquipmentShape(genome.equipment || {}),
-    behavior: clone(genome.behavior || {}),
   };
 }
 
@@ -477,7 +446,6 @@ function buildOpponentPreview(character, equipmentMap, metrics) {
     level: character.level,
     basicType: character.basicType,
     attributes: clone(character.attributes || {}),
-    behavior: clone(character.behavior || null),
     rotation: Array.isArray(character.rotation) ? character.rotation.slice() : [],
     equipment,
     derived: {

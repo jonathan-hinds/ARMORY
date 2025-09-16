@@ -978,13 +978,6 @@ function renderOpponentPreview(opponent) {
   derivedTable.appendChild(derivedRow4);
   container.appendChild(derivedTable);
 
-  if (opponent.behavior && typeof opponent.behavior.healThreshold === 'number') {
-    const behaviorDiv = document.createElement('div');
-    behaviorDiv.className = 'opponent-behavior';
-    behaviorDiv.textContent = `Heals below ${Math.round(opponent.behavior.healThreshold * 100)}% health`;
-    container.appendChild(behaviorDiv);
-  }
-
   const equipmentSection = document.createElement('div');
   equipmentSection.className = 'equipment-section';
   const equipmentTitle = document.createElement('div');
