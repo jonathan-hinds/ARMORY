@@ -58,6 +58,19 @@ function abilityTooltip(ability) {
   return container;
 }
 
+function classifyLogEntry(entry, youId, opponentId) {
+  if (!entry || typeof entry !== 'object') return 'neutral';
+  const you = youId != null ? String(youId) : null;
+  const opp = opponentId != null ? String(opponentId) : null;
+  const src = entry.sourceId != null ? String(entry.sourceId) : null;
+  const tgt = entry.targetId != null ? String(entry.targetId) : null;
+  if (src && you && src === you) return 'you';
+  if (src && opp && src === opp) return 'opponent';
+  if (tgt && you && tgt === you) return 'you';
+  if (tgt && opp && tgt === opp) return 'opponent';
+  return 'neutral';
+}
+
 const authDiv = document.getElementById('auth');
 const charSelectDiv = document.getElementById('character-select');
 const gameDiv = document.getElementById('game');
@@ -350,7 +363,8 @@ function selectMode(mode) {
       battleArea.innerHTML = 'Waiting for opponent...';
       const es = new EventSource(`/matchmaking/queue?characterId=${currentCharacter.id}`);
       let youId = null;
-      let youBars, oppBars, logDiv, closeBtn;
+      let opponentId = null;
+      let youBars, oppBars, logDiv, closeBtn, appendLogEntry;
       const updateBar = (el, cur, max) => {
         el.style.width = `${Math.max(0, (cur / max) * 100)}%`;
       };
@@ -358,21 +372,28 @@ function selectMode(mode) {
         const data = JSON.parse(ev.data);
         if (data.type === 'start') {
           youId = data.you.id;
+          opponentId = data.opponent.id;
           const dialog = document.createElement('div');
           dialog.id = 'battle-dialog';
           dialog.innerHTML = `
             <div class="dialog-box">
-              <div id="you" class="combatant">
-                <div class="name">${data.you.name}</div>
-                <div class="bar health"><div class="fill"></div></div>
-                <div class="bar mana"><div class="fill"></div></div>
-                <div class="bar stamina"><div class="fill"></div></div>
-              </div>
-              <div id="opponent" class="combatant">
-                <div class="name">${data.opponent.name}</div>
-                <div class="bar health"><div class="fill"></div></div>
-                <div class="bar mana"><div class="fill"></div></div>
-                <div class="bar stamina"><div class="fill"></div></div>
+              <div class="combatants-row">
+                <div id="you" class="combatant">
+                  <div class="name">${data.you.name}</div>
+                  <div class="bars">
+                    <div class="bar health"><div class="fill"></div></div>
+                    <div class="bar mana"><div class="fill"></div></div>
+                    <div class="bar stamina"><div class="fill"></div></div>
+                  </div>
+                </div>
+                <div id="opponent" class="combatant">
+                  <div class="name">${data.opponent.name}</div>
+                  <div class="bars">
+                    <div class="bar health"><div class="fill"></div></div>
+                    <div class="bar mana"><div class="fill"></div></div>
+                    <div class="bar stamina"><div class="fill"></div></div>
+                  </div>
+                </div>
               </div>
               <div id="battle-log"></div>
               <div class="dialog-buttons"><button id="battle-close" class="hidden">Close</button></div>
@@ -399,34 +420,48 @@ function selectMode(mode) {
           closeBtn.addEventListener('click', () => {
             dialog.remove();
           });
-          updateBar(youBars.health, data.you.health, youBars.maxHealth);
-          updateBar(youBars.mana, data.you.mana, youBars.maxMana);
-          updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
-          updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
-          updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
-          updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
-        } else if (data.type === 'update') {
-          data.log.forEach(l => {
-            const d = document.createElement('div');
-            d.textContent = l;
-            logDiv.appendChild(d);
+          appendLogEntry = (payload, forcedType) => {
+            if (!logDiv) return;
+            const entry = typeof payload === 'string' ? { message: payload } : payload;
+            if (!entry || !entry.message) return;
+            const message = document.createElement('div');
+            message.classList.add('log-message');
+            const type = forcedType || classifyLogEntry(entry, youId, opponentId);
+            message.classList.add(type || 'neutral');
+            message.textContent = entry.message;
+            logDiv.appendChild(message);
             logDiv.scrollTop = logDiv.scrollHeight;
-          });
-          updateBar(youBars.health, data.you.health, youBars.maxHealth);
-          updateBar(youBars.mana, data.you.mana, youBars.maxMana);
-          updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
-          updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
-          updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
-          updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
+          };
+          if (youBars) {
+            updateBar(youBars.health, data.you.health, youBars.maxHealth);
+            updateBar(youBars.mana, data.you.mana, youBars.maxMana);
+            updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
+          }
+          if (oppBars) {
+            updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
+            updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
+            updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
+          }
+        } else if (data.type === 'update') {
+          if (appendLogEntry && Array.isArray(data.log)) {
+            data.log.forEach(l => appendLogEntry(l));
+          }
+          if (youBars) {
+            updateBar(youBars.health, data.you.health, youBars.maxHealth);
+            updateBar(youBars.mana, data.you.mana, youBars.maxMana);
+            updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
+          }
+          if (oppBars) {
+            updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
+            updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
+            updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
+          }
         } else if (data.type === 'end') {
           const win = data.winnerId === youId;
-          const outcome = document.createElement('div');
-          outcome.textContent = win ? 'You won!' : 'You lost!';
-          const reward = document.createElement('div');
-          reward.textContent = `+${data.xpGain} XP, +${data.gpGain} GP`;
-          logDiv.appendChild(outcome);
-          logDiv.appendChild(reward);
-          logDiv.scrollTop = logDiv.scrollHeight;
+          if (appendLogEntry) {
+            appendLogEntry({ message: win ? 'Victory!' : 'Defeat...' }, 'neutral');
+            appendLogEntry({ message: `+${data.xpGain} XP, +${data.gpGain} GP` }, 'neutral');
+          }
           currentCharacter = data.character;
           const idx = characters.findIndex(c => c.id === data.character.id);
           if (idx >= 0) characters[idx] = data.character;

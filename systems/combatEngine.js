@@ -1,6 +1,7 @@
 const { compute } = require('./derivedStats');
 const { getAction } = require('./rotationEngine');
 const { applyEffect, tick } = require('./effectsEngine');
+const { pushLog } = require('./log');
 
 function createCombatant(character) {
   const derived = compute(character);
@@ -49,11 +50,20 @@ async function runCombat(charA, charB, abilityMap, onUpdate) {
     tick(actor, now, log);
     tick(target, now, log);
     if (actor.stunnedUntil > now) {
-      log.push(`${actor.character.name} is stunned and misses the turn`);
+      pushLog(log, `${actor.character.name} is stunned and misses the turn`, {
+        sourceId: actor.character.id,
+        targetId: actor.character.id,
+        kind: 'stun',
+      });
     } else {
       const action = getAction(actor, now, abilityMap);
       if (action.type === 'ability') {
-        log.push(`${actor.character.name} uses ${action.ability.name}`);
+        pushLog(log, `${actor.character.name} uses ${action.ability.name}`, {
+          sourceId: actor.character.id,
+          targetId: target.character.id,
+          kind: 'ability',
+          abilityId: action.ability.id,
+        });
         action.ability.effects.forEach(e => applyEffect(actor, target, e, now, log));
       } else {
         const basicLabel = actor.character.basicType === 'melee' ? 'melee' : 'magic';
@@ -75,7 +85,11 @@ async function runCombat(charA, charB, abilityMap, onUpdate) {
           message = `${actor.character.name} has no rotation ready and performs a ${basicLabel} basic attack.`;
         }
 
-        log.push(message || `${actor.character.name} performs a ${basicLabel} basic attack.`);
+        pushLog(log, message || `${actor.character.name} performs a ${basicLabel} basic attack.`, {
+          sourceId: actor.character.id,
+          targetId: target.character.id,
+          kind: 'basicAttack',
+        });
 
         const effect =
           actor.character.basicType === 'melee'
