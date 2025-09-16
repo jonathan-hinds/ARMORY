@@ -784,9 +784,14 @@ function updateAfterBattleEnd(data) {
     });
 }
 
-function launchCombatStream(url, { waitingText = 'Preparing battle...', onEnd } = {}) {
+function launchCombatStream(
+  url,
+  { waitingText = 'Preparing battle...', onEnd, onStart, onError, updateArea = true } = {},
+) {
   if (!currentCharacter) return null;
-  battleArea.textContent = waitingText;
+  if (updateArea && battleArea) {
+    battleArea.textContent = waitingText;
+  }
   const es = new EventSource(url);
   let youId = null;
   let opponentId = null;
@@ -921,6 +926,7 @@ function launchCombatStream(url, { waitingText = 'Preparing battle...', onEnd } 
       };
       applyResourceState(youBars, data.you);
       applyResourceState(oppBars, data.opponent);
+      if (onStart) onStart(data);
     } else if (data.type === 'update') {
       if (appendLogEntry && Array.isArray(data.log)) {
         data.log.forEach(l => appendLogEntry(l));
@@ -945,7 +951,10 @@ function launchCombatStream(url, { waitingText = 'Preparing battle...', onEnd } 
       if (onEnd) onEnd(data);
       es.close();
     } else if (data.type === 'error') {
-      battleArea.textContent = data.message || 'Battle failed';
+      if (onError) onError(data);
+      if (updateArea && battleArea) {
+        battleArea.textContent = data.message || 'Battle failed';
+      }
       if (onEnd) onEnd(null);
       es.close();
     }
@@ -1139,6 +1148,177 @@ function updateAdventureStartLabel() {
   } else {
     button.textContent = 'Start Adventure';
   }
+}
+
+function buildTooltipFromPairs(pairs = []) {
+  const container = document.createElement('div');
+  container.className = 'tooltip-grid';
+  pairs.forEach(([label, value]) => {
+    const l = document.createElement('div');
+    l.className = 'label';
+    l.textContent = label;
+    container.appendChild(l);
+    const v = document.createElement('div');
+    v.textContent = value != null ? value : '';
+    container.appendChild(v);
+  });
+  return container;
+}
+
+function launchAdventureReplay(event) {
+  if (!event || !event.id || !currentCharacter) return;
+  const url = `/adventure/replay?characterId=${currentCharacter.id}&eventId=${encodeURIComponent(event.id)}`;
+  const messageEl = adventureElements && adventureElements.message ? adventureElements.message : null;
+  let errorShown = false;
+  if (messageEl) {
+    showMessage(messageEl, 'Loading battle replay...', false);
+  }
+  const es = launchCombatStream(url, {
+    waitingText: 'Loading battle replay...',
+    updateArea: false,
+    onStart: () => {
+      if (messageEl && !errorShown) {
+        clearMessage(messageEl);
+      }
+    },
+    onEnd: data => {
+      if (messageEl && !errorShown) {
+        clearMessage(messageEl);
+      }
+      if (!data && messageEl && !errorShown) {
+        showMessage(messageEl, 'Failed to load battle replay.', true);
+      }
+    },
+    onError: info => {
+      if (!messageEl) return;
+      errorShown = true;
+      const message = info && info.message ? info.message : 'Failed to load battle replay.';
+      showMessage(messageEl, message, true);
+    },
+  });
+  if (!es && messageEl) {
+    showMessage(messageEl, 'Failed to start battle replay.', true);
+  }
+  return es;
+}
+
+function createAdventureItemCard(item) {
+  if (!item) return null;
+  const card = document.createElement('div');
+  card.className = 'event-card item-card';
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  if (item.rarity) {
+    card.dataset.rarity = String(item.rarity).toLowerCase();
+  }
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.textContent = 'Item Found';
+  card.appendChild(title);
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  const rarityText = item.rarity ? titleCase(item.rarity) : '';
+  const nameText = item.name || 'Unknown item';
+  body.textContent = rarityText ? `${rarityText} • ${nameText}` : nameText;
+  card.appendChild(body);
+  const itemDetails = item.id != null ? getEquipmentById(item.id) : null;
+  if (itemDetails) {
+    attachTooltip(card, () => itemTooltip(itemDetails));
+  } else {
+    attachTooltip(card, () => buildTooltipFromPairs([
+      ['Item', nameText],
+      ['Rarity', rarityText || 'Unknown'],
+    ]));
+  }
+  return card;
+}
+
+function createAdventureOpponentCard(event) {
+  if (!event || !event.opponent) return null;
+  const card = document.createElement('div');
+  card.className = 'event-card opponent-card';
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  if (event.result) {
+    card.dataset.result = event.result;
+  }
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  if (event.result === 'victory') {
+    title.textContent = 'Battle Won';
+  } else if (event.result === 'defeat') {
+    title.textContent = 'Battle Lost';
+  } else {
+    title.textContent = 'Combat Encounter';
+  }
+  card.appendChild(title);
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  const parts = [];
+  const opponentName = event.opponent.name || 'Unknown opponent';
+  parts.push(opponentName);
+  if (event.opponent.round != null) {
+    parts.push(`Round ${event.opponent.round}`);
+  }
+  if (event.opponent.basicType) {
+    parts.push(displayDamageType(event.opponent.basicType));
+  }
+  body.textContent = parts.filter(Boolean).join(' • ');
+  card.appendChild(body);
+  const previewData = event.opponent.preview || null;
+  if (previewData) {
+    attachTooltip(card, () => {
+      const preview = renderOpponentPreview(previewData);
+      if (preview) {
+        preview.classList.add('compact');
+        preview.dataset.tooltipTheme = 'dark';
+        return preview;
+      }
+      return buildTooltipFromPairs([['Opponent', opponentName]]);
+    });
+  } else {
+    attachTooltip(card, () => buildTooltipFromPairs([['Opponent', opponentName]]));
+  }
+  if (event.combat && event.combat.available) {
+    card.classList.add('has-replay');
+    card.setAttribute('data-action', 'view-battle');
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    const viewBtn = document.createElement('button');
+    viewBtn.type = 'button';
+    viewBtn.className = 'card-action view-battle';
+    viewBtn.textContent = 'View Battle';
+    viewBtn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      launchAdventureReplay(event);
+    });
+    actions.appendChild(viewBtn);
+    card.appendChild(actions);
+    card.addEventListener('click', () => {
+      launchAdventureReplay(event);
+    });
+    card.addEventListener('keydown', ev => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        launchAdventureReplay(event);
+      }
+    });
+  }
+  return card;
+}
+
+function buildAdventureEventCards(event) {
+  const cards = [];
+  if (!event) return cards;
+  if (event.item) {
+    const itemCard = createAdventureItemCard(event.item);
+    if (itemCard) cards.push(itemCard);
+  }
+  if (event.opponent) {
+    const opponentCard = createAdventureOpponentCard(event);
+    if (opponentCard) cards.push(opponentCard);
+  }
+  return cards;
 }
 
 function renderAdventureHistory(historyEntries) {
@@ -1367,15 +1547,21 @@ function renderAdventureStatus(status, { refreshEvents = true } = {}) {
       adventureElements.logList.appendChild(empty);
     } else {
       events.forEach(event => {
+        if (!event) return;
         const entry = document.createElement('div');
         entry.className = 'adventure-event';
-        if (event.type) entry.classList.add(`type-${event.type}`);
+        if (event.type) {
+          entry.classList.add(`type-${event.type}`);
+          entry.dataset.type = event.type;
+        }
         const header = document.createElement('div');
         header.className = 'event-header';
         const dayLabel = document.createElement('span');
+        dayLabel.className = 'event-day';
         dayLabel.textContent = `Day ${event.day || 1}`;
         header.appendChild(dayLabel);
         const timeLabel = document.createElement('span');
+        timeLabel.className = 'event-time';
         timeLabel.textContent = formatClockTime(event.timestamp);
         header.appendChild(timeLabel);
         entry.appendChild(header);
@@ -1406,6 +1592,14 @@ function renderAdventureStatus(status, { refreshEvents = true } = {}) {
           meta.className = 'event-meta';
           meta.textContent = metaParts.join(' • ');
           entry.appendChild(meta);
+        }
+        const cards = buildAdventureEventCards(event);
+        if (cards.length) {
+          const cardGroup = document.createElement('div');
+          cardGroup.className = 'event-cards';
+          cards.forEach(card => cardGroup.appendChild(card));
+          entry.appendChild(cardGroup);
+          entry.classList.add('has-cards');
         }
         adventureElements.logList.appendChild(entry);
       });
@@ -1489,14 +1683,23 @@ async function renderAdventurePanel() {
   }
   stopAdventurePolling();
   battleArea.textContent = 'Loading adventure...';
+  const resourcePromise = Promise.all([ensureCatalog(), loadAbilityCatalog()]);
+  let status;
   try {
-    const status = await fetchAdventureStatus();
-    adventureElements = null;
-    renderAdventureStatus(status);
-    ensureAdventureTimers(status);
+    status = await fetchAdventureStatus();
   } catch (err) {
     battleArea.textContent = err.message || 'Failed to load adventure.';
+    return;
   }
+  try {
+    await resourcePromise;
+  } catch (err) {
+    battleArea.textContent = err.message || 'Failed to load adventure.';
+    return;
+  }
+  adventureElements = null;
+  renderAdventureStatus(status);
+  ensureAdventureTimers(status);
 }
 
 // Battle modes
