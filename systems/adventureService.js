@@ -12,6 +12,7 @@ const {
   rewardForRound,
   normalizeGenome,
   computePlayerGear,
+  buildOpponentPreview,
 } = require('./challengeGA');
 const { runCombat } = require('./combatEngine');
 
@@ -203,12 +204,121 @@ function appendEvent(state, event, config) {
     rewards: event.rewards || null,
     opponent: event.opponent || null,
   };
+  if (event.combat) {
+    const combat = sanitizeCombatReplay(event.combat);
+    if (combat) {
+      entry.combat = combat;
+    }
+  }
   state.events.push(entry);
   const maxEntries = config.maxLogEntries || DEFAULT_MAX_LOG;
   if (state.events.length > maxEntries) {
     state.events.splice(0, state.events.length - maxEntries);
   }
   return entry;
+}
+
+function sanitizeOpponentPreview(preview) {
+  if (!preview || typeof preview !== 'object') return null;
+  const attributes = {};
+  STATS.forEach(stat => {
+    const raw = preview.attributes && preview.attributes[stat];
+    attributes[stat] = Number.isFinite(raw) ? raw : 0;
+  });
+  const derived = preview.derived && typeof preview.derived === 'object' ? preview.derived : {};
+  const sanitizedDerived = {
+    attackIntervalSeconds: Number.isFinite(derived.attackIntervalSeconds) ? derived.attackIntervalSeconds : null,
+    minMeleeAttack: Number.isFinite(derived.minMeleeAttack) ? derived.minMeleeAttack : null,
+    maxMeleeAttack: Number.isFinite(derived.maxMeleeAttack) ? derived.maxMeleeAttack : null,
+    minMagicAttack: Number.isFinite(derived.minMagicAttack) ? derived.minMagicAttack : null,
+    maxMagicAttack: Number.isFinite(derived.maxMagicAttack) ? derived.maxMagicAttack : null,
+    health: Number.isFinite(derived.health) ? derived.health : null,
+    mana: Number.isFinite(derived.mana) ? derived.mana : null,
+    stamina: Number.isFinite(derived.stamina) ? derived.stamina : null,
+    meleeResist: Number.isFinite(derived.meleeResist) ? derived.meleeResist : null,
+    magicResist: Number.isFinite(derived.magicResist) ? derived.magicResist : null,
+  };
+  const equipment = {};
+  if (preview.equipment && typeof preview.equipment === 'object') {
+    Object.entries(preview.equipment).forEach(([slot, value]) => {
+      if (value != null) equipment[slot] = value;
+    });
+  }
+  return {
+    name: preview.name || null,
+    basicType: preview.basicType || null,
+    level: Number.isFinite(preview.level) ? preview.level : null,
+    attributes,
+    derived: sanitizedDerived,
+    equipment,
+    rotation: Array.isArray(preview.rotation) ? preview.rotation.slice() : [],
+  };
+}
+
+function sanitizeCombatantState(state) {
+  if (!state || typeof state !== 'object') return null;
+  const ensureNumber = value => (Number.isFinite(value) ? value : 0);
+  return {
+    id: state.id != null ? state.id : null,
+    name: state.name || null,
+    health: ensureNumber(state.health),
+    mana: ensureNumber(state.mana),
+    stamina: ensureNumber(state.stamina),
+    maxHealth: ensureNumber(state.maxHealth),
+    maxMana: ensureNumber(state.maxMana),
+    maxStamina: ensureNumber(state.maxStamina),
+  };
+}
+
+function sanitizeCombatLogEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const message = entry.message != null ? String(entry.message) : '';
+  const sanitized = { message };
+  if (entry.sourceId != null) sanitized.sourceId = entry.sourceId;
+  if (entry.targetId != null) sanitized.targetId = entry.targetId;
+  if (entry.kind) sanitized.kind = entry.kind;
+  return sanitized;
+}
+
+function sanitizeCombatLog(log) {
+  if (!Array.isArray(log)) return [];
+  return log
+    .map(sanitizeCombatLogEntry)
+    .filter(entry => entry && entry.message != null);
+}
+
+function sanitizeCombatUpdate(update) {
+  if (!update || typeof update !== 'object') return null;
+  const type = update.type === 'start' ? 'start' : 'update';
+  const you = sanitizeCombatantState(update.you || update.a);
+  const opponent = sanitizeCombatantState(update.opponent || update.b);
+  if (!you || !opponent) return null;
+  return {
+    type,
+    you,
+    opponent,
+    log: sanitizeCombatLog(update.log),
+  };
+}
+
+function sanitizeCombatReplay(replay) {
+  if (!replay || typeof replay !== 'object') return null;
+  const updates = Array.isArray(replay.updates)
+    ? replay.updates.map(sanitizeCombatUpdate).filter(Boolean)
+    : [];
+  if (!updates.length) return null;
+  const sanitized = {
+    updates,
+    winnerId: replay.winnerId != null ? replay.winnerId : null,
+    duration: Number.isFinite(replay.duration) ? replay.duration : null,
+    youId: replay.youId != null ? replay.youId : null,
+    opponentId: replay.opponentId != null ? replay.opponentId : null,
+  };
+  const finalYou = sanitizeCombatantState(replay.finalYou);
+  if (finalYou) sanitized.finalYou = finalYou;
+  const finalOpponent = sanitizeCombatantState(replay.finalOpponent);
+  if (finalOpponent) sanitized.finalOpponent = finalOpponent;
+  return sanitized;
 }
 
 function sanitizeEvent(event) {
@@ -228,16 +338,30 @@ function sanitizeEvent(event) {
   };
   if (event.item) {
     sanitized.item = {
-      id: event.item.id,
+      id: event.item.id != null ? event.item.id : null,
       name: event.item.name,
       rarity: event.item.rarity || sanitized.rarity,
     };
   }
   if (event.opponent) {
-    sanitized.opponent = {
+    const opponent = {
       name: event.opponent.name || null,
       basicType: event.opponent.basicType || null,
       round: event.opponent.round != null ? event.opponent.round : null,
+    };
+    const preview = sanitizeOpponentPreview(event.opponent.preview);
+    if (preview) {
+      opponent.preview = preview;
+    }
+    if (event.opponent.id != null) {
+      opponent.id = event.opponent.id;
+    }
+    sanitized.opponent = opponent;
+  }
+  if (event.combat && Array.isArray(event.combat.updates) && event.combat.updates.length) {
+    sanitized.combat = {
+      available: true,
+      duration: Number.isFinite(event.combat.duration) ? event.combat.duration : null,
     };
   }
   return sanitized;
@@ -532,9 +656,20 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
     const intro = formatMessage(eventDef.message, { opponent: opponent.name }) || `Ambushed by ${opponent.name}!`;
     const playerClone = clone(bundle.character);
     const opponentClone = clone(opponent);
-    const result = await runCombat(playerClone, opponentClone, bundle.context.abilityMap, bundle.context.equipmentMap, {
-      fastForward: true,
-    });
+    const combatUpdates = [];
+    const result = await runCombat(
+      playerClone,
+      opponentClone,
+      bundle.context.abilityMap,
+      bundle.context.equipmentMap,
+      update => {
+        const record = sanitizeCombatUpdate(update);
+        if (record) {
+          combatUpdates.push(record);
+        }
+      },
+      { fastForward: true },
+    );
     const playerWon = String(result.winnerId) === String(bundle.character.id);
     const rewards = rewardForRound(round, bundle.characterDoc.level || 1);
     let xpGain = 0;
@@ -556,11 +691,27 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
       ended = 'defeat';
       defeatOpponent = { name: opponent.name, basicType: opponent.basicType, round };
     }
-    event.opponent = { name: opponent.name, basicType: opponent.basicType, round };
+    event.opponent = { name: opponent.name, basicType: opponent.basicType, round, id: opponent.id || null };
+    const preview = buildOpponentPreview(opponent, bundle.equipmentMap);
+    if (preview) {
+      event.opponent.preview = preview;
+    }
     event.rewards = { xp: xpGain, gold: goldGain };
     event.result = playerWon ? 'victory' : 'defeat';
     const rewardText = xpGain || goldGain ? ` +${xpGain} XP, +${goldGain} gold.` : '';
     event.message = `${intro} ${playerWon ? 'Victory!' : 'Defeat...'}${rewardText}`.trim();
+    const combatReplay = sanitizeCombatReplay({
+      updates: combatUpdates,
+      winnerId: result.winnerId,
+      duration: result.duration,
+      youId: bundle.character.id,
+      opponentId: opponent.id || null,
+      finalYou: result.finalA,
+      finalOpponent: result.finalB,
+    });
+    if (combatReplay) {
+      event.combat = combatReplay;
+    }
   } else {
     event.message = 'A quiet moment passes on the journey.';
   }
@@ -853,10 +1004,59 @@ async function ensureAdventureIdle(characterId) {
   }
 }
 
+async function streamAdventureCombat(characterId, eventId, send) {
+  if (!characterId || !eventId) {
+    throw new Error('combat replay unavailable');
+  }
+  const { state } = await findState(characterId);
+  if (!state) {
+    throw new Error('adventure not found');
+  }
+  const events = Array.isArray(state.events) ? state.events : [];
+  const rawEvent = events.find(entry => entry && entry.id === eventId);
+  if (!rawEvent || rawEvent.type !== 'combat') {
+    throw new Error('combat event not found');
+  }
+  if (!rawEvent.combat) {
+    throw new Error('combat replay unavailable');
+  }
+  const updates = Array.isArray(rawEvent.combat.updates) ? rawEvent.combat.updates : [];
+  if (!updates.length) {
+    throw new Error('combat replay unavailable');
+  }
+  updates.forEach(step => {
+    const update = sanitizeCombatUpdate(step);
+    if (!update) return;
+    send({
+      type: update.type,
+      you: update.you ? { ...update.you } : null,
+      opponent: update.opponent ? { ...update.opponent } : null,
+      log: Array.isArray(update.log) ? update.log.map(entry => ({ ...entry })) : [],
+    });
+  });
+  const xpGain = rawEvent.rewards && Number.isFinite(rawEvent.rewards.xp) ? rawEvent.rewards.xp : 0;
+  const goldGain = rawEvent.rewards && Number.isFinite(rawEvent.rewards.gold) ? rawEvent.rewards.gold : 0;
+  const summary = {
+    type: 'end',
+    winnerId: rawEvent.combat.winnerId != null ? rawEvent.combat.winnerId : null,
+    xpGain,
+    gpGain: goldGain,
+    result: rawEvent.result || null,
+  };
+  if (rawEvent.combat.finalYou) {
+    summary.finalYou = sanitizeCombatantState(rawEvent.combat.finalYou);
+  }
+  if (rawEvent.combat.finalOpponent) {
+    summary.finalOpponent = sanitizeCombatantState(rawEvent.combat.finalOpponent);
+  }
+  send(summary);
+}
+
 module.exports = {
   getAdventureStatus,
   startAdventure,
   isAdventureActive,
   ensureAdventureIdle,
   getAdventureConfig,
+  streamAdventureCombat,
 };

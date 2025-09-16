@@ -18,6 +18,7 @@ const {
   startAdventure,
   ensureAdventureIdle,
   isAdventureActive,
+  streamAdventureCombat,
 } = require("./systems/adventureService");
 const app = express();
 const connectDB = require("./db");
@@ -305,6 +306,30 @@ app.post("/adventure/start", async (req, res) => {
     console.error(err);
     res.status(400).json({ error: err.message || "failed to start adventure" });
   }
+});
+
+app.get("/adventure/replay", async (req, res) => {
+  const characterId = parseInt(req.query.characterId, 10);
+  const eventId = req.query.eventId;
+  if (!characterId || !eventId) {
+    return res.status(400).json({ error: "characterId and eventId required" });
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  const send = data => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    await streamAdventureCombat(characterId, eventId, send);
+  } catch (err) {
+    console.error(err);
+    send({ type: "error", message: err.message || "failed to load replay" });
+  }
+  res.end();
 });
 
 async function start() {
