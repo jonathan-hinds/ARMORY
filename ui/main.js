@@ -50,7 +50,7 @@ function abilityTooltip(ability) {
     if (e.type === 'MagicDamage') return `Magic Damage ${e.value}`;
     if (e.type === 'Heal') return `Heal ${e.value}`;
     if (e.type === 'BuffDamagePct') return `+${Math.round(e.amount * 100)}% Damage for ${e.duration}s`;
-    if (e.type === 'Stun') return `Stun ${e.duration}s`;
+    if (e.type === 'Stun') return `Stun ${e.turns} turn${e.turns > 1 ? 's' : ''}`;
     if (e.type === 'Poison') return `Poison ${e.damage} dmg/${e.interval}s for ${e.duration}s`;
     return e.type;
   }).join('<br/>');
