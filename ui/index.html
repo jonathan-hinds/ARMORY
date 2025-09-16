@@ -15,7 +15,7 @@
   <div id="character-select" class="hidden">
     <h2>Select Character</h2>
     <ul id="character-list"></ul>
-    <button id="create-character">Create Character</button>
+    <button id="create-character">Roll New Character</button>
   </div>
   <div id="name-dialog" class="hidden">
     <div class="dialog-box">
@@ -28,6 +28,12 @@
     </div>
   </div>
   <div id="game" class="hidden">
+    <div id="game-header">
+      <div id="active-character-summary">No character selected</div>
+      <div id="game-actions">
+        <button id="switch-character-btn">Switch Character</button>
+      </div>
+    </div>
     <nav id="tabs">
       <button data-tab="shop">Shop</button>
       <button data-tab="character">Character</button>
