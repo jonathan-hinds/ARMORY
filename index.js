@@ -106,9 +106,9 @@ app.get("/abilities", async (req, res) => {
 
 app.put("/characters/:characterId/rotation", async (req, res) => {
   const characterId = parseInt(req.params.characterId, 10);
-  const { rotation } = req.body;
+  const { rotation, basicType } = req.body || {};
   try {
-    const character = await updateRotation(characterId, rotation);
+    const character = await updateRotation(characterId, rotation, basicType);
     res.json(character);
   } catch (err) {
     console.error(err);

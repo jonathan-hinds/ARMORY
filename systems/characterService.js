@@ -6,7 +6,7 @@ function xpForNextLevel(level) {
   return level * 100;
 }
 
-async function updateRotation(characterId, rotation) {
+async function updateRotation(characterId, rotation, basicType) {
   if (!Array.isArray(rotation) || rotation.length < 3) {
     throw new Error('rotation must have at least 3 abilities');
   }
@@ -15,11 +15,23 @@ async function updateRotation(characterId, rotation) {
   if (rotation.some(id => !validIds.has(id))) {
     throw new Error('invalid ability id');
   }
+  let normalizedType = null;
+  if (typeof basicType === 'string') {
+    const trimmed = basicType.trim().toLowerCase();
+    if (trimmed === 'melee' || trimmed === 'magic') {
+      normalizedType = trimmed;
+    } else if (trimmed) {
+      throw new Error('invalid basic type');
+    }
+  }
   const characterDoc = await CharacterModel.findOne({ characterId });
   if (!characterDoc) {
     throw new Error('character not found');
   }
   characterDoc.rotation = rotation;
+  if (normalizedType) {
+    characterDoc.basicType = normalizedType;
+  }
   await characterDoc.save();
   return serializeCharacter(characterDoc);
 }
