@@ -9,6 +9,9 @@ const {
 const { getAbilities } = require("./systems/abilityService");
 const { updateRotation, levelUp } = require("./systems/characterService");
 const { queueMatch } = require("./systems/matchmaking");
+const { getEquipmentCatalog } = require("./systems/equipmentService");
+const { purchaseItem } = require("./systems/shopService");
+const { getInventory, setEquipment } = require("./systems/inventoryService");
 const app = express();
 
 app.use(express.json());
@@ -79,6 +82,16 @@ app.post("/players/:playerId/characters", async (req, res) => {
   }
 });
 
+app.get("/equipment", async (req, res) => {
+  try {
+    const catalog = await getEquipmentCatalog();
+    res.json(catalog);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to load equipment" });
+  }
+});
+
 app.get("/abilities", async (req, res) => {
   try {
     const abilities = await getAbilities();
@@ -107,6 +120,57 @@ app.post("/characters/:characterId/levelup", async (req, res) => {
   try {
     const character = await levelUp(characterId, allocations || {});
     res.json(character);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/players/:playerId/inventory", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  const characterId = parseInt(req.query.characterId, 10);
+  if (!playerId || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const data = await getInventory(playerId, characterId);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/shop/purchase", async (req, res) => {
+  const { playerId, itemId, characterId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  const cid = parseInt(characterId, 10);
+  if (!pid || !itemId) {
+    return res.status(400).json({ error: "playerId and itemId required" });
+  }
+  try {
+    await purchaseItem(pid, itemId);
+    if (!cid) {
+      return res.json({ success: true });
+    }
+    const data = await getInventory(pid, cid);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put("/characters/:characterId/equipment", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, slot, itemId = null } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!characterId || !pid || !slot) {
+    return res.status(400).json({ error: "playerId, characterId, and slot required" });
+  }
+  try {
+    const data = await setEquipment(pid, characterId, slot, itemId);
+    res.json(data);
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message });

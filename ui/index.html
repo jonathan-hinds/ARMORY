@@ -36,9 +36,29 @@
       <button data-tab="rotation">Rotation</button>
     </nav>
     <section id="content">
-      <div id="shop" class="tab-pane active">Shop content</div>
-      <div id="character" class="tab-pane">Character content</div>
-      <div id="inventory" class="tab-pane">Inventory content</div>
+      <div id="shop" class="tab-pane active">
+        <div id="shop-header">
+          <div id="shop-gold">Gold: 0</div>
+          <div id="shop-message" class="message hidden"></div>
+        </div>
+        <div id="shop-grid" class="item-grid"></div>
+      </div>
+      <div id="character" class="tab-pane"></div>
+      <div id="inventory" class="tab-pane">
+        <div id="inventory-message" class="message hidden"></div>
+        <div class="inventory-layout">
+          <div class="inventory-column">
+            <h3>Owned Gear</h3>
+            <div id="inventory-grid" class="item-grid"></div>
+          </div>
+          <div class="inventory-column equipment-panel">
+            <h3>Equipped</h3>
+            <div id="equipment-slots" class="equipment-slots"></div>
+            <h3>Loadout Summary</h3>
+            <div id="loadout-summary" class="loadout-summary"></div>
+          </div>
+        </div>
+      </div>
       <div id="battle" class="tab-pane">
         <div id="battle-modes">
           <button data-mode="matchmaking">Matchmaking</button>
