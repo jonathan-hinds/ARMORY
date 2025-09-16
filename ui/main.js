@@ -638,8 +638,79 @@ function selectMode(mode) {
       let youId = null;
       let opponentId = null;
       let youBars, oppBars, logDiv, closeBtn, appendLogEntry;
-      const updateBar = (el, cur, max) => {
-        el.style.width = `${Math.max(0, (cur / max) * 100)}%`;
+      const updateBar = (bar, current, maxValue) => {
+        if (!bar) return;
+        if (typeof maxValue === 'number') {
+          bar.max = maxValue;
+        }
+        const max = typeof bar.max === 'number' && bar.max > 0 ? bar.max : 0;
+        const nextCurrent = typeof current === 'number' ? current : bar.current || 0;
+        bar.current = nextCurrent;
+        const clampedCurrent = max > 0 ? Math.min(Math.max(nextCurrent, 0), max) : Math.max(nextCurrent, 0);
+        const ratio = max > 0 ? clampedCurrent / max : 0;
+        if (bar.fill) {
+          bar.fill.style.width = `${Math.max(0, Math.min(ratio, 1)) * 100}%`;
+        }
+        const displayCurrent = Math.round(Math.max(nextCurrent, 0));
+        const displayMax = Math.round(max);
+        if (bar.labelText) {
+          bar.labelText.textContent = `${bar.prefix}: ${displayCurrent} / ${displayMax}`;
+        }
+        if (bar.labelContainer) {
+          const coverageThreshold = 0.65;
+          let useLightText = ratio >= coverageThreshold;
+          if (bar.element && bar.fill && bar.labelText) {
+            const barWidth = bar.element.clientWidth;
+            const fillWidth = bar.fill.clientWidth;
+            const textWidth = bar.labelText.getBoundingClientRect().width;
+            const constrainedTextWidth = Math.min(textWidth, barWidth);
+            const textStart = Math.max(0, (barWidth - constrainedTextWidth) / 2);
+            const textEnd = textStart + constrainedTextWidth;
+            const coverage = Math.max(0, Math.min(fillWidth, textEnd) - textStart);
+            const coverageRatio = constrainedTextWidth > 0 ? coverage / constrainedTextWidth : 0;
+            useLightText = coverageRatio >= coverageThreshold;
+          }
+          bar.labelContainer.style.color = useLightText ? '#fff' : '#000';
+        }
+      };
+
+      const createBar = (dialogEl, selector, prefix, maxValue) => {
+        const barEl = dialogEl.querySelector(selector);
+        if (!barEl) return null;
+        const fillEl = barEl.querySelector('.fill');
+        const labelContainer = barEl.querySelector('.label');
+        const labelText = barEl.querySelector('.label .value') || labelContainer;
+        return {
+          element: barEl,
+          fill: fillEl,
+          labelContainer,
+          labelText,
+          prefix,
+          max: typeof maxValue === 'number' ? maxValue : 0,
+          current: 0,
+        };
+      };
+
+      const createBarGroup = (dialogEl, combatantId, stats) => {
+        const s = stats || {};
+        return {
+          health: createBar(dialogEl, `#${combatantId} .bar.health`, 'HP', s.maxHealth),
+          mana: createBar(dialogEl, `#${combatantId} .bar.mana`, 'MP', s.maxMana),
+          stamina: createBar(dialogEl, `#${combatantId} .bar.stamina`, 'SP', s.maxStamina),
+          maxHealth: typeof s.maxHealth === 'number' ? s.maxHealth : 0,
+          maxMana: typeof s.maxMana === 'number' ? s.maxMana : 0,
+          maxStamina: typeof s.maxStamina === 'number' ? s.maxStamina : 0,
+        };
+      };
+
+      const applyResourceState = (group, state) => {
+        if (!group || !state) return;
+        if (typeof state.maxHealth === 'number') group.maxHealth = state.maxHealth;
+        if (typeof state.maxMana === 'number') group.maxMana = state.maxMana;
+        if (typeof state.maxStamina === 'number') group.maxStamina = state.maxStamina;
+        updateBar(group.health, state.health, group.maxHealth);
+        updateBar(group.mana, state.mana, group.maxMana);
+        updateBar(group.stamina, state.stamina, group.maxStamina);
       };
       es.onmessage = ev => {
         const data = JSON.parse(ev.data);
@@ -656,17 +727,17 @@ function selectMode(mode) {
                 <div id="you" class="combatant">
                   <div class="name">${data.you.name}</div>
                   <div class="bars">
-                    <div class="bar health"><div class="fill"></div></div>
-                    <div class="bar mana"><div class="fill"></div></div>
-                    <div class="bar stamina"><div class="fill"></div></div>
+                    <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                    <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                    <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
                   </div>
                 </div>
                 <div id="opponent" class="combatant">
                   <div class="name">${data.opponent.name}</div>
                   <div class="bars">
-                    <div class="bar health"><div class="fill"></div></div>
-                    <div class="bar mana"><div class="fill"></div></div>
-                    <div class="bar stamina"><div class="fill"></div></div>
+                    <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                    <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+                    <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
                   </div>
                 </div>
               </div>
@@ -674,22 +745,8 @@ function selectMode(mode) {
               <div class="dialog-buttons"><button id="battle-close" class="hidden">Close</button></div>
             </div>`;
           document.body.appendChild(dialog);
-          youBars = {
-            health: dialog.querySelector('#you .health .fill'),
-            mana: dialog.querySelector('#you .mana .fill'),
-            stamina: dialog.querySelector('#you .stamina .fill'),
-            maxHealth: data.you.maxHealth,
-            maxMana: data.you.maxMana,
-            maxStamina: data.you.maxStamina,
-          };
-          oppBars = {
-            health: dialog.querySelector('#opponent .health .fill'),
-            mana: dialog.querySelector('#opponent .mana .fill'),
-            stamina: dialog.querySelector('#opponent .stamina .fill'),
-            maxHealth: data.opponent.maxHealth,
-            maxMana: data.opponent.maxMana,
-            maxStamina: data.opponent.maxStamina,
-          };
+          youBars = createBarGroup(dialog, 'you', data.you);
+          oppBars = createBarGroup(dialog, 'opponent', data.opponent);
           logDiv = dialog.querySelector('#battle-log');
           closeBtn = dialog.querySelector('#battle-close');
           closeBtn.addEventListener('click', () => {
@@ -707,30 +764,14 @@ function selectMode(mode) {
             logDiv.appendChild(message);
             logDiv.scrollTop = logDiv.scrollHeight;
           };
-          if (youBars) {
-            updateBar(youBars.health, data.you.health, youBars.maxHealth);
-            updateBar(youBars.mana, data.you.mana, youBars.maxMana);
-            updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
-          }
-          if (oppBars) {
-            updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
-            updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
-            updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
-          }
+          applyResourceState(youBars, data.you);
+          applyResourceState(oppBars, data.opponent);
         } else if (data.type === 'update') {
           if (appendLogEntry && Array.isArray(data.log)) {
             data.log.forEach(l => appendLogEntry(l));
           }
-          if (youBars) {
-            updateBar(youBars.health, data.you.health, youBars.maxHealth);
-            updateBar(youBars.mana, data.you.mana, youBars.maxMana);
-            updateBar(youBars.stamina, data.you.stamina, youBars.maxStamina);
-          }
-          if (oppBars) {
-            updateBar(oppBars.health, data.opponent.health, oppBars.maxHealth);
-            updateBar(oppBars.mana, data.opponent.mana, oppBars.maxMana);
-            updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
-          }
+          applyResourceState(youBars, data.you);
+          applyResourceState(oppBars, data.opponent);
         } else if (data.type === 'end') {
           const win = data.winnerId === youId;
           if (appendLogEntry) {
