@@ -150,7 +150,6 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .opponent-name { font-weight:bold; text-transform:uppercase; }
 .opponent-meta { font-size:12px; }
 .opponent-metrics { border:1px dashed #000; padding:4px; text-align:center; }
-.opponent-behavior { border:1px solid #000; padding:4px; text-align:center; }
 .equipment-section, .rotation-section { display:flex; flex-direction:column; gap:4px; }
 .equipment-section .section-title, .rotation-section .section-title { font-weight:bold; text-transform:uppercase; border-bottom:1px solid #000; padding-bottom:2px; }
 .equipment-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:4px; }

@@ -36,7 +36,6 @@ function createCombatant(character, equipmentMap) {
     stunnedUntil: 0,
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
-    behavior: character && character.behavior ? { ...character.behavior } : null,
   };
 }
 
@@ -151,10 +150,6 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
           } basic attack.`;
         } else if (action.reason === 'noRotation') {
           message = `${actor.character.name} has no rotation ready and performs a ${
-            effectType === 'PhysicalDamage' ? 'melee' : 'magic'
-          } basic attack.`;
-        } else if (action.reason === 'behavior' && action.ability) {
-          message = `${actor.character.name} holds ${action.ability.name} for a better moment and performs a ${
             effectType === 'PhysicalDamage' ? 'melee' : 'magic'
           } basic attack.`;
         }
