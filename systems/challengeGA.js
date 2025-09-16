@@ -110,7 +110,8 @@ function shuffle(list) {
 
 function populationSizeForRound(round) {
   const baseRound = typeof round === 'number' && round > 0 ? round : 1;
-  const target = MIN_POPULATION_SIZE + (baseRound - 1) * POPULATION_STEP;
+  const increments = Math.floor((baseRound - 1) / 3);
+  const target = MIN_POPULATION_SIZE + increments * POPULATION_STEP;
   return Math.max(MIN_POPULATION_SIZE, Math.min(MAX_POPULATION_SIZE, target));
 }
 

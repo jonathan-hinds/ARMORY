@@ -922,16 +922,6 @@ function renderOpponentPreview(opponent) {
   header.appendChild(metaEl);
   container.appendChild(header);
 
-  if (opponent.metrics) {
-    const metrics = document.createElement('div');
-    metrics.className = 'opponent-metrics';
-    const dmg = Math.round(opponent.metrics.damageToPlayer || 0);
-    const duration = opponent.metrics.duration != null ? opponent.metrics.duration.toFixed(1) : '0.0';
-    const resultText = opponent.metrics.win ? 'Victory' : 'Defeat';
-    metrics.textContent = `Simulation: ${resultText} (${dmg} dmg over ${duration}s)`;
-    container.appendChild(metrics);
-  }
-
   const attributesTable = document.createElement('table');
   attributesTable.className = 'stats-table';
   const attrHeader = document.createElement('tr');
@@ -1095,25 +1085,6 @@ async function renderChallengePanel(statusOverride) {
     next.className = 'challenge-next';
     next.textContent = `Next Reward: +${status.nextRewards.xpGain} XP, +${status.nextRewards.goldGain} GP`;
     panel.appendChild(next);
-  }
-
-  if (status.lastOutcome) {
-    const last = document.createElement('div');
-    last.className = 'challenge-last';
-    const resultText = status.lastOutcome === 'win' ? 'Victory' : 'Defeat';
-    const rewardText = status.lastReward
-      ? ` (${status.lastReward.xp || 0} XP, ${status.lastReward.gold || 0} GP)`
-      : '';
-    last.textContent = `Last Result: ${resultText}${rewardText}`;
-    panel.appendChild(last);
-    if (status.lastMetrics) {
-      const metrics = document.createElement('div');
-      metrics.className = 'challenge-metrics';
-      const dmg = status.lastMetrics.damageToPlayer != null ? status.lastMetrics.damageToPlayer : 0;
-      const duration = status.lastMetrics.duration != null ? status.lastMetrics.duration.toFixed(1) : '0.0';
-      metrics.textContent = `Previous foe dealt ${dmg} damage over ${duration}s`;
-      panel.appendChild(metrics);
-    }
   }
 
   const messageDiv = document.createElement('div');
