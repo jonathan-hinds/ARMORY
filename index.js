@@ -13,6 +13,7 @@ const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
 const app = express();
+const connectDB = require("./db");
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "ui")));
@@ -200,6 +201,17 @@ app.get("/matchmaking/queue", async (req, res) => {
   res.end();
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+async function start() {
+  try {
+    await connectDB();
+    console.log("Connected to MongoDB");
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error("Failed to connect to MongoDB", err);
+    process.exit(1);
+  }
+}
+
+start();

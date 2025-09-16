@@ -1,19 +1,16 @@
-const path = require('path');
-const { readJSON, writeJSON } = require('../store/jsonStore');
+const CharacterModel = require('../models/Character');
+const PlayerModel = require('../models/Player');
+const { serializeCharacter } = require('../models/utils');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
 const { xpForNextLevel } = require('./characterService');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const CHARACTERS_FILE = path.join(DATA_DIR, 'characters.json');
-const PLAYERS_FILE = path.join(DATA_DIR, 'players.json');
-
 const queue = [];
 
 async function loadCharacter(id) {
-  const characters = await readJSON(CHARACTERS_FILE);
-  return characters.find(c => c.id === id);
+  const characterDoc = await CharacterModel.findOne({ characterId: id }).lean();
+  return characterDoc ? serializeCharacter(characterDoc) : null;
 }
 
 async function queueMatch(characterId, send) {
@@ -40,22 +37,53 @@ async function queueMatch(characterId, send) {
         }
       })
         .then(async result => {
-          const players = await readJSON(PLAYERS_FILE);
-          const characters = await readJSON(CHARACTERS_FILE);
+          const participantIds = [a.character.id, b.character.id];
+          const characterDocs = await CharacterModel.find({
+            characterId: { $in: participantIds },
+          });
+          const characterMap = new Map();
+          characterDocs.forEach(doc => {
+            characterMap.set(doc.characterId, doc);
+          });
+          const playerIds = Array.from(
+            new Set(characterDocs.map(doc => doc.playerId))
+          );
+          const playerDocs = await PlayerModel.find({ playerId: { $in: playerIds } });
+          const playerMap = new Map();
+          playerDocs.forEach(doc => {
+            playerMap.set(doc.playerId, doc);
+          });
+
           function reward(charWrapper, won) {
-            const char = characters.find(c => c.id === charWrapper.character.id);
-            const player = players.find(p => p.id === char.playerId);
+            const characterDoc = characterMap.get(charWrapper.character.id);
+            if (!characterDoc) {
+              throw new Error('character not found for rewards');
+            }
+            const playerDoc = playerMap.get(characterDoc.playerId);
+            if (!playerDoc) {
+              throw new Error('player not found for rewards');
+            }
             const pct = won ? 0.05 + Math.random() * 0.05 : 0.01 + Math.random() * 0.01;
-            const xpGain = Math.round(xpForNextLevel(char.level || 1) * pct);
-            char.xp = (char.xp || 0) + xpGain;
+            const xpGain = Math.round(xpForNextLevel(characterDoc.level || 1) * pct);
+            characterDoc.xp = (characterDoc.xp || 0) + xpGain;
             const gpGain = won ? 10 : 2;
-            player.gold = (player.gold || 0) + gpGain;
-            return { xpGain, gpGain, character: char, gold: player.gold };
+            playerDoc.gold = (playerDoc.gold || 0) + gpGain;
+            return {
+              xpGain,
+              gpGain,
+              character: serializeCharacter(characterDoc),
+              gold: typeof playerDoc.gold === 'number' ? playerDoc.gold : 0,
+            };
           }
+
           const rewardA = reward(a, result.winnerId === a.character.id);
           const rewardB = reward(b, result.winnerId === b.character.id);
-          await writeJSON(CHARACTERS_FILE, characters);
-          await writeJSON(PLAYERS_FILE, players);
+
+          await Promise.all([
+            ...characterDocs.map(doc => doc.save()),
+            ...playerDocs.map(doc => doc.save()),
+          ]);
+
           a.send({
             type: 'end',
             winnerId: result.winnerId,

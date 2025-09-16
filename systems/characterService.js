@@ -1,11 +1,6 @@
-const path = require('path');
-const { readJSON, writeJSON } = require('../store/jsonStore');
+const CharacterModel = require('../models/Character');
+const { serializeCharacter, STATS } = require('../models/utils');
 const { getAbilities } = require('./abilityService');
-
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const CHARACTERS_FILE = path.join(DATA_DIR, 'characters.json');
-
-const STATS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 
 function xpForNextLevel(level) {
   return level * 100;
@@ -20,25 +15,22 @@ async function updateRotation(characterId, rotation) {
   if (rotation.some(id => !validIds.has(id))) {
     throw new Error('invalid ability id');
   }
-  const characters = await readJSON(CHARACTERS_FILE);
-  const idx = characters.findIndex(c => c.id === characterId);
-  if (idx === -1) {
+  const characterDoc = await CharacterModel.findOne({ characterId });
+  if (!characterDoc) {
     throw new Error('character not found');
   }
-  characters[idx].rotation = rotation;
-  await writeJSON(CHARACTERS_FILE, characters);
-  return characters[idx];
+  characterDoc.rotation = rotation;
+  await characterDoc.save();
+  return serializeCharacter(characterDoc);
 }
 
 async function levelUp(characterId, allocations) {
-  const characters = await readJSON(CHARACTERS_FILE);
-  const idx = characters.findIndex(c => c.id === characterId);
-  if (idx === -1) {
+  const characterDoc = await CharacterModel.findOne({ characterId });
+  if (!characterDoc) {
     throw new Error('character not found');
   }
-  const character = characters[idx];
-  const needed = xpForNextLevel(character.level || 1);
-  if ((character.xp || 0) < needed) {
+  const needed = xpForNextLevel(characterDoc.level || 1);
+  if ((characterDoc.xp || 0) < needed) {
     throw new Error('not enough xp');
   }
   let spent = 0;
@@ -52,13 +44,15 @@ async function levelUp(characterId, allocations) {
   }
   STATS.forEach(stat => {
     const add = allocations[stat] || 0;
-    character.attributes[stat] = (character.attributes[stat] || 0) + add;
+    if (!characterDoc.attributes) {
+      characterDoc.attributes = {};
+    }
+    characterDoc.attributes[stat] = (characterDoc.attributes[stat] || 0) + add;
   });
-  character.level = (character.level || 1) + 1;
-  character.xp = (character.xp || 0) - needed;
-  characters[idx] = character;
-  await writeJSON(CHARACTERS_FILE, characters);
-  return character;
+  characterDoc.level = (characterDoc.level || 1) + 1;
+  characterDoc.xp = (characterDoc.xp || 0) - needed;
+  await characterDoc.save();
+  return serializeCharacter(characterDoc);
 }
 
 module.exports = { updateRotation, levelUp, xpForNextLevel };
