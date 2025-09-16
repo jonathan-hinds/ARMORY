@@ -58,13 +58,17 @@ function abilityTooltip(ability) {
   return container;
 }
 
-function classifyLogMessage(text, youName, opponentName) {
-  const youIndex = youName ? text.indexOf(youName) : -1;
-  const opponentIndex = opponentName ? text.indexOf(opponentName) : -1;
-  if (youIndex === -1 && opponentIndex === -1) return 'neutral';
-  if (youIndex === -1) return 'opponent';
-  if (opponentIndex === -1) return 'you';
-  return youIndex <= opponentIndex ? 'you' : 'opponent';
+function classifyLogEntry(entry, youId, opponentId) {
+  if (!entry || typeof entry !== 'object') return 'neutral';
+  const you = youId != null ? String(youId) : null;
+  const opp = opponentId != null ? String(opponentId) : null;
+  const src = entry.sourceId != null ? String(entry.sourceId) : null;
+  const tgt = entry.targetId != null ? String(entry.targetId) : null;
+  if (src && you && src === you) return 'you';
+  if (src && opp && src === opp) return 'opponent';
+  if (tgt && you && tgt === you) return 'you';
+  if (tgt && opp && tgt === opp) return 'opponent';
+  return 'neutral';
 }
 
 const authDiv = document.getElementById('auth');
@@ -359,8 +363,8 @@ function selectMode(mode) {
       battleArea.innerHTML = 'Waiting for opponent...';
       const es = new EventSource(`/matchmaking/queue?characterId=${currentCharacter.id}`);
       let youId = null;
-      let youBars, oppBars, logDiv, closeBtn, appendLogMessage;
-      let youName = '', opponentName = '';
+      let opponentId = null;
+      let youBars, oppBars, logDiv, closeBtn, appendLogEntry;
       const updateBar = (el, cur, max) => {
         el.style.width = `${Math.max(0, (cur / max) * 100)}%`;
       };
@@ -370,6 +374,7 @@ function selectMode(mode) {
           youName = data.you.name;
           opponentName = data.opponent.name;
           youId = data.you.id;
+          opponentId = data.opponent.id;
           const dialog = document.createElement('div');
           dialog.id = 'battle-dialog';
           dialog.innerHTML = `
@@ -417,13 +422,15 @@ function selectMode(mode) {
           closeBtn.addEventListener('click', () => {
             dialog.remove();
           });
-          appendLogMessage = (text, forcedType) => {
+          appendLogEntry = (payload, forcedType) => {
             if (!logDiv) return;
+            const entry = typeof payload === 'string' ? { message: payload } : payload;
+            if (!entry || !entry.message) return;
             const message = document.createElement('div');
             message.classList.add('log-message');
-            const type = forcedType || classifyLogMessage(text, youName, opponentName);
+            const type = forcedType || classifyLogEntry(entry, youId, opponentId);
             message.classList.add(type || 'neutral');
-            message.textContent = text;
+            message.textContent = entry.message;
             logDiv.appendChild(message);
             logDiv.scrollTop = logDiv.scrollHeight;
           };
@@ -438,8 +445,8 @@ function selectMode(mode) {
             updateBar(oppBars.stamina, data.opponent.stamina, oppBars.maxStamina);
           }
         } else if (data.type === 'update') {
-          if (appendLogMessage) {
-            data.log.forEach(l => appendLogMessage(l));
+          if (appendLogEntry && Array.isArray(data.log)) {
+            data.log.forEach(l => appendLogEntry(l));
           }
           if (youBars) {
             updateBar(youBars.health, data.you.health, youBars.maxHealth);
@@ -453,9 +460,9 @@ function selectMode(mode) {
           }
         } else if (data.type === 'end') {
           const win = data.winnerId === youId;
-          if (appendLogMessage) {
-            appendLogMessage(win ? 'Victory!' : 'Defeat...', 'neutral');
-            appendLogMessage(`+${data.xpGain} XP, +${data.gpGain} GP`, 'neutral');
+          if (appendLogEntry) {
+            appendLogEntry({ message: win ? 'Victory!' : 'Defeat...' }, 'neutral');
+            appendLogEntry({ message: `+${data.xpGain} XP, +${data.gpGain} GP` }, 'neutral');
           }
           currentCharacter = data.character;
           const idx = characters.findIndex(c => c.id === data.character.id);

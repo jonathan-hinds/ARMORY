@@ -1,3 +1,5 @@
+const { pushLog } = require('./log');
+
 function randBetween(min, max) {
   return Math.floor(min + Math.random() * (max - min + 1));
 }
@@ -7,7 +9,13 @@ function applyDamage(source, target, amount, type, log) {
   let dmg = amount * (1 + source.damageBuff);
   dmg = Math.max(1, Math.round(dmg * (1 - resist)));
   target.health -= dmg;
-  log.push(`${source.character.name} hits ${target.character.name} for ${dmg} ${type}`);
+  pushLog(log, `${source.character.name} hits ${target.character.name} for ${dmg} ${type}`, {
+    sourceId: source.character.id,
+    targetId: target.character.id,
+    kind: 'damage',
+    damageType: type,
+    amount: dmg,
+  });
 }
 
 function applyEffect(source, target, effect, now, log) {
@@ -26,18 +34,35 @@ function applyEffect(source, target, effect, now, log) {
       const amount = effect.value;
       const before = source.health;
       source.health = Math.min(source.health + amount, source.derived.health);
-      log.push(`${source.character.name} heals ${source.health - before}`);
+      const healed = source.health - before;
+      pushLog(log, `${source.character.name} heals ${healed}`, {
+        sourceId: source.character.id,
+        targetId: source.character.id,
+        kind: 'heal',
+        amount: healed,
+      });
       break;
     }
     case 'BuffDamagePct': {
       source.damageBuff += effect.amount;
       source.buffs.push({ amount: effect.amount, expires: now + effect.duration });
-      log.push(`${source.character.name} gains +${Math.round(effect.amount * 100)}% damage`);
+      pushLog(log, `${source.character.name} gains +${Math.round(effect.amount * 100)}% damage`, {
+        sourceId: source.character.id,
+        targetId: source.character.id,
+        kind: 'buff',
+        amount: effect.amount,
+        duration: effect.duration,
+      });
       break;
     }
     case 'Stun': {
       target.stunnedUntil = Math.max(target.stunnedUntil, now + effect.duration);
-      log.push(`${target.character.name} is stunned`);
+      pushLog(log, `${target.character.name} is stunned`, {
+        sourceId: target.character.id,
+        targetId: source.character.id,
+        kind: 'stun',
+        duration: effect.duration,
+      });
       break;
     }
     case 'Poison': {
@@ -47,7 +72,14 @@ function applyEffect(source, target, effect, now, log) {
         nextTick: now + effect.interval,
         expires: now + effect.duration,
       });
-      log.push(`${target.character.name} is poisoned`);
+      pushLog(log, `${target.character.name} is poisoned`, {
+        sourceId: target.character.id,
+        targetId: source.character.id,
+        kind: 'poison',
+        interval: effect.interval,
+        duration: effect.duration,
+        damage: effect.damage,
+      });
       break;
     }
     default:
@@ -59,7 +91,12 @@ function tick(combatant, now, log) {
   combatant.buffs = combatant.buffs.filter(b => {
     if (now >= b.expires) {
       combatant.damageBuff -= b.amount;
-      log.push(`${combatant.character.name}'s buff fades`);
+      pushLog(log, `${combatant.character.name}'s buff fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+        amount: b.amount,
+      });
       return false;
     }
     return true;
@@ -68,7 +105,13 @@ function tick(combatant, now, log) {
     while (now >= d.nextTick && now < d.expires) {
       const dmg = Math.max(1, Math.round(d.damage * (1 - combatant.derived.meleeResist)));
       combatant.health -= dmg;
-      log.push(`${combatant.character.name} takes ${dmg} poison damage`);
+      pushLog(log, `${combatant.character.name} takes ${dmg} poison damage`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'damage',
+        damageType: 'poison',
+        amount: dmg,
+      });
       d.nextTick += d.interval;
     }
     return now < d.expires;
