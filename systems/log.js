@@ -4,7 +4,9 @@ function createLogEntry(message, meta = {}) {
 }
 
 function pushLog(log, message, meta) {
+  if (!log || typeof log.push !== 'function') return null;
   log.push(createLogEntry(message, meta));
+  return log;
 }
 
 module.exports = { createLogEntry, pushLog };

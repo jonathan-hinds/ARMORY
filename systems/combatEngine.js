@@ -36,6 +36,7 @@ function createCombatant(character, equipmentMap) {
     stunnedUntil: 0,
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
+    behavior: character && character.behavior ? { ...character.behavior } : null,
   };
 }
 
@@ -83,12 +84,24 @@ function processOnHitEffects(source, target, trigger, context = {}, now, log) {
   });
 }
 
-async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdate) {
+async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptions, maybeOptions) {
+  let onUpdate = null;
+  let options = {};
+
+  if (typeof onUpdateOrOptions === 'function') {
+    onUpdate = onUpdateOrOptions;
+    options = maybeOptions || {};
+  } else if (onUpdateOrOptions && typeof onUpdateOrOptions === 'object') {
+    options = onUpdateOrOptions;
+  }
+
   const a = createCombatant(charA, equipmentMap);
   const b = createCombatant(charB, equipmentMap);
   const nextTimes = [0, 0];
   const combatants = [a, b];
-  const log = [];
+  const collectLog = options.collectLog !== false;
+  const log = collectLog ? [] : null;
+  const fastForward = !!options.fastForward;
   let now = 0;
   if (onUpdate) onUpdate({ type: 'start', a: state(a), b: state(b), log: [] });
   while (a.health > 0 && b.health > 0) {
@@ -96,7 +109,7 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdate) {
     const actor = combatants[idx];
     const target = combatants[1 - idx];
     now = nextTimes[idx];
-    const before = log.length;
+    const before = log ? log.length : 0;
     tick(actor, now, log);
     tick(target, now, log);
     if (actor.stunnedUntil > now) {
@@ -140,6 +153,10 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdate) {
           message = `${actor.character.name} has no rotation ready and performs a ${
             effectType === 'PhysicalDamage' ? 'melee' : 'magic'
           } basic attack.`;
+        } else if (action.reason === 'behavior' && action.ability) {
+          message = `${actor.character.name} holds ${action.ability.name} for a better moment and performs a ${
+            effectType === 'PhysicalDamage' ? 'melee' : 'magic'
+          } basic attack.`;
         }
 
         pushLog(log, message || `${actor.character.name} performs a ${effectType === 'PhysicalDamage' ? 'melee' : 'magic'} basic attack.`, {
@@ -166,14 +183,20 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdate) {
     nextTimes[idx] += actor.derived.attackIntervalSeconds;
     const next = Math.min(nextTimes[0], nextTimes[1]);
     const wait = Math.max(0, next - now);
-    const newLogs = log.slice(before);
+    const newLogs = log && log.length > before ? log.slice(before) : [];
     if (onUpdate) onUpdate({ type: 'update', a: state(a), b: state(b), log: newLogs });
-    if (a.health > 0 && b.health > 0) {
+    if (!fastForward && a.health > 0 && b.health > 0) {
       await new Promise(res => setTimeout(res, wait * 1000));
     }
   }
   const winner = a.health > 0 ? a : b;
-  return { winnerId: winner.character.id, log };
+  return {
+    winnerId: winner.character.id,
+    log: log || [],
+    duration: now,
+    finalA: state(a),
+    finalB: state(b),
+  };
 }
 
 module.exports = { runCombat };

@@ -12,6 +12,7 @@ const { queueMatch } = require("./systems/matchmaking");
 const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
+const { getChallengeStatus, runChallengeFight, startChallenge } = require("./systems/challengeGA");
 const app = express();
 const connectDB = require("./db");
 
@@ -197,6 +198,58 @@ app.get("/matchmaking/queue", async (req, res) => {
   } catch (err) {
     console.error(err);
     send({ type: "error", message: err.message });
+  }
+  res.end();
+});
+
+app.get("/challenge/status", async (req, res) => {
+  const characterId = parseInt(req.query.characterId, 10);
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  try {
+    const status = await getChallengeStatus(characterId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to load challenge" });
+  }
+});
+
+app.post("/challenge/start", async (req, res) => {
+  const characterId = parseInt((req.body && req.body.characterId) || req.query.characterId, 10);
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  const force = !!(req.body && req.body.force);
+  try {
+    const status = await startChallenge(characterId, { force });
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to start challenge" });
+  }
+});
+
+app.get("/challenge/fight", async (req, res) => {
+  const characterId = parseInt(req.query.characterId, 10);
+  if (!characterId) {
+    return res.status(400).end();
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  const send = data => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    await runChallengeFight(characterId, send);
+  } catch (err) {
+    console.error(err);
+    send({ type: "error", message: err.message || "challenge failed" });
   }
   res.end();
 });
