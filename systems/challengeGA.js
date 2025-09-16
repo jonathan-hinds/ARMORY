@@ -18,7 +18,9 @@ const { xpForNextLevel } = require('./characterService');
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const CHALLENGE_FILE = path.join(DATA_DIR, 'challenges.json');
 
-const POPULATION_SIZE = 100;
+const MIN_POPULATION_SIZE = 10;
+const POPULATION_STEP = 10;
+const MAX_POPULATION_SIZE = 100;
 const MUTATION_RATE = 0.2;
 const GEAR_MUTATION_RATE = 0.25;
 const MAX_ROTATION_LENGTH = 6;
@@ -93,6 +95,23 @@ function totalAttributePoints(attributes = {}) {
 
 function randomInt(max) {
   return Math.floor(Math.random() * max);
+}
+
+function shuffle(list) {
+  const arr = Array.isArray(list) ? list.slice() : [];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
+function populationSizeForRound(round) {
+  const baseRound = typeof round === 'number' && round > 0 ? round : 1;
+  const target = MIN_POPULATION_SIZE + (baseRound - 1) * POPULATION_STEP;
+  return Math.max(MIN_POPULATION_SIZE, Math.min(MAX_POPULATION_SIZE, target));
 }
 
 function randomName(round, index) {
@@ -250,23 +269,38 @@ function sanitizeEquipment(equipment, gearBudget, equipmentMap) {
   return sanitized;
 }
 
-function randomEquipment(gearBudget, itemsBySlot, playerCosts, equipmentMap) {
+function randomEquipment(gearBudget, itemsBySlot, playerCosts, equipmentMap, options = {}) {
+  const forceEmpty = options && options.forceEmpty;
+  if (forceEmpty) {
+    return sanitizeEquipment({}, gearBudget, equipmentMap);
+  }
+
   const result = {};
   let remaining = typeof gearBudget === 'number' ? Math.max(0, gearBudget) : 0;
-  EQUIPMENT_SLOTS.forEach(slot => {
-    const playerCost = playerCosts[slot] || 0;
+  const slotOrder = shuffle(EQUIPMENT_SLOTS);
+  slotOrder.forEach(slot => {
     const slotItems = itemsBySlot.get(slot) || [];
-    const baseline = playerCost > 0 ? playerCost * (0.8 + Math.random() * 0.4) : Math.min(remaining, 25 + Math.random() * 20);
-    const cap = Math.max(0, Math.min(remaining, baseline));
-    const candidates = slotItems.filter(item => typeof item.cost === 'number' && item.cost <= cap);
-    const shouldEquip = candidates.length && (playerCost > 0 ? true : Math.random() < 0.35);
-    if (shouldEquip) {
-      const choice = candidates[randomInt(candidates.length)];
-      result[slot] = choice.id;
-      remaining = Math.max(0, remaining - (choice.cost || 0));
-    } else {
+    if (!slotItems.length) {
       result[slot] = null;
+      return;
     }
+    const playerCost = (playerCosts && playerCosts[slot]) || 0;
+    const biasFromPlayer = playerCost > 0 && Math.random() < 0.6;
+    const baseTarget = biasFromPlayer
+      ? playerCost * (0.5 + Math.random() * 0.9)
+      : remaining * (0.15 + Math.random() * 0.5);
+    const cap = Math.max(0, Math.min(remaining, baseTarget));
+    const affordabilityThreshold = Math.max(cap, remaining * 0.15);
+    const affordable = slotItems.filter(item => typeof item.cost === 'number' && item.cost <= affordabilityThreshold);
+    const equipChanceBase = playerCost > 0 ? 0.35 : 0.2;
+    const equipChance = Math.min(0.85, equipChanceBase + Math.random() * 0.4);
+    if (!affordable.length || Math.random() > equipChance) {
+      result[slot] = null;
+      return;
+    }
+    const choice = affordable[randomInt(affordable.length)];
+    result[slot] = choice.id;
+    remaining = Math.max(0, remaining - (choice.cost || 0));
   });
   return sanitizeEquipment(result, gearBudget, equipmentMap);
 }
@@ -274,15 +308,19 @@ function randomEquipment(gearBudget, itemsBySlot, playerCosts, equipmentMap) {
 function mutateEquipment(equipment, gearBudget, itemsBySlot, playerCosts, equipmentMap) {
   const current = { ...equipment };
   const slot = EQUIPMENT_SLOTS[randomInt(EQUIPMENT_SLOTS.length)];
-  if (Math.random() < 0.4) {
+  const slotItems = itemsBySlot.get(slot) || [];
+  if (Math.random() < 0.45 || !slotItems.length) {
     current[slot] = null;
   } else {
-    const slotItems = itemsBySlot.get(slot) || [];
-    const playerCost = playerCosts[slot] || 0;
+    const playerCost = (playerCosts && playerCosts[slot]) || 0;
     const budget = typeof gearBudget === 'number' ? Math.max(0, gearBudget) : 0;
-    const baseTarget = playerCost * (0.8 + Math.random() * 0.6) || 30;
+    const biasFromPlayer = playerCost > 0 && Math.random() < 0.55;
+    const baseTarget = biasFromPlayer
+      ? playerCost * (0.5 + Math.random() * 0.9)
+      : budget * (0.1 + Math.random() * 0.6) || 0;
     const cap = Math.max(0, Math.min(budget, baseTarget));
-    const candidates = slotItems.filter(item => typeof item.cost === 'number' && item.cost <= cap);
+    const affordabilityThreshold = Math.max(cap, budget * 0.15);
+    const candidates = slotItems.filter(item => typeof item.cost === 'number' && item.cost <= affordabilityThreshold);
     if (candidates.length) {
       current[slot] = candidates[randomInt(candidates.length)].id;
     } else {
@@ -333,10 +371,16 @@ function normalizeGenome(genome, context) {
   };
 }
 
-function randomGenome(context) {
+function randomGenome(context, options = {}) {
   const attributes = randomAttributes(context.totalPoints);
   const rotation = randomRotation(context.abilityIds);
-  const equipment = randomEquipment(context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
+  const equipment = randomEquipment(
+    context.gearBudget,
+    context.itemsBySlot,
+    context.playerCosts,
+    context.equipmentMap,
+    options,
+  );
   const basicType = randomBasicType(attributes);
   return normalizeGenome(
     {
@@ -608,7 +652,8 @@ async function generatePopulation(context, parentA, parentB) {
   const population = [];
   if (parentA) population.push(normalizeGenome(parentA, context));
   if (parentB) population.push(normalizeGenome(parentB, context));
-  while (population.length < POPULATION_SIZE) {
+  const targetSize = Math.max(populationSizeForRound(context.round), population.length || 0);
+  while (population.length < targetSize) {
     if (parentA && parentB) {
       if (Math.random() < 0.2) {
         population.push(randomGenome(context));
@@ -619,8 +664,15 @@ async function generatePopulation(context, parentA, parentB) {
       } else {
         population.push(breedGenomes(parentA, parentB, context));
       }
+    } else if (parentA || parentB) {
+      const seed = parentA || parentB;
+      if (Math.random() < 0.6) {
+        population.push(mutateGenome(seed, context));
+      } else {
+        population.push(randomGenome(context));
+      }
     } else {
-      population.push(randomGenome(context));
+      population.push(randomGenome(context, { forceEmpty: true }));
     }
   }
   return population;
