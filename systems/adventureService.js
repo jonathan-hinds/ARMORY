@@ -1,10 +1,11 @@
 const path = require('path');
+const AdventureStateModel = require('../models/AdventureState');
 const {
   serializeCharacter,
   serializePlayer,
   STATS,
 } = require('../models/utils');
-const { readJSON, writeJSON } = require('../store/jsonStore');
+const { readJSON } = require('../store/jsonStore');
 const {
   buildChallengeContext,
   findChampion,
@@ -17,7 +18,6 @@ const {
 const { runCombat } = require('./combatEngine');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const ADVENTURE_STATE_FILE = path.join(DATA_DIR, 'adventures.json');
 const ADVENTURE_CONFIG_FILE = path.join(DATA_DIR, 'adventureConfig.json');
 
 const DEFAULT_DAY_MINUTES = 30;
@@ -151,28 +151,43 @@ async function getAdventureConfig() {
   return configCache;
 }
 
-async function loadStates() {
-  const data = await readJSON(ADVENTURE_STATE_FILE);
-  return Array.isArray(data) ? data : [];
+async function getState(characterId) {
+  const doc = await AdventureStateModel.findOne({ characterId }).lean();
+  return doc || null;
 }
 
-async function saveStates(states) {
-  await writeJSON(ADVENTURE_STATE_FILE, Array.isArray(states) ? states : []);
+async function persistState(state) {
+  if (!state || typeof state.characterId !== 'number') {
+    throw new Error('invalid adventure state');
+  }
+  const payload = JSON.parse(JSON.stringify(state));
+  payload.characterId = state.characterId;
+  await AdventureStateModel.updateOne(
+    { characterId: state.characterId },
+    { $set: payload },
+    { upsert: true }
+  );
+  return payload;
 }
 
-async function findState(characterId) {
-  const states = await loadStates();
-  const index = states.findIndex(entry => entry && entry.characterId === characterId);
-  const state = index === -1 ? null : states[index];
-  return { state, states, index };
-}
-
-async function persistState(states, index, state) {
-  const next = Array.isArray(states) ? states.slice() : [];
-  const idx = typeof index === 'number' && index >= 0 ? index : next.length;
-  next[idx] = state;
-  await saveStates(next);
-  return { states: next, index: idx };
+function createBaseState(characterId, config) {
+  const dayDurationMs = Math.round((config.dayDurationMinutes || DEFAULT_DAY_MINUTES) * 60 * 1000);
+  return {
+    characterId,
+    active: false,
+    events: [],
+    history: [],
+    finalized: true,
+    outcome: null,
+    totalDays: config.totalDays,
+    dayDurationMs,
+    startedAt: null,
+    completedAt: null,
+    endsAt: null,
+    nextEventAt: null,
+    ga: { round: 1, parentA: null, parentB: null },
+    updatedAt: Date.now(),
+  };
 }
 
 function isStateActive(state) {
@@ -874,7 +889,7 @@ async function loadBundle(characterId, options = {}) {
 
 async function getAdventureStatus(characterId) {
   const config = await getAdventureConfig();
-  const { state, states, index } = await findState(characterId);
+  let state = await getState(characterId);
   const { bundle, error } = await loadBundle(characterId, { includePlayer: true });
   if (!bundle) {
     if (!state) {
@@ -883,46 +898,37 @@ async function getAdventureStatus(characterId) {
     return buildAdventurePayload(state, config, null, null, { error: error ? error.message : null });
   }
 
-  let stateArray = states;
-  let stateIndex = index;
-  let activeState = state;
-  if (!activeState) {
-    const fresh = {
-      characterId,
-      active: false,
-      events: [],
-      history: [],
-      finalized: true,
-      outcome: null,
-      totalDays: config.totalDays,
-      dayDurationMs: Math.round(config.dayDurationMinutes * 60 * 1000),
-      startedAt: null,
-      completedAt: null,
-      endsAt: null,
-      nextEventAt: null,
-      ga: { round: 1, parentA: null, parentB: null },
-      updatedAt: Date.now(),
-    };
-    const persisted = await persistState(stateArray, stateIndex, fresh);
-    stateArray = persisted.states;
-    stateIndex = persisted.index;
-    activeState = fresh;
+  let stateChanged = false;
+  if (!state) {
+    state = createBaseState(characterId, config);
+    stateChanged = true;
+  }
+  if (!Array.isArray(state.events)) {
+    state.events = [];
+    stateChanged = true;
+  }
+  if (!Array.isArray(state.history)) {
+    state.history = [];
+    stateChanged = true;
+  }
+  if (!state.dayDurationMs) {
+    state.dayDurationMs = Math.round(config.dayDurationMinutes * 60 * 1000);
+    stateChanged = true;
+  }
+  if (!Number.isFinite(state.totalDays) || state.totalDays <= 0) {
+    state.totalDays = config.totalDays;
+    stateChanged = true;
+  }
+  if (!state.ga || typeof state.ga !== 'object') {
+    state.ga = { round: 1, parentA: null, parentB: null };
+    stateChanged = true;
+  }
+  if (state.finalized == null) {
+    state.finalized = !isStateActive(state);
+    stateChanged = true;
   }
 
-  if (!Array.isArray(activeState.history)) {
-    activeState.history = [];
-  }
-  if (!activeState.dayDurationMs) {
-    activeState.dayDurationMs = Math.round(config.dayDurationMinutes * 60 * 1000);
-  }
-  if (!Number.isFinite(activeState.totalDays) || activeState.totalDays <= 0) {
-    activeState.totalDays = config.totalDays;
-  }
-  if (activeState.finalized == null) {
-    activeState.finalized = !isStateActive(activeState);
-  }
-
-  const progress = await advanceAdventureState(activeState, config, bundle);
+  const progress = await advanceAdventureState(state, config, bundle);
   if (progress.characterDirty) {
     await bundle.characterDoc.save();
   }
@@ -930,16 +936,17 @@ async function getAdventureStatus(characterId) {
     await bundle.playerDoc.save();
   }
   if (progress.mutated) {
-    const persisted = await persistState(stateArray, stateIndex, activeState);
-    stateArray = persisted.states;
-    stateIndex = persisted.index;
+    stateChanged = true;
   }
-  return buildAdventurePayload(activeState, config, bundle.characterDoc, bundle.playerDoc, { error: error ? error.message : null });
+  if (stateChanged) {
+    await persistState(state);
+  }
+  return buildAdventurePayload(state, config, bundle.characterDoc, bundle.playerDoc, { error: error ? error.message : null });
 }
 
 async function startAdventure(characterId, options = {}) {
   const config = await getAdventureConfig();
-  const { state, states, index } = await findState(characterId);
+  const state = await getState(characterId);
   if (state && isStateActive(state)) {
     throw new Error('adventure already active');
   }
@@ -956,16 +963,12 @@ async function startAdventure(characterId, options = {}) {
   if (!bundle) {
     throw error || new Error('failed to prepare adventure');
   }
-  let stateArray = states;
-  let stateIndex = index;
   if (state && !Array.isArray(state.history)) {
     state.history = [];
   }
   if (state && state.completedAt && !state.finalized) {
     finalizeAdventure(state, config, { outcome: state.outcome || 'complete', timestamp: state.completedAt });
-    const persisted = await persistState(stateArray, stateIndex, state);
-    stateArray = persisted.states;
-    stateIndex = persisted.index;
+    await persistState(state);
   }
   const baseHistory = state && Array.isArray(state.history) ? state.history.slice() : [];
   const start = Date.now();
@@ -989,12 +992,12 @@ async function startAdventure(characterId, options = {}) {
     updatedAt: start,
   };
   appendEvent(newState, { id: `start-${start}`, type: 'start', timestamp: start, message: 'The adventure begins!' }, config);
-  await persistState(stateArray, stateIndex, newState);
+  await persistState(newState);
   return buildAdventurePayload(newState, config, bundle.characterDoc, bundle.playerDoc);
 }
 
 async function isAdventureActive(characterId) {
-  const { state } = await findState(characterId);
+  const state = await getState(characterId);
   return isStateActive(state);
 }
 

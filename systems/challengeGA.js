@@ -1,5 +1,4 @@
-const path = require('path');
-const { readJSON, writeJSON } = require('../store/jsonStore');
+const ChallengeStateModel = require('../models/ChallengeState');
 const CharacterModel = require('../models/Character');
 const PlayerModel = require('../models/Player');
 const {
@@ -14,9 +13,6 @@ const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
 const { compute } = require('./derivedStats');
 const { xpForNextLevel } = require('./characterService');
-
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const CHALLENGE_FILE = path.join(DATA_DIR, 'challenges.json');
 
 const MIN_POPULATION_SIZE = 10;
 const POPULATION_STEP = 10;
@@ -45,16 +41,6 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value || null));
 }
 
-async function loadStates() {
-  const data = await readJSON(CHALLENGE_FILE);
-  if (!Array.isArray(data)) return [];
-  return data;
-}
-
-async function saveStates(states) {
-  await writeJSON(CHALLENGE_FILE, Array.isArray(states) ? states : []);
-}
-
 function createNewState(characterId) {
   return {
     characterId,
@@ -69,24 +55,27 @@ function createNewState(characterId) {
 }
 
 async function getState(characterId) {
-  const states = await loadStates();
-  let index = states.findIndex(entry => entry && entry.characterId === characterId);
-  if (index === -1) {
-    const fresh = createNewState(characterId);
-    states.push(fresh);
-    index = states.length - 1;
-    await saveStates(states);
-    return { state: fresh, states, index };
+  const doc = await ChallengeStateModel.findOne({ characterId }).lean();
+  if (doc) {
+    return doc;
   }
-  const state = states[index] || createNewState(characterId);
-  return { state, states, index };
+  const fresh = createNewState(characterId);
+  await ChallengeStateModel.create(fresh);
+  return fresh;
 }
 
-async function persistState(states, index, state) {
-  const next = Array.isArray(states) ? states.slice() : [];
-  const idx = typeof index === 'number' && index >= 0 ? index : next.length;
-  next[idx] = state;
-  await saveStates(next);
+async function persistState(state) {
+  if (!state || typeof state.characterId !== 'number') {
+    throw new Error('invalid challenge state');
+  }
+  const payload = JSON.parse(JSON.stringify(state));
+  payload.characterId = state.characterId;
+  await ChallengeStateModel.updateOne(
+    { characterId: state.characterId },
+    { $set: payload },
+    { upsert: true }
+  );
+  return payload;
 }
 
 function totalAttributePoints(attributes = {}) {
@@ -573,22 +562,20 @@ async function buildChallengeContext(characterId, { includePlayer = false } = {}
 }
 
 async function prepareChallenge(characterId, { includePlayer = false } = {}) {
-  const [stateBundle, contextBundle] = await Promise.all([
+  const [state, contextBundle] = await Promise.all([
     getState(characterId),
     buildChallengeContext(characterId, { includePlayer }),
   ]);
 
   const context = {
     ...contextBundle.context,
-    round: stateBundle.state.round || 1,
+    round: state.round || 1,
   };
 
   return {
     ...contextBundle,
     context,
-    state: stateBundle.state,
-    states: stateBundle.states,
-    index: stateBundle.index,
+    state,
   };
 }
 
@@ -720,7 +707,7 @@ async function getChallengeStatus(characterId) {
       },
       updatedAt: Date.now(),
     };
-    await persistState(prep.states, prep.index, nextState);
+    await persistState(nextState);
     state = nextState;
   }
   return buildChallengePayload(state, prep.characterDoc.level || 1);
@@ -764,7 +751,7 @@ async function startChallenge(characterId, options = {}) {
     updatedAt: Date.now(),
   };
 
-  await persistState(prep.states, prep.index, nextState);
+  await persistState(nextState);
   return buildChallengePayload(nextState, prep.characterDoc.level || 1);
 }
 
@@ -884,7 +871,7 @@ async function runChallengeFight(characterId, send) {
     };
   }
 
-  await persistState(prep.states, prep.index, nextState);
+  await persistState(nextState);
 
   send({
     type: 'end',
