@@ -654,9 +654,6 @@ function initTabs() {
         document.querySelectorAll('.tab-pane').forEach(pane => {
           pane.classList.toggle('active', pane.id === target);
         });
-        buttons.forEach(other => {
-          other.classList.toggle('active', other === btn);
-        });
         if (target === 'rotation') {
           initRotation();
         } else if (target === 'character') {
