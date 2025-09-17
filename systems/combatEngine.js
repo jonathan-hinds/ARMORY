@@ -59,6 +59,7 @@ function createCombatant(character, equipmentMap) {
     cooldowns: {},
     damageBuff: 0,
     buffs: [],
+    chanceBuffs: [],
     dots: [],
     stunnedUntil: 0,
     onHitEffects: derived.onHitEffects || [],
@@ -79,7 +80,7 @@ function meetsUseTrigger(trigger, combatant) {
   return false;
 }
 
-function tryUseCombatantItem(combatant, now, log) {
+function tryUseCombatantItem(combatant, enemy, now, log) {
   if (!combatant.useables || !combatant.useables.length) return;
   combatant.useables.forEach(entry => {
     if (!entry || entry.used) return;
@@ -100,7 +101,10 @@ function tryUseCombatantItem(combatant, now, log) {
       kind: 'useable',
       itemId: entry.item.id,
     });
-    applyEffect(combatant, combatant, effect, now, log, { resolution: { hit: true } });
+    applyEffect(combatant, combatant, effect, now, log, {
+      resolution: { hit: true },
+      enemy,
+    });
     if (entry.item.useConsumed) {
       combatant.consumedUseables.push({ slot: entry.slot, itemId: entry.item.id });
     }
@@ -207,8 +211,8 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
   let now = 0;
   if (onUpdate) onUpdate({ type: 'start', a: state(a), b: state(b), log: [] });
   while (a.health > 0 && b.health > 0) {
-    tryUseCombatantItem(a, now, log);
-    tryUseCombatantItem(b, now, log);
+    tryUseCombatantItem(a, b, now, log);
+    tryUseCombatantItem(b, a, now, log);
     const idx = nextTimes[0] <= nextTimes[1] ? 0 : 1;
     const actor = combatants[idx];
     const target = combatants[1 - idx];

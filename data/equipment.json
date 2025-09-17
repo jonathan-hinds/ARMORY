@@ -337,6 +337,25 @@
       "useEffect": { "type": "Heal", "value": 50 },
       "useDuration": "instant",
       "useConsumed": true
+    },
+    {
+      "id": "useable_vanishing_powder",
+      "name": "Vanishing Powder",
+      "slot": "useable",
+      "type": "tool",
+      "category": "Tools",
+      "rarity": "Rare",
+      "cost": 160,
+      "useTrigger": { "type": "auto", "stat": "healthPct", "threshold": 0.1, "owner": true },
+      "useEffect": {
+        "type": "BuffChance",
+        "stat": "dodgeChance",
+        "amount": 30,
+        "durationType": "enemyAttackIntervals",
+        "durationCount": 2
+      },
+      "useDuration": "2 enemy attack intervals",
+      "useConsumed": true
     }
   ]
 }
