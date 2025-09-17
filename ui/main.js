@@ -1007,6 +1007,19 @@ function launchCombatStream(
     };
   };
 
+  const createUseableSlots = (dialogEl, combatantId) => {
+    const slots = {};
+    USEABLE_SLOTS.forEach(slot => {
+      const selector = `#${combatantId} .useable-slot[data-slot="${slot}"]`;
+      const slotEl = dialogEl.querySelector(selector);
+      if (slotEl) {
+        slotEl.title = slotLabel(slot);
+        slots[slot] = slotEl;
+      }
+    });
+    return slots;
+  };
+
   const createBarGroup = (dialogEl, combatantId, stats) => {
     const s = stats || {};
     return {
@@ -1016,7 +1029,45 @@ function launchCombatStream(
       maxHealth: typeof s.maxHealth === 'number' ? s.maxHealth : 0,
       maxMana: typeof s.maxMana === 'number' ? s.maxMana : 0,
       maxStamina: typeof s.maxStamina === 'number' ? s.maxStamina : 0,
+      useableSlots: createUseableSlots(dialogEl, combatantId),
     };
+  };
+
+  const applyUseableState = (group, state) => {
+    if (!group || !group.useableSlots) return;
+    const slotState = {};
+    if (state && Array.isArray(state.useables)) {
+      state.useables.forEach(entry => {
+        if (entry && entry.slot) {
+          slotState[entry.slot] = entry;
+        }
+      });
+    }
+    USEABLE_SLOTS.forEach(slot => {
+      const el = group.useableSlots[slot];
+      if (!el) return;
+      const info = slotState[slot];
+      el.classList.remove('available', 'empty', 'used');
+      let stateLabel = 'empty';
+      if (info && info.hasItem && !info.used) {
+        el.classList.add('available');
+        stateLabel = 'available';
+      } else if (info && info.hasItem && info.used) {
+        el.classList.add('used');
+        stateLabel = 'used';
+      } else {
+        el.classList.add('empty');
+        stateLabel = 'empty';
+      }
+      el.dataset.state = stateLabel;
+      const slotName = slotLabel(slot);
+      if (slotName) {
+        let description = 'empty';
+        if (stateLabel === 'available') description = 'ready';
+        if (stateLabel === 'used') description = 'consumed';
+        el.setAttribute('aria-label', `${slotName} ${description}`);
+      }
+    });
   };
 
   const applyResourceState = (group, state) => {
@@ -1027,6 +1078,7 @@ function launchCombatStream(
     updateBar(group.health, state.health, group.maxHealth);
     updateBar(group.mana, state.mana, group.maxMana);
     updateBar(group.stamina, state.stamina, group.maxStamina);
+    applyUseableState(group, state);
   };
 
   es.onmessage = ev => {
@@ -1046,6 +1098,10 @@ function launchCombatStream(
                 <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
                 <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
               </div>
+              <div class="useable-slots" role="group" aria-label="Useable item slots">
+                <div class="useable-slot" data-slot="useable1"></div>
+                <div class="useable-slot" data-slot="useable2"></div>
+              </div>
             </div>
             <div id="opponent" class="combatant">
               <div class="name">${data.opponent.name}</div>
@@ -1053,6 +1109,10 @@ function launchCombatStream(
                 <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
                 <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
                 <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+              </div>
+              <div class="useable-slots" role="group" aria-label="Useable item slots">
+                <div class="useable-slot" data-slot="useable1"></div>
+                <div class="useable-slot" data-slot="useable2"></div>
               </div>
             </div>
           </div>

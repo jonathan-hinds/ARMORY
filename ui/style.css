@@ -76,6 +76,28 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #battle-dialog .combatant { flex:1; border:1px solid #000; padding:12px; }
 #battle-dialog .combatant .name { font-weight:bold; text-align:center; margin-bottom:8px; }
 #battle-dialog .bars { display:flex; flex-direction:column; gap:6px; }
+#battle-dialog .useable-slots { display:flex; justify-content:center; gap:8px; margin-top:8px; }
+#battle-dialog .useable-slot { width:18px; height:18px; border:1px solid #000; background:#fff; position:relative; }
+#battle-dialog .useable-slot::before,
+#battle-dialog .useable-slot::after {
+  content:"";
+  position:absolute;
+  top:3px;
+  bottom:3px;
+  left:50%;
+  width:2px;
+  background:#000;
+  transform-origin:center;
+  opacity:0;
+}
+#battle-dialog .useable-slot::before { transform:translateX(-50%) rotate(45deg); }
+#battle-dialog .useable-slot::after { transform:translateX(-50%) rotate(-45deg); }
+#battle-dialog .useable-slot.available { background:#000; }
+#battle-dialog .useable-slot.empty::before,
+#battle-dialog .useable-slot.empty::after,
+#battle-dialog .useable-slot.used::before,
+#battle-dialog .useable-slot.used::after { opacity:1; }
+#battle-dialog .useable-slot.used { background:#fff; }
 .bar {
   position:relative;
   border:1px solid #000;
