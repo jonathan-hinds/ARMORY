@@ -706,6 +706,44 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
     const rewards = rewardForRound(round, bundle.characterDoc.level || 1);
     let xpGain = 0;
     let goldGain = 0;
+
+    const consumed = result.consumedUseables || {};
+    const consumedByPlayer = consumed[bundle.character.id] || [];
+    if (consumedByPlayer.length) {
+      if (!Array.isArray(bundle.playerDoc.items)) {
+        bundle.playerDoc.items = [];
+      }
+      if (!bundle.characterDoc.useables) {
+        bundle.characterDoc.useables = { useable1: null, useable2: null };
+      }
+      let modifiedUseables = false;
+      let itemsModified = false;
+      consumedByPlayer.forEach(entry => {
+        const idx = bundle.playerDoc.items.indexOf(entry.itemId);
+        if (idx !== -1) {
+          bundle.playerDoc.items.splice(idx, 1);
+          playerDirty = true;
+          itemsModified = true;
+        }
+        if (bundle.characterDoc.useables[entry.slot] === entry.itemId) {
+          const remaining = bundle.playerDoc.items.filter(id => id === entry.itemId).length;
+          if (remaining <= 0) {
+            bundle.characterDoc.useables[entry.slot] = null;
+            modifiedUseables = true;
+          }
+        }
+      });
+      if (itemsModified && typeof bundle.playerDoc.markModified === 'function') {
+        bundle.playerDoc.markModified('items');
+      }
+      if (modifiedUseables) {
+        characterDirty = true;
+        if (typeof bundle.characterDoc.markModified === 'function') {
+          bundle.characterDoc.markModified('useables');
+        }
+      }
+    }
+
     if (playerWon) {
       xpGain = rewards.xpGain;
       goldGain = rewards.goldGain;

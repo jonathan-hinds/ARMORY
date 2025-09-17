@@ -1,4 +1,5 @@
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
+const USEABLE_SLOTS = ['useable1', 'useable2'];
 const STATS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 
 function toPlainObject(doc) {
@@ -13,6 +14,14 @@ function ensureEquipmentShape(equipment = {}) {
   const shaped = {};
   EQUIPMENT_SLOTS.forEach(slot => {
     shaped[slot] = equipment[slot] != null ? equipment[slot] : null;
+  });
+  return shaped;
+}
+
+function ensureUseableShape(useables = {}) {
+  const shaped = {};
+  USEABLE_SLOTS.forEach(slot => {
+    shaped[slot] = useables[slot] != null ? useables[slot] : null;
   });
   return shaped;
 }
@@ -52,6 +61,7 @@ function serializeCharacter(doc) {
     xp,
     rotation,
     equipment,
+    useables,
   } = plain;
   return {
     id: typeof characterId === 'number' ? characterId : null,
@@ -63,13 +73,16 @@ function serializeCharacter(doc) {
     xp: typeof xp === 'number' ? xp : 0,
     rotation: Array.isArray(rotation) ? [...rotation] : [],
     equipment: ensureEquipmentShape(equipment),
+    useables: ensureUseableShape(useables),
   };
 }
 
 module.exports = {
   EQUIPMENT_SLOTS,
+  USEABLE_SLOTS,
   STATS,
   ensureEquipmentShape,
+  ensureUseableShape,
   ensureAttributesShape,
   serializeCharacter,
   serializePlayer,

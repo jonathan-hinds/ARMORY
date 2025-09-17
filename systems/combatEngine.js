@@ -2,6 +2,7 @@ const { compute } = require('./derivedStats');
 const { getAction } = require('./rotationEngine');
 const { applyEffect, tick } = require('./effectsEngine');
 const { pushLog } = require('./log');
+const { USEABLE_SLOTS } = require('../models/utils');
 
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
 
@@ -18,13 +19,39 @@ function resolveEquipment(character, equipmentMap) {
   return resolved;
 }
 
+function resolveUseables(character, equipmentMap) {
+  const resolved = {};
+  USEABLE_SLOTS.forEach(slot => {
+    const itemId = character.useables && character.useables[slot];
+    if (itemId && equipmentMap && equipmentMap.has(itemId)) {
+      resolved[slot] = equipmentMap.get(itemId);
+    } else {
+      resolved[slot] = null;
+    }
+  });
+  return resolved;
+}
+
 function createCombatant(character, equipmentMap) {
   const equipped = resolveEquipment(character, equipmentMap);
+  const useables = resolveUseables(character, equipmentMap);
   const derived = compute(character, equipped);
+  const useableEntries = USEABLE_SLOTS.map(slot => {
+    const item = useables[slot];
+    if (!item || item.slot !== 'useable') return null;
+    return {
+      slot,
+      item,
+      used: false,
+    };
+  }).filter(Boolean);
   return {
     character,
     derived,
     equipment: equipped,
+    useables: useableEntries,
+    consumedUseables: [],
+    usedUseableIds: new Set(),
     health: derived.health,
     mana: derived.mana,
     stamina: derived.stamina,
@@ -37,6 +64,47 @@ function createCombatant(character, equipmentMap) {
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
   };
+}
+
+function meetsUseTrigger(trigger, combatant) {
+  if (!trigger || typeof trigger !== 'object') return false;
+  if (trigger.type === 'auto') {
+    if (trigger.stat === 'healthPct') {
+      const max = combatant.derived && combatant.derived.health ? combatant.derived.health : 1;
+      const pct = max > 0 ? combatant.health / max : 0;
+      const threshold = typeof trigger.threshold === 'number' ? trigger.threshold : 0;
+      return pct <= threshold;
+    }
+  }
+  return false;
+}
+
+function tryUseCombatantItem(combatant, now, log) {
+  if (!combatant.useables || !combatant.useables.length) return;
+  combatant.useables.forEach(entry => {
+    if (!entry || entry.used) return;
+    const trigger = entry.item && entry.item.useTrigger;
+    const effect = entry.item && entry.item.useEffect;
+    if (combatant.usedUseableIds && entry.item && combatant.usedUseableIds.has(entry.item.id)) {
+      entry.used = true;
+      return;
+    }
+    if (!effect || !meetsUseTrigger(trigger, combatant)) return;
+    entry.used = true;
+    if (combatant.usedUseableIds && entry.item) {
+      combatant.usedUseableIds.add(entry.item.id);
+    }
+    pushLog(log, `${combatant.character.name} consumes ${entry.item.name}`, {
+      sourceId: combatant.character.id,
+      targetId: combatant.character.id,
+      kind: 'useable',
+      itemId: entry.item.id,
+    });
+    applyEffect(combatant, combatant, effect, now, log, { resolution: { hit: true } });
+    if (entry.item.useConsumed) {
+      combatant.consumedUseables.push({ slot: entry.slot, itemId: entry.item.id });
+    }
+  });
 }
 
 function state(c) {
@@ -128,6 +196,8 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
   let now = 0;
   if (onUpdate) onUpdate({ type: 'start', a: state(a), b: state(b), log: [] });
   while (a.health > 0 && b.health > 0) {
+    tryUseCombatantItem(a, now, log);
+    tryUseCombatantItem(b, now, log);
     const idx = nextTimes[0] <= nextTimes[1] ? 0 : 1;
     const actor = combatants[idx];
     const target = combatants[1 - idx];
@@ -239,6 +309,10 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
     duration: now,
     finalA: state(a),
     finalB: state(b),
+    consumedUseables: {
+      [a.character.id]: a.consumedUseables.slice(),
+      [b.character.id]: b.consumedUseables.slice(),
+    },
   };
 }
 
