@@ -323,5 +323,20 @@
         }
       ]
     }
+  ],
+  "useables": [
+    {
+      "id": "useable_healing_potion",
+      "name": "Healing Potion",
+      "slot": "useable",
+      "type": "potion",
+      "category": "Potions",
+      "rarity": "Common",
+      "cost": 45,
+      "useTrigger": { "type": "auto", "stat": "healthPct", "threshold": 0.1, "owner": true },
+      "useEffect": { "type": "Heal", "value": 50 },
+      "useDuration": "instant",
+      "useConsumed": true
+    }
   ]
 }

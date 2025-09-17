@@ -12,6 +12,14 @@ const equipmentSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const useableSchema = new mongoose.Schema(
+  {
+    useable1: { type: String, default: null },
+    useable2: { type: String, default: null },
+  },
+  { _id: false }
+);
+
 const attributesSchema = new mongoose.Schema(
   {
     strength: { type: Number, default: 0 },
@@ -34,6 +42,7 @@ const characterSchema = new mongoose.Schema(
     xp: { type: Number, default: 0 },
     rotation: { type: [Number], default: [] },
     equipment: { type: equipmentSchema, default: () => ({}) },
+    useables: { type: useableSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

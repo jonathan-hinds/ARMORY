@@ -27,6 +27,8 @@ function createItem(entry) {
   item.scaling = Object.freeze({ ...(item.scaling || {}) });
   item.chanceBonuses = Object.freeze({ ...(item.chanceBonuses || {}) });
   item.onHitEffects = Object.freeze((item.onHitEffects || []).map(cloneEffect).filter(Boolean));
+  item.useTrigger = item.useTrigger ? Object.freeze({ ...item.useTrigger }) : null;
+  item.useEffect = item.useEffect ? Object.freeze(cloneEffect(item.useEffect) || item.useEffect) : null;
   return Object.freeze(item);
 }
 
@@ -35,9 +37,10 @@ async function loadCatalog() {
     const raw = await readJSON(EQUIPMENT_FILE);
     const weapons = Array.isArray(raw.weapons) ? raw.weapons.map(createItem) : [];
     const armor = Array.isArray(raw.armor) ? raw.armor.map(createItem) : [];
-    const items = [...weapons, ...armor];
+    const useables = Array.isArray(raw.useables) ? raw.useables.map(createItem) : [];
+    const items = [...weapons, ...armor, ...useables];
     const byId = new Map(items.map(item => [item.id, item]));
-    cache = { weapons, armor, byId };
+    cache = { weapons, armor, useables, byId };
   }
   return cache;
 }
@@ -47,6 +50,7 @@ async function getEquipmentCatalog() {
   return {
     weapons: catalog.weapons,
     armor: catalog.armor,
+    useables: catalog.useables,
   };
 }
 

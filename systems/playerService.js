@@ -2,6 +2,7 @@ const PlayerModel = require('../models/Player');
 const CharacterModel = require('../models/Character');
 const {
   ensureEquipmentShape,
+  ensureUseableShape,
   serializeCharacter,
   serializePlayer,
 } = require('../models/utils');
@@ -84,6 +85,7 @@ async function createCharacter(playerId, name) {
     basicType: rollBasicType(),
     rotation: [],
     equipment: ensureEquipmentShape({}),
+    useables: ensureUseableShape({}),
   });
   return serializeCharacter(characterDoc);
 }

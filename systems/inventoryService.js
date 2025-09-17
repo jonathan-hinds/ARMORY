@@ -2,16 +2,19 @@ const PlayerModel = require('../models/Player');
 const CharacterModel = require('../models/Character');
 const {
   ensureEquipmentShape,
+  ensureUseableShape,
   serializeCharacter,
   serializePlayer,
   EQUIPMENT_SLOTS,
+  USEABLE_SLOTS,
 } = require('../models/utils');
 const { getEquipmentMap } = require('./equipmentService');
 const { compute } = require('./derivedStats');
 
 function slotOrder(slot) {
-  const idx = EQUIPMENT_SLOTS.indexOf(slot);
-  return idx === -1 ? EQUIPMENT_SLOTS.length : idx;
+  const order = [...EQUIPMENT_SLOTS, 'useable'];
+  const idx = order.indexOf(slot);
+  return idx === -1 ? order.length : idx;
 }
 
 async function getInventory(playerId, characterId) {
@@ -34,6 +37,7 @@ async function getInventory(playerId, characterId) {
   const character = serializeCharacter(characterDoc);
 
   const equipmentIds = ensureEquipmentShape(character.equipment || {});
+  const useableIds = ensureUseableShape(character.useables || {});
   const equippedItems = {};
   const equippedForCompute = {};
   EQUIPMENT_SLOTS.forEach(slot => {
@@ -41,6 +45,13 @@ async function getInventory(playerId, characterId) {
     const item = id ? equipmentMap.get(id) : null;
     equippedItems[slot] = item ? JSON.parse(JSON.stringify(item)) : null;
     equippedForCompute[slot] = item || null;
+  });
+
+  const equippedUseables = {};
+  USEABLE_SLOTS.forEach(slot => {
+    const id = useableIds[slot];
+    const item = id ? equipmentMap.get(id) : null;
+    equippedUseables[slot] = item ? JSON.parse(JSON.stringify(item)) : null;
   });
 
   const derived = compute(character, equippedForCompute);
@@ -75,13 +86,14 @@ async function getInventory(playerId, characterId) {
   });
 
   const sanitizedCharacter = JSON.parse(
-    JSON.stringify({ ...character, equipment: equipmentIds })
+    JSON.stringify({ ...character, equipment: equipmentIds, useables: useableIds })
   );
 
   return {
     gold: typeof player.gold === 'number' ? player.gold : 0,
     character: sanitizedCharacter,
     equipped: equippedItems,
+    useables: equippedUseables,
     derived,
     inventory,
     ownedCounts,
@@ -92,7 +104,8 @@ async function setEquipment(playerId, characterId, slot, itemId) {
   if (!playerId || !characterId || !slot) {
     throw new Error('playerId, characterId, and slot required');
   }
-  if (!EQUIPMENT_SLOTS.includes(slot)) {
+  const allSlots = [...EQUIPMENT_SLOTS, ...USEABLE_SLOTS];
+  if (!allSlots.includes(slot)) {
     throw new Error('invalid equipment slot');
   }
   const [playerDoc, characterDoc, equipmentMap] = await Promise.all([
@@ -111,18 +124,38 @@ async function setEquipment(playerId, characterId, slot, itemId) {
   if (!character.equipment) {
     character.equipment = {};
   }
+  if (!character.useables) {
+    character.useables = {};
+  }
   EQUIPMENT_SLOTS.forEach(s => {
     if (character.equipment[s] === undefined) {
       character.equipment[s] = null;
     }
   });
+  USEABLE_SLOTS.forEach(s => {
+    if (character.useables[s] === undefined) {
+      character.useables[s] = null;
+    }
+  });
+
+  let useablesChanged = false;
 
   if (itemId) {
     const item = equipmentMap.get(itemId);
     if (!item) {
       throw new Error('item not found');
     }
-    if (item.slot !== slot) {
+    if (USEABLE_SLOTS.includes(slot)) {
+      if (item.slot !== 'useable') {
+        throw new Error('item cannot be equipped in this slot');
+      }
+      USEABLE_SLOTS.forEach(other => {
+        if (other !== slot && character.useables[other] === itemId) {
+          character.useables[other] = null;
+          useablesChanged = true;
+        }
+      });
+    } else if (item.slot !== slot) {
       throw new Error('item cannot be equipped in this slot');
     }
     const owned = (Array.isArray(playerDoc.items) ? playerDoc.items : []).filter(id => id === itemId).length;
@@ -131,7 +164,17 @@ async function setEquipment(playerId, characterId, slot, itemId) {
     }
   }
 
-  character.equipment[slot] = itemId || null;
+  if (USEABLE_SLOTS.includes(slot)) {
+    if (character.useables[slot] !== (itemId || null)) {
+      character.useables[slot] = itemId || null;
+      useablesChanged = true;
+    }
+  } else {
+    character.equipment[slot] = itemId || null;
+  }
+  if (useablesChanged) {
+    character.markModified('useables');
+  }
   await character.save();
 
   return getInventory(playerId, characterId);

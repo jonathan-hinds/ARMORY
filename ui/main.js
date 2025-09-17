@@ -28,6 +28,7 @@ if (rotationDamageTypeSelect) {
 }
 
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
+const USEABLE_SLOTS = ['useable1', 'useable2'];
 const SLOT_LABELS = {
   weapon: 'Weapon',
   helmet: 'Helmet',
@@ -35,6 +36,9 @@ const SLOT_LABELS = {
   legs: 'Legs',
   feet: 'Feet',
   hands: 'Hands',
+  useable: 'Useable Item',
+  useable1: 'Useable Slot 1',
+  useable2: 'Useable Slot 2',
 };
 const STAT_KEYS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 const CHANCE_LABELS = {
@@ -132,6 +136,14 @@ function slotLabel(slot) {
   return SLOT_LABELS[slot] || (slot ? slot.charAt(0).toUpperCase() + slot.slice(1) : '');
 }
 
+function isUseableSlot(slot) {
+  return USEABLE_SLOTS.includes(slot);
+}
+
+function isUseableItem(item) {
+  return item && item.slot === 'useable';
+}
+
 function statLabel(stat) {
   if (!stat) return '';
   return stat.charAt(0).toUpperCase() + stat.slice(1);
@@ -181,6 +193,23 @@ function describeEffect(effect) {
     return `Poison ${dmg} dmg/${interval}s for ${duration}s`;
   }
   return effect.type || '';
+}
+
+function describeUseTrigger(trigger) {
+  if (!trigger || typeof trigger !== 'object') return 'Manual activation';
+  if (trigger.type === 'auto') {
+    if (trigger.stat === 'healthPct') {
+      const threshold = trigger.threshold;
+      const pct = typeof threshold === 'number' ? Math.round(Math.max(0, threshold) * 100) : null;
+      const target = trigger.owner === false ? 'ally' : 'self';
+      if (pct != null) {
+        return `Auto when ${target} HP < ${pct}%`;
+      }
+      return `Auto when ${target} HP is low`;
+    }
+    return 'Auto activation';
+  }
+  return titleCase(trigger.type || 'Auto');
 }
 
 function describeOnHit(entry) {
@@ -282,40 +311,52 @@ function itemTooltip(item) {
   };
   add('Name', item.name);
   add('Rarity', item.rarity || 'Common');
-  add('Slot', slotLabel(item.slot));
-  if (item.type) add('Type', titleCase(item.type));
-  if (item.cost != null) add('Cost', `${item.cost} Gold`);
-  if (item.damageType) add('Damage Type', titleCase(item.damageType));
-  if (item.baseDamage) {
-    const min = item.baseDamage.min != null ? item.baseDamage.min : 0;
-    const max = item.baseDamage.max != null ? item.baseDamage.max : min;
-    add('Base Damage', `${min}-${max}`);
-  }
-  const scalingEntries = Object.entries(item.scaling || {}).filter(([, letter]) => letter);
-  if (scalingEntries.length) {
-    add(
-      'Scaling',
-      scalingEntries
-        .map(([stat, letter]) => `${statLabel(stat)} ${String(letter).toUpperCase()}`)
-        .join(', ')
-    );
-  }
-  const attrText = formatAttributeBonuses(item.attributeBonuses);
-  add('Attributes', attrText || 'None');
-  const resourceText = formatResourceBonuses(item.resourceBonuses);
-  add('Resources', resourceText || 'None');
-  const resistText = formatResistances(item.resistances);
-  add('Resistances', resistText || 'None');
-  const chanceText = formatChanceBonuses(item.chanceBonuses);
-  add('Chance', chanceText || 'None');
-  if (typeof item.attackIntervalModifier === 'number' && item.attackIntervalModifier !== 0) {
-    add(
-      'Attack Interval',
-      `${item.attackIntervalModifier > 0 ? '+' : ''}${item.attackIntervalModifier.toFixed(2)}s`
-    );
-  }
-  if (Array.isArray(item.onHitEffects) && item.onHitEffects.length) {
-    add('On Hit', item.onHitEffects.map(describeOnHit).join('<br/>'));
+  if (isUseableItem(item)) {
+    add('Slot', slotLabel(item.slot));
+    if (item.category) add('Category', titleCase(item.category));
+    if (item.type) add('Type', titleCase(item.type));
+    if (item.cost != null) add('Cost', `${item.cost} Gold`);
+    add('Trigger', describeUseTrigger(item.useTrigger));
+    add('Effect', item.useEffect ? describeEffect(item.useEffect) : 'None');
+    if (item.useDuration) add('Duration', titleCase(item.useDuration));
+    add('Consumed', item.useConsumed ? 'Yes' : 'No');
+    add('Per Fight', 'One use per equipped slot');
+  } else {
+    add('Slot', slotLabel(item.slot));
+    if (item.type) add('Type', titleCase(item.type));
+    if (item.cost != null) add('Cost', `${item.cost} Gold`);
+    if (item.damageType) add('Damage Type', titleCase(item.damageType));
+    if (item.baseDamage) {
+      const min = item.baseDamage.min != null ? item.baseDamage.min : 0;
+      const max = item.baseDamage.max != null ? item.baseDamage.max : min;
+      add('Base Damage', `${min}-${max}`);
+    }
+    const scalingEntries = Object.entries(item.scaling || {}).filter(([, letter]) => letter);
+    if (scalingEntries.length) {
+      add(
+        'Scaling',
+        scalingEntries
+          .map(([stat, letter]) => `${statLabel(stat)} ${String(letter).toUpperCase()}`)
+          .join(', ')
+      );
+    }
+    const attrText = formatAttributeBonuses(item.attributeBonuses);
+    add('Attributes', attrText || 'None');
+    const resourceText = formatResourceBonuses(item.resourceBonuses);
+    add('Resources', resourceText || 'None');
+    const resistText = formatResistances(item.resistances);
+    add('Resistances', resistText || 'None');
+    const chanceText = formatChanceBonuses(item.chanceBonuses);
+    add('Chance', chanceText || 'None');
+    if (typeof item.attackIntervalModifier === 'number' && item.attackIntervalModifier !== 0) {
+      add(
+        'Attack Interval',
+        `${item.attackIntervalModifier > 0 ? '+' : ''}${item.attackIntervalModifier.toFixed(2)}s`
+      );
+    }
+    if (Array.isArray(item.onHitEffects) && item.onHitEffects.length) {
+      add('On Hit', item.onHitEffects.map(describeOnHit).join('<br/>'));
+    }
   }
   return container;
 }
@@ -429,6 +470,9 @@ function clearMessage(el) {
 function applyInventoryData(data) {
   if (!data) return;
   inventoryView = data;
+  if (!inventoryView.useables) {
+    inventoryView.useables = { useable1: null, useable2: null };
+  }
   if (data.character) {
     currentCharacter = data.character;
     const idx = characters.findIndex(c => c.id === data.character.id);
@@ -472,7 +516,8 @@ function buildEquipmentIndex(catalog = equipmentCatalog) {
   if (!catalog) return index;
   const weapons = Array.isArray(catalog.weapons) ? catalog.weapons : [];
   const armor = Array.isArray(catalog.armor) ? catalog.armor : [];
-  [...weapons, ...armor].forEach(item => {
+  const useables = Array.isArray(catalog.useables) ? catalog.useables : [];
+  [...weapons, ...armor, ...useables].forEach(item => {
     if (item && item.id != null) {
       index[item.id] = item;
     }
@@ -493,12 +538,27 @@ function getCatalogItems() {
   if (!equipmentCatalog) return [];
   const weapons = Array.isArray(equipmentCatalog.weapons) ? equipmentCatalog.weapons : [];
   const armor = Array.isArray(equipmentCatalog.armor) ? equipmentCatalog.armor : [];
-  return [...weapons, ...armor].slice().sort((a, b) => {
+  const useables = Array.isArray(equipmentCatalog.useables) ? equipmentCatalog.useables : [];
+  return [...weapons, ...armor, ...useables].slice().sort((a, b) => {
+    const priorityA = isUseableItem(a) ? 1 : 0;
+    const priorityB = isUseableItem(b) ? 1 : 0;
+    if (priorityA !== priorityB) return priorityA - priorityB;
     const costA = typeof a.cost === 'number' ? a.cost : 0;
     const costB = typeof b.cost === 'number' ? b.cost : 0;
     if (costA !== costB) return costA - costB;
     return a.name.localeCompare(b.name);
   });
+}
+
+function formatItemMeta(item) {
+  if (!item) return '';
+  const rarity = item.rarity || 'Common';
+  if (isUseableItem(item)) {
+    const category = item.category ? titleCase(item.category) : 'Useable Item';
+    return `${rarity} • Useable Item (${category})`;
+  }
+  const typeText = item.type ? ` (${titleCase(item.type)})` : '';
+  return `${rarity} • ${slotLabel(item.slot)}${typeText}`;
 }
 
 async function refreshInventory(force = false) {
@@ -538,6 +598,25 @@ async function ensureInventory() {
 function getOwnedCount(itemId) {
   if (!inventoryView || !inventoryView.ownedCounts) return 0;
   return inventoryView.ownedCounts[itemId] || 0;
+}
+
+function getEquippedSlotItem(slot) {
+  if (!inventoryView) return null;
+  if (EQUIPMENT_SLOTS.includes(slot)) {
+    return inventoryView.equipped ? inventoryView.equipped[slot] : null;
+  }
+  if (USEABLE_SLOTS.includes(slot)) {
+    return inventoryView.useables ? inventoryView.useables[slot] : null;
+  }
+  return null;
+}
+
+function getUseableSlotsForItem(itemId) {
+  if (!inventoryView || !inventoryView.useables) return [];
+  return USEABLE_SLOTS.filter(slot => {
+    const entry = inventoryView.useables[slot];
+    return entry && entry.id === itemId;
+  });
 }
 
 function isTabActive(id) {
@@ -2117,8 +2196,7 @@ async function renderShop() {
     card.appendChild(name);
     const meta = document.createElement('div');
     meta.className = 'meta';
-    const typeText = item.type ? ` (${titleCase(item.type)})` : '';
-    meta.textContent = `${item.rarity || 'Common'} • ${slotLabel(item.slot)}${typeText}`;
+    meta.textContent = formatItemMeta(item);
     card.appendChild(meta);
     const cost = document.createElement('div');
     cost.className = 'cost';
@@ -2211,33 +2289,57 @@ async function renderInventory() {
       card.appendChild(name);
       const meta = document.createElement('div');
       meta.className = 'meta';
-      const typeText = item.type ? ` (${titleCase(item.type)})` : '';
-      meta.textContent = `${item.rarity || 'Common'} • ${slotLabel(item.slot)}${typeText}`;
+      meta.textContent = formatItemMeta(item);
       card.appendChild(meta);
       const countDiv = document.createElement('div');
       countDiv.className = 'owned';
       countDiv.textContent = `Count: ${count}`;
       card.appendChild(countDiv);
-      const equippedItem = inventoryView.equipped && inventoryView.equipped[item.slot];
-      if (equippedItem && equippedItem.id === item.id) {
-        const equippedTag = document.createElement('div');
-        equippedTag.className = 'meta';
-        equippedTag.textContent = 'Equipped';
-        card.appendChild(equippedTag);
+      if (isUseableItem(item)) {
+        const equippedSlots = getUseableSlotsForItem(item.id);
+        if (equippedSlots.length) {
+          const equippedTag = document.createElement('div');
+          equippedTag.className = 'meta';
+          equippedTag.textContent = `Equipped: ${equippedSlots.map(slotLabel).join(', ')}`;
+          card.appendChild(equippedTag);
+        }
+        USEABLE_SLOTS.forEach(slotName => {
+          const btn = document.createElement('button');
+          btn.textContent = `Equip ${slotLabel(slotName)}`;
+          const slotItem = getEquippedSlotItem(slotName);
+          if (slotItem && slotItem.id === item.id) {
+            btn.disabled = true;
+          }
+          btn.addEventListener('click', () => equipItem(slotName, item.id, message));
+          card.appendChild(btn);
+        });
+      } else {
+        const equippedItem = getEquippedSlotItem(item.slot);
+        if (equippedItem && equippedItem.id === item.id) {
+          const equippedTag = document.createElement('div');
+          equippedTag.className = 'meta';
+          equippedTag.textContent = 'Equipped';
+          card.appendChild(equippedTag);
+        }
+        const button = document.createElement('button');
+        button.textContent = `Equip ${slotLabel(item.slot)}`;
+        if (equippedItem && equippedItem.id === item.id) {
+          button.disabled = true;
+        }
+        button.addEventListener('click', () => equipItem(item.slot, item.id, message));
+        card.appendChild(button);
       }
-      const button = document.createElement('button');
-      button.textContent = `Equip ${slotLabel(item.slot)}`;
-      if (equippedItem && equippedItem.id === item.id) {
-        button.disabled = true;
-      }
-      button.addEventListener('click', () => equipItem(item.slot, item.id, message));
-      card.appendChild(button);
       attachTooltip(card, () => itemTooltip(item));
       grid.appendChild(card);
     });
   }
 
   slots.innerHTML = '';
+  const gearHeader = document.createElement('div');
+  gearHeader.className = 'slot-section-header';
+  gearHeader.textContent = 'Gear';
+  slots.appendChild(gearHeader);
+
   EQUIPMENT_SLOTS.forEach(slot => {
     const slotDiv = document.createElement('div');
     slotDiv.className = 'equipment-slot';
@@ -2245,7 +2347,7 @@ async function renderInventory() {
     label.className = 'slot-name';
     label.textContent = slotLabel(slot);
     slotDiv.appendChild(label);
-    const equipped = inventoryView.equipped ? inventoryView.equipped[slot] : null;
+    const equipped = getEquippedSlotItem(slot);
     if (equipped) {
       const itemName = document.createElement('div');
       itemName.className = 'item-name';
@@ -2256,6 +2358,47 @@ async function renderInventory() {
       const typeText = equipped.type ? ` (${titleCase(equipped.type)})` : '';
       meta.textContent = `${equipped.rarity || 'Common'}${typeText}`;
       slotDiv.appendChild(meta);
+      const button = document.createElement('button');
+      button.textContent = 'Unequip';
+      button.addEventListener('click', () => unequipSlot(slot, message));
+      slotDiv.appendChild(button);
+      attachTooltip(slotDiv, () => itemTooltip(equipped));
+    } else {
+      slotDiv.classList.add('empty');
+      const emptyText = document.createElement('div');
+      emptyText.className = 'item-name';
+      emptyText.textContent = 'Empty';
+      slotDiv.appendChild(emptyText);
+    }
+    slots.appendChild(slotDiv);
+  });
+
+  const useableHeader = document.createElement('div');
+  useableHeader.className = 'slot-section-header';
+  useableHeader.textContent = 'Useable Items';
+  slots.appendChild(useableHeader);
+
+  USEABLE_SLOTS.forEach(slot => {
+    const slotDiv = document.createElement('div');
+    slotDiv.className = 'equipment-slot useable-slot';
+    const label = document.createElement('div');
+    label.className = 'slot-name';
+    label.textContent = slotLabel(slot);
+    slotDiv.appendChild(label);
+    const equipped = getEquippedSlotItem(slot);
+    if (equipped) {
+      const itemName = document.createElement('div');
+      itemName.className = 'item-name';
+      itemName.textContent = equipped.name;
+      slotDiv.appendChild(itemName);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = formatItemMeta(equipped);
+      slotDiv.appendChild(meta);
+      const trigger = document.createElement('div');
+      trigger.className = 'meta';
+      trigger.textContent = describeUseTrigger(equipped.useTrigger);
+      slotDiv.appendChild(trigger);
       const button = document.createElement('button');
       button.textContent = 'Unequip';
       button.addEventListener('click', () => unequipSlot(slot, message));
@@ -2301,7 +2444,7 @@ async function equipItem(slot, itemId, messageEl) {
     if (shouldRender.inventory) renderInventory();
     if (shouldRender.shop) renderShop();
     if (shouldRender.character) renderCharacter();
-    const equipped = inventoryView && inventoryView.equipped ? inventoryView.equipped[slot] : null;
+    const equipped = getEquippedSlotItem(slot);
     showMessage(messageEl, equipped ? `Equipped ${equipped.name}` : 'Equipped', false);
   } catch (err) {
     showMessage(messageEl, err.message || 'Equip failed', true);

@@ -54,6 +54,45 @@ async function queueMatch(characterId, send) {
             playerMap.set(doc.playerId, doc);
           });
 
+          const consumedMap = result.consumedUseables || {};
+
+          function consumeUseables(charWrapper) {
+            const consumed = consumedMap[charWrapper.character.id] || [];
+            if (!consumed.length) return;
+            const characterDoc = characterMap.get(charWrapper.character.id);
+            if (!characterDoc) return;
+            if (!characterDoc.useables) {
+              characterDoc.useables = { useable1: null, useable2: null };
+            }
+            const playerDoc = playerMap.get(characterDoc.playerId);
+            if (!playerDoc) return;
+            if (!Array.isArray(playerDoc.items)) {
+              playerDoc.items = [];
+            }
+            let modifiedUseables = false;
+            let itemsModified = false;
+            consumed.forEach(entry => {
+              const idx = playerDoc.items.indexOf(entry.itemId);
+              if (idx !== -1) {
+                playerDoc.items.splice(idx, 1);
+                itemsModified = true;
+              }
+              if (characterDoc.useables[entry.slot] === entry.itemId) {
+                const remaining = playerDoc.items.filter(id => id === entry.itemId).length;
+                if (remaining <= 0) {
+                  characterDoc.useables[entry.slot] = null;
+                  modifiedUseables = true;
+                }
+              }
+            });
+            if (itemsModified && typeof playerDoc.markModified === 'function') {
+              playerDoc.markModified('items');
+            }
+            if (modifiedUseables && typeof characterDoc.markModified === 'function') {
+              characterDoc.markModified('useables');
+            }
+          }
+
           function reward(charWrapper, won) {
             const characterDoc = characterMap.get(charWrapper.character.id);
             if (!characterDoc) {
@@ -75,6 +114,9 @@ async function queueMatch(characterId, send) {
               gold: typeof playerDoc.gold === 'number' ? playerDoc.gold : 0,
             };
           }
+
+          consumeUseables(a);
+          consumeUseables(b);
 
           const rewardA = reward(a, result.winnerId === a.character.id);
           const rewardB = reward(b, result.winnerId === b.character.id);

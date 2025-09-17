@@ -783,13 +783,48 @@ async function runChallengeFight(characterId, send) {
   const playerWon = String(result.winnerId) === String(prep.character.id);
   let xpGain = 0;
   let gpGain = 0;
+
+  const consumed = result.consumedUseables || {};
+  const consumedByPlayer = consumed[prep.character.id] || [];
+  if (consumedByPlayer.length) {
+    if (!Array.isArray(prep.playerDoc.items)) {
+      prep.playerDoc.items = [];
+    }
+    if (!prep.characterDoc.useables) {
+      prep.characterDoc.useables = { useable1: null, useable2: null };
+    }
+    let modifiedUseables = false;
+    let itemsModified = false;
+    consumedByPlayer.forEach(entry => {
+      const idx = prep.playerDoc.items.indexOf(entry.itemId);
+      if (idx !== -1) {
+        prep.playerDoc.items.splice(idx, 1);
+        itemsModified = true;
+      }
+      if (prep.characterDoc.useables[entry.slot] === entry.itemId) {
+        const remaining = prep.playerDoc.items.filter(id => id === entry.itemId).length;
+        if (remaining <= 0) {
+          prep.characterDoc.useables[entry.slot] = null;
+          modifiedUseables = true;
+        }
+      }
+    });
+    if (itemsModified && typeof prep.playerDoc.markModified === 'function') {
+      prep.playerDoc.markModified('items');
+    }
+    if (modifiedUseables && typeof prep.characterDoc.markModified === 'function') {
+      prep.characterDoc.markModified('useables');
+    }
+  }
+
   if (playerWon) {
     xpGain = rewards.xpGain;
     gpGain = rewards.goldGain;
     prep.characterDoc.xp = (prep.characterDoc.xp || 0) + xpGain;
     prep.playerDoc.gold = (prep.playerDoc.gold || 0) + gpGain;
-    await Promise.all([prep.characterDoc.save(), prep.playerDoc.save()]);
   }
+
+  await Promise.all([prep.characterDoc.save(), prep.playerDoc.save()]);
 
   const updatedCharacter = serializeCharacter(prep.characterDoc);
   const updatedPlayer = serializePlayer(prep.playerDoc);
