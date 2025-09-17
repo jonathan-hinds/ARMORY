@@ -25,6 +25,7 @@ function createItem(entry) {
   item.resourceBonuses = Object.freeze({ ...(item.resourceBonuses || {}) });
   item.resistances = Object.freeze({ ...(item.resistances || {}) });
   item.scaling = Object.freeze({ ...(item.scaling || {}) });
+  item.chanceBonuses = Object.freeze({ ...(item.chanceBonuses || {}) });
   item.onHitEffects = Object.freeze((item.onHitEffects || []).map(cloneEffect).filter(Boolean));
   return Object.freeze(item);
 }

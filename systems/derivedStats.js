@@ -13,9 +13,75 @@ const SCALING_VALUES = {
 
 const STATS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
+const CHANCE_KEYS = ['critChance', 'blockChance', 'dodgeChance', 'hitChance'];
+const CHANCE_CAPS = {
+  critChance: 50,
+  blockChance: 30,
+  dodgeChance: 30,
+  hitChance: 100,
+};
+const HIT_BASE = 75;
+const HIT_RANGE = CHANCE_CAPS.hitChance - HIT_BASE;
+const HIT_SCALE = 45;
 
 function attackInterval(agi) {
   return MIN_ATTACK_INTERVAL + A * Math.exp(-K * agi);
+}
+
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return typeof min === 'number' ? min : 0;
+  }
+  let result = value;
+  if (typeof min === 'number') {
+    result = Math.max(min, result);
+  }
+  if (typeof max === 'number') {
+    result = Math.min(max, result);
+  }
+  return result;
+}
+
+function saturating(value, cap, scale) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return cap * (1 - Math.exp(-value / scale));
+}
+
+function chanceWithBonus(base, bonus, max, min = 0) {
+  const additive = typeof bonus === 'number' ? bonus : 0;
+  return clamp(base + additive, min, max);
+}
+
+function computeCritChance(attributes, bonus) {
+  const agility = attributes.agility || 0;
+  const strength = attributes.strength || 0;
+  const combined = agility * 0.65 + strength * 0.35;
+  const base = saturating(combined, CHANCE_CAPS.critChance, 60);
+  return chanceWithBonus(base, bonus, CHANCE_CAPS.critChance);
+}
+
+function computeBlockChance(attributes, bonus) {
+  const stamina = attributes.stamina || 0;
+  const strength = attributes.strength || 0;
+  const combined = stamina * 0.7 + strength * 0.3;
+  const base = saturating(combined, CHANCE_CAPS.blockChance, 70);
+  return chanceWithBonus(base, bonus, CHANCE_CAPS.blockChance);
+}
+
+function computeDodgeChance(attributes, bonus) {
+  const wisdom = attributes.wisdom || 0;
+  const stamina = attributes.stamina || 0;
+  const combined = wisdom * 0.55 + stamina * 0.45;
+  const base = saturating(combined, CHANCE_CAPS.dodgeChance, 65);
+  return chanceWithBonus(base, bonus, CHANCE_CAPS.dodgeChance);
+}
+
+function computeHitChance(attributes, bonus) {
+  const agility = attributes.agility || 0;
+  const intellect = attributes.intellect || 0;
+  const combined = agility * 0.6 + intellect * 0.4;
+  const base = HIT_BASE + saturating(combined, HIT_RANGE, HIT_SCALE);
+  return chanceWithBonus(base, bonus, CHANCE_CAPS.hitChance);
 }
 
 function computeWeaponDamage(weapon, attributes) {
@@ -52,6 +118,7 @@ function compute(character, equipped = {}) {
 
   const attributeBonuses = STATS.reduce((acc, stat) => ({ ...acc, [stat]: 0 }), {});
   const resourceBonuses = { health: 0, mana: 0, stamina: 0 };
+  const chanceBonuses = CHANCE_KEYS.reduce((acc, key) => ({ ...acc, [key]: 0 }), {});
   let meleeResistBonus = 0;
   let magicResistBonus = 0;
   let attackIntervalModifier = 0;
@@ -89,6 +156,14 @@ function compute(character, equipped = {}) {
         });
       });
     }
+    if (item.chanceBonuses) {
+      CHANCE_KEYS.forEach(key => {
+        const value = item.chanceBonuses[key];
+        if (typeof value === 'number' && !Number.isNaN(value)) {
+          chanceBonuses[key] += value;
+        }
+      });
+    }
   });
 
   const attributes = {};
@@ -105,6 +180,11 @@ function compute(character, equipped = {}) {
   const health = 100 + staminaValue * 10 + resourceBonuses.health;
   const mana = 50 + wisdomValue * 8 + resourceBonuses.mana;
   const stamina = 50 + staminaValue * 8 + resourceBonuses.stamina;
+
+  const critChance = computeCritChance(attributes, chanceBonuses.critChance);
+  const blockChance = computeBlockChance(attributes, chanceBonuses.blockChance);
+  const dodgeChance = computeDodgeChance(attributes, chanceBonuses.dodgeChance);
+  const hitChance = computeHitChance(attributes, chanceBonuses.hitChance);
 
   const weapon = equipped ? equipped.weapon : null;
   let minMeleeAttack = attributes.strength * 2;
@@ -131,12 +211,14 @@ function compute(character, equipped = {}) {
 
   const meleeResist = clampResist(meleeResistBonus);
   const magicResist = clampResist(magicResistBonus);
+  const frozenChanceBonuses = Object.freeze({ ...chanceBonuses });
 
   return {
     baseAttributes,
     attributes,
     attributeBonuses,
     resourceBonuses,
+    chanceBonuses: frozenChanceBonuses,
     minMeleeAttack,
     maxMeleeAttack,
     minMagicAttack,
@@ -145,6 +227,10 @@ function compute(character, equipped = {}) {
     health,
     mana,
     stamina,
+    critChance,
+    blockChance,
+    dodgeChance,
+    hitChance,
     meleeResist,
     magicResist,
     onHitEffects,
