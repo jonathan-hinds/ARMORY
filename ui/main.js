@@ -94,6 +94,7 @@ let adventureTickTimer = null;
 let adventurePollInFlight = false;
 let adventureElements = null;
 let adventureSelectedDays = null;
+let battleModeInitialized = false;
 
 function xpForNextLevel(level) {
   return level * 100;
@@ -637,6 +638,13 @@ async function enterGame(character) {
   inventoryView = null;
   rotationInitialized = false;
   rotation = [];
+  battleModeInitialized = false;
+  if (battleArea) {
+    battleArea.innerHTML = '';
+  }
+  if (battleModeButtons) {
+    battleModeButtons.forEach(btn => btn.classList.remove('active'));
+  }
   try {
     await refreshInventory(true);
   } catch (err) {
@@ -654,6 +662,7 @@ function initTabs() {
         document.querySelectorAll('.tab-pane').forEach(pane => {
           pane.classList.toggle('active', pane.id === target);
         });
+        buttons.forEach(b => b.classList.toggle('active', b === btn));
         if (target === 'rotation') {
           initRotation();
         } else if (target === 'character') {
@@ -662,6 +671,8 @@ function initTabs() {
           renderShop();
         } else if (target === 'inventory') {
           renderInventory();
+        } else if (target === 'battle') {
+          ensureBattleModeInitialized();
         }
       });
     });
@@ -1816,11 +1827,30 @@ async function renderAdventurePanel() {
 
 // Battle modes
 const battleArea = document.getElementById('battle-area');
-document.querySelectorAll('#battle-modes button').forEach(btn => {
-  btn.addEventListener('click', () => selectMode(btn.dataset.mode));
+const battleModeButtons = document.querySelectorAll('#battle-modes button');
+battleModeButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    battleModeInitialized = true;
+    selectMode(btn.dataset.mode);
+  });
 });
 
+function ensureBattleModeInitialized() {
+  if (battleModeInitialized) return;
+  const preferred =
+    document.querySelector('#battle-modes button.active') ||
+    document.querySelector('#battle-modes button[data-mode="challenge"]') ||
+    (battleModeButtons.length ? battleModeButtons[0] : null);
+  if (preferred) {
+    battleModeInitialized = true;
+    selectMode(preferred.dataset.mode);
+  }
+}
+
 function selectMode(mode) {
+  battleModeButtons.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.mode === mode);
+  });
   stopAdventurePolling();
   if (mode === 'matchmaking') {
     battleArea.innerHTML = '<button id="queue-match">Queue for Match</button>';
@@ -2378,7 +2408,6 @@ function populateLoadoutSummary(container, derived) {
     });
     attrTable.appendChild(tr);
   });
-  container.appendChild(attrTable);
 
   const derivedTable = document.createElement('table');
   derivedTable.className = 'stats-table';
@@ -2406,7 +2435,12 @@ function populateLoadoutSummary(container, derived) {
   addRow('Dodge Chance', formatChanceValue(derived.dodgeChance));
   const basic = derived.basicAttackEffectType === 'MagicDamage' ? 'Magic' : 'Physical';
   addRow('Basic Attack', basic);
-  container.appendChild(derivedTable);
+
+  const tables = document.createElement('div');
+  tables.className = 'summary-tables';
+  tables.appendChild(attrTable);
+  tables.appendChild(derivedTable);
+  container.appendChild(tables);
 
   const chanceBonuses = derived.chanceBonuses || {};
   const chanceTable = document.createElement('table');
@@ -2436,17 +2470,30 @@ function populateLoadoutSummary(container, derived) {
     tr.appendChild(totalTd);
     chanceTable.appendChild(tr);
   });
-  container.appendChild(chanceTable);
 
-  const heading = document.createElement('div');
-  heading.textContent = 'On-Hit Effects';
-  heading.style.fontWeight = 'bold';
-  container.appendChild(heading);
+  const extras = document.createElement('div');
+  extras.className = 'summary-extras';
+
+  const chanceCard = document.createElement('div');
+  chanceCard.className = 'chance-card';
+  const chanceHeading = document.createElement('div');
+  chanceHeading.className = 'card-heading';
+  chanceHeading.textContent = 'Chance Breakdown';
+  chanceCard.appendChild(chanceHeading);
+  chanceCard.appendChild(chanceTable);
+  extras.appendChild(chanceCard);
+
+  const effectsCard = document.createElement('div');
+  effectsCard.className = 'onhit-card';
+  const effectsHeading = document.createElement('div');
+  effectsHeading.className = 'card-heading';
+  effectsHeading.textContent = 'On-Hit Effects';
+  effectsCard.appendChild(effectsHeading);
   const effects = Array.isArray(derived.onHitEffects) ? derived.onHitEffects : [];
   if (!effects.length) {
     const none = document.createElement('div');
     none.textContent = 'None';
-    container.appendChild(none);
+    effectsCard.appendChild(none);
   } else {
     const list = document.createElement('ul');
     list.className = 'simple-list';
@@ -2455,9 +2502,13 @@ function populateLoadoutSummary(container, derived) {
       li.textContent = describeOnHit(entry);
       list.appendChild(li);
     });
-    container.appendChild(list);
+    effectsCard.appendChild(list);
   }
+  extras.appendChild(effectsCard);
+
+  container.appendChild(extras);
 }
+
 
 async function renderCharacter() {
   const pane = document.getElementById('character');
@@ -2479,51 +2530,172 @@ async function renderCharacter() {
 
   pane.innerHTML = '';
   const xpNeeded = xpForNextLevel(currentCharacter.level || 1);
-  const table = document.createElement('table');
-  table.className = 'stats-table';
+  const xpCurrent = currentCharacter.xp || 0;
+  const gold = currentPlayer ? currentPlayer.gold || 0 : 0;
+  const derived = (inventoryView && inventoryView.derived) || computeDerived(currentCharacter);
 
-  const addSection = label => {
-    const tr = document.createElement('tr');
-    tr.className = 'section';
-    const td = document.createElement('td');
-    td.colSpan = 2;
-    td.textContent = label;
-    tr.appendChild(td);
-    table.appendChild(tr);
-  };
+  const page = document.createElement('div');
+  page.className = 'character-page';
+  pane.appendChild(page);
 
-  const addRow = (label, value) => {
-    const tr = document.createElement('tr');
-    const l = document.createElement('td');
+  const hero = document.createElement('div');
+  hero.className = 'character-hero';
+  page.appendChild(hero);
+
+  const emblem = document.createElement('div');
+  emblem.className = 'hero-emblem';
+  emblem.textContent = (currentCharacter.name || '?').slice(0, 1).toUpperCase();
+  hero.appendChild(emblem);
+
+  const heroBody = document.createElement('div');
+  heroBody.className = 'hero-body';
+  hero.appendChild(heroBody);
+
+  const heroHeader = document.createElement('div');
+  heroHeader.className = 'hero-header';
+  heroBody.appendChild(heroHeader);
+
+  const heroName = document.createElement('div');
+  heroName.className = 'hero-name';
+  heroName.textContent = currentCharacter.name;
+  heroHeader.appendChild(heroName);
+
+  const heroType = document.createElement('div');
+  heroType.className = 'hero-type';
+  heroType.textContent = displayDamageType(currentCharacter.basicType);
+  heroHeader.appendChild(heroType);
+
+  const metaGrid = document.createElement('div');
+  metaGrid.className = 'hero-meta-grid';
+  heroBody.appendChild(metaGrid);
+  const metaEntries = [
+    { label: 'Level', value: currentCharacter.level || 1 },
+    { label: 'Gold', value: gold },
+    { label: 'Basic Attack', value: derived.basicAttackEffectType === 'MagicDamage' ? 'Magic' : 'Physical' },
+  ];
+  metaEntries.forEach(({ label, value }) => {
+    const item = document.createElement('div');
+    item.className = 'hero-meta-item';
+    const l = document.createElement('div');
+    l.className = 'label';
     l.textContent = label;
-    const v = document.createElement('td');
+    const v = document.createElement('div');
+    v.className = 'value';
     v.textContent = value;
-    tr.appendChild(l);
-    tr.appendChild(v);
-    table.appendChild(tr);
-  };
+    item.appendChild(l);
+    item.appendChild(v);
+    metaGrid.appendChild(item);
+  });
 
-  addSection('Info');
-  addRow('Name', currentCharacter.name);
-  addRow('Level', currentCharacter.level || 1);
-  addRow('XP', `${currentCharacter.xp || 0} / ${xpNeeded}`);
-  addRow('Gold', currentPlayer ? currentPlayer.gold || 0 : 0);
-  addRow('Damage Type', displayDamageType(currentCharacter.basicType));
+  const xpSection = document.createElement('div');
+  xpSection.className = 'hero-xp';
+  heroBody.appendChild(xpSection);
+  const xpLabel = document.createElement('div');
+  xpLabel.className = 'xp-label';
+  xpLabel.textContent = xpNeeded > 0 ? `XP ${xpCurrent} / ${xpNeeded}` : `XP ${xpCurrent}`;
+  xpSection.appendChild(xpLabel);
+  const xpBar = document.createElement('div');
+  xpBar.className = 'xp-bar';
+  xpSection.appendChild(xpBar);
+  const xpFill = document.createElement('div');
+  xpFill.className = 'xp-bar-fill';
+  const progress = xpNeeded > 0 ? Math.min(1, Math.max(0, xpCurrent / xpNeeded)) : 1;
+  xpFill.style.width = `${progress * 100}%`;
+  xpBar.appendChild(xpFill);
+  if (xpNeeded > 0 && xpCurrent >= xpNeeded) {
+    xpSection.classList.add('ready');
+    const ready = document.createElement('div');
+    ready.className = 'xp-ready-text';
+    ready.textContent = 'Ready to level up!';
+    xpSection.appendChild(ready);
+  } else if (xpNeeded > 0) {
+    const hint = document.createElement('div');
+    hint.className = 'xp-hint';
+    hint.textContent = `${Math.max(0, xpNeeded - xpCurrent)} XP to next level`;
+    xpSection.appendChild(hint);
+  } else {
+    const hint = document.createElement('div');
+    hint.className = 'xp-hint';
+    hint.textContent = 'Maximum level reached';
+    xpSection.appendChild(hint);
+  }
 
-  pane.appendChild(table);
-
-  const summary = document.createElement('div');
-  summary.className = 'loadout-summary';
-  populateLoadoutSummary(summary, inventoryView ? inventoryView.derived : null);
-  pane.appendChild(summary);
-
-  if ((currentCharacter.xp || 0) >= xpNeeded) {
+  const heroActions = document.createElement('div');
+  heroActions.className = 'hero-actions';
+  hero.appendChild(heroActions);
+  if (xpNeeded > 0 && xpCurrent >= xpNeeded) {
+    const status = document.createElement('div');
+    status.className = 'hero-status ready';
+    status.textContent = 'Advancement available';
+    heroActions.appendChild(status);
     const btn = document.createElement('button');
     btn.textContent = 'Level Up';
     btn.addEventListener('click', showLevelUpForm);
-    pane.appendChild(btn);
+    heroActions.appendChild(btn);
+  } else {
+    const status = document.createElement('div');
+    status.className = 'hero-status';
+    status.textContent = xpNeeded > 0 ? `${Math.max(0, xpNeeded - xpCurrent)} XP needed` : 'Standing at the peak';
+    heroActions.appendChild(status);
   }
+  const heroNote = document.createElement('div');
+  heroNote.className = 'hero-note';
+  heroNote.textContent = 'Tweak gear in the loadout and prepare your next rotation.';
+  heroActions.appendChild(heroNote);
+
+  const grid = document.createElement('div');
+  grid.className = 'character-grid';
+  page.appendChild(grid);
+
+  const highlightCard = document.createElement('div');
+  highlightCard.className = 'character-card highlight-card';
+  const highlightTitle = document.createElement('h3');
+  highlightTitle.textContent = 'Battle Snapshot';
+  highlightCard.appendChild(highlightTitle);
+  const highlightGrid = document.createElement('div');
+  highlightGrid.className = 'highlight-grid';
+  const highlightStats = [
+    { label: 'Health', value: Math.round(derived.health || 0) },
+    { label: 'Mana', value: Math.round(derived.mana || 0) },
+    { label: 'Stamina', value: Math.round(derived.stamina || 0) },
+    { label: 'Melee ATK', value: `${Math.round(derived.minMeleeAttack || 0)}-${Math.round(derived.maxMeleeAttack || 0)}` },
+    { label: 'Magic ATK', value: `${Math.round(derived.minMagicAttack || 0)}-${Math.round(derived.maxMagicAttack || 0)}` },
+    { label: 'Attack Rate', value: `${(derived.attackIntervalSeconds || 0).toFixed(2)}s` },
+    { label: 'Hit Chance', value: formatChanceValue(derived.hitChance) },
+    { label: 'Crit Chance', value: formatChanceValue(derived.critChance) },
+    { label: 'Block Chance', value: formatChanceValue(derived.blockChance) },
+    { label: 'Dodge Chance', value: formatChanceValue(derived.dodgeChance) },
+    { label: 'Melee Resist', value: `${Math.round((derived.meleeResist || 0) * 100)}%` },
+    { label: 'Magic Resist', value: `${Math.round((derived.magicResist || 0) * 100)}%` },
+  ];
+  highlightStats.forEach(({ label, value }) => {
+    const item = document.createElement('div');
+    item.className = 'highlight-item';
+    const l = document.createElement('div');
+    l.className = 'label';
+    l.textContent = label;
+    const v = document.createElement('div');
+    v.className = 'value';
+    v.textContent = value;
+    item.appendChild(l);
+    item.appendChild(v);
+    highlightGrid.appendChild(item);
+  });
+  highlightCard.appendChild(highlightGrid);
+  grid.appendChild(highlightCard);
+
+  const loadoutCard = document.createElement('div');
+  loadoutCard.className = 'character-card loadout-card';
+  const loadoutTitle = document.createElement('h3');
+  loadoutTitle.textContent = 'Loadout Breakdown';
+  loadoutCard.appendChild(loadoutTitle);
+  const summary = document.createElement('div');
+  summary.className = 'loadout-summary';
+  populateLoadoutSummary(summary, derived);
+  loadoutCard.appendChild(summary);
+  grid.appendChild(loadoutCard);
 }
+
 
 function showLevelUpForm() {
   if (document.getElementById('levelup-dialog')) return;

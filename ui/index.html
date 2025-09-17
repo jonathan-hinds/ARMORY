@@ -37,60 +37,113 @@
     </nav>
     <section id="content">
       <div id="shop" class="tab-pane active">
-        <div id="shop-header">
-          <div id="shop-gold">Gold: 0</div>
-          <div id="shop-message" class="message hidden"></div>
+        <div class="tab-stage shop-page">
+          <header class="tab-hero shop-hero">
+            <div class="hero-title">
+              <h1>Armory Exchange</h1>
+              <p>Fresh stock from the midnight forge.</p>
+            </div>
+            <div class="hero-status-block">
+              <div id="shop-gold" class="hero-chip">Gold: 0</div>
+              <div id="shop-message" class="message hidden"></div>
+            </div>
+          </header>
+          <section class="panel vault-panel">
+            <div class="panel-title">Inventory Stock</div>
+            <div id="shop-grid" class="item-grid"></div>
+          </section>
         </div>
-        <div id="shop-grid" class="item-grid"></div>
       </div>
       <div id="character" class="tab-pane"></div>
       <div id="inventory" class="tab-pane">
-        <div id="inventory-message" class="message hidden"></div>
-        <div class="inventory-layout">
-          <div class="inventory-column">
-            <h3>Owned Gear</h3>
-            <div id="inventory-grid" class="item-grid"></div>
-          </div>
-          <div class="inventory-column equipment-panel">
-            <h3>Equipped</h3>
-            <div id="equipment-slots" class="equipment-slots"></div>
-            <h3>Loadout Summary</h3>
-            <div id="loadout-summary" class="loadout-summary"></div>
+        <div class="tab-stage inventory-page">
+          <header class="tab-hero inventory-hero">
+            <div class="hero-title">
+              <h1>Loadout Locker</h1>
+              <p>Inspect, equip, and compare your arsenal.</p>
+            </div>
+            <div class="hero-status-block">
+              <div class="hero-chip hero-chip-muted">Drag gear to inspect stats.</div>
+              <div id="inventory-message" class="message hidden"></div>
+            </div>
+          </header>
+          <div class="inventory-columns">
+            <section class="panel inventory-column">
+              <div class="panel-title">Owned Gear</div>
+              <div id="inventory-grid" class="item-grid"></div>
+            </section>
+            <div class="inventory-column">
+              <section class="panel equipment-panel">
+                <div class="panel-title">Equipped Gear</div>
+                <div id="equipment-slots" class="equipment-slots"></div>
+              </section>
+              <section class="panel loadout-panel">
+                <div class="panel-title">Loadout Summary</div>
+                <div id="loadout-summary" class="loadout-summary"></div>
+              </section>
+            </div>
           </div>
         </div>
       </div>
       <div id="battle" class="tab-pane">
-        <div id="battle-modes">
-          <button data-mode="matchmaking">Matchmaking</button>
-          <button data-mode="challenge">Challenge</button>
-          <button data-mode="adventure">Adventure</button>
+        <div class="tab-stage battle-page">
+          <header class="tab-hero battle-hero">
+            <div class="hero-title">
+              <h1>Arena Console</h1>
+              <p>Queue duels, face challengers, or embark on adventures.</p>
+            </div>
+            <div class="hero-status-block">
+              <div class="hero-chip hero-chip-muted">Choose a mode to review intel.</div>
+            </div>
+          </header>
+          <div class="battle-body">
+            <div id="battle-modes" class="battle-modes">
+              <button data-mode="matchmaking">Matchmaking</button>
+              <button data-mode="challenge">Challenge</button>
+              <button data-mode="adventure">Adventure</button>
+            </div>
+            <section class="panel battle-arena">
+              <div id="battle-area" class="battle-panels"></div>
+            </section>
+          </div>
         </div>
-        <div id="battle-area"></div>
       </div>
       <div id="rotation" class="tab-pane">
-        <div id="rotation-container">
-          <div class="rotation-settings">
-            <label for="rotation-damage-type">Damage Type</label>
-            <select id="rotation-damage-type">
-              <option value="melee">Melee</option>
-              <option value="magic">Magic</option>
-            </select>
-          </div>
-          <div class="lists">
-            <div class="pool">
-              <h3>Physical Abilities</h3>
-              <div id="physical-abilities" class="ability-grid"></div>
-              <h3>Magical Abilities</h3>
-              <div id="magical-abilities" class="ability-grid"></div>
+        <div class="tab-stage rotation-page">
+          <header class="tab-hero rotation-hero">
+            <div class="hero-title">
+              <h1>Rotation Forge</h1>
+              <p>Arrange abilities into a lethal sequence.</p>
             </div>
-            <div>
-              <h3>Rotation</h3>
-              <ul id="rotation-list" class="drop-zone"></ul>
-              <div id="rotation-delete" class="drop-zone delete-zone">Drop here to remove</div>
+            <div class="hero-status-block">
+              <div class="hero-chip hero-chip-select">
+                <label for="rotation-damage-type">Damage Type</label>
+                <select id="rotation-damage-type">
+                  <option value="melee">Melee</option>
+                  <option value="magic">Magic</option>
+                </select>
+              </div>
+            </div>
+          </header>
+          <div id="rotation-container" class="rotation-board">
+            <div class="rotation-columns">
+              <section class="panel rotation-pool">
+                <div class="panel-title">Physical Abilities</div>
+                <div id="physical-abilities" class="ability-grid"></div>
+                <div class="panel-title">Magical Abilities</div>
+                <div id="magical-abilities" class="ability-grid"></div>
+              </section>
+              <section class="panel rotation-sequence">
+                <div class="panel-title">Active Rotation</div>
+                <ul id="rotation-list" class="drop-zone"></ul>
+                <div id="rotation-delete" class="drop-zone delete-zone">Drop here to remove</div>
+              </section>
+            </div>
+            <div class="rotation-actions">
+              <button id="save-rotation">Save Rotation</button>
+              <div id="rotation-error" class="message hidden"></div>
             </div>
           </div>
-          <button id="save-rotation">Save Rotation</button>
-          <div id="rotation-error" class="hidden"></div>
         </div>
       </div>
     </section>
