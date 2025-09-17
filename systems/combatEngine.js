@@ -117,6 +117,17 @@ function state(c) {
     maxHealth: c.derived.health,
     maxMana: c.derived.mana,
     maxStamina: c.derived.stamina,
+    useables: USEABLE_SLOTS.map(slot => {
+      const entry =
+        c.useables && Array.isArray(c.useables)
+          ? c.useables.find(useable => useable && useable.slot === slot)
+          : null;
+      return {
+        slot,
+        hasItem: !!entry,
+        used: !!(entry && entry.used),
+      };
+    }),
   };
 }
 
