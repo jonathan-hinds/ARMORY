@@ -8,7 +8,6 @@ let rotationInitialized = false;
 let rotationDamageType = 'melee';
 
 const rotationDamageTypeSelect = document.getElementById('rotation-damage-type');
-const rotationBasicTypeLabel = document.getElementById('rotation-basic-type');
 
 function normalizeDamageType(value) {
   return value === 'magic' ? 'magic' : 'melee';
@@ -18,10 +17,6 @@ function setRotationDamageType(value) {
   rotationDamageType = normalizeDamageType(value);
   if (rotationDamageTypeSelect) {
     rotationDamageTypeSelect.value = rotationDamageType;
-  }
-  if (rotationBasicTypeLabel) {
-    rotationBasicTypeLabel.textContent =
-      rotationDamageType === 'magic' ? 'Magic' : 'Melee';
   }
 }
 
@@ -656,7 +651,6 @@ function initTabs() {
     buttons.forEach(btn => {
       btn.addEventListener('click', () => {
         const target = btn.getAttribute('data-tab');
-        buttons.forEach(b => b.classList.toggle('active', b === btn));
         document.querySelectorAll('.tab-pane').forEach(pane => {
           pane.classList.toggle('active', pane.id === target);
         });
