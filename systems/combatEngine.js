@@ -79,7 +79,31 @@ function processOnHitEffects(source, target, trigger, context = {}, now, log) {
       itemId: entry.itemId,
     });
     const effect = cloneEffect(entry.effect);
-    applyEffect(source, target, effect, now, log);
+    const baseType =
+      effect.type === 'MagicDamage'
+        ? 'magical'
+        : effect.type === 'PhysicalDamage'
+        ? 'physical'
+        : context.damageType ||
+          (source.derived && source.derived.weaponDamageType
+            ? source.derived.weaponDamageType
+            : source.basicAttackEffectType === 'MagicDamage'
+            ? 'magical'
+            : 'physical');
+    let resolution = null;
+    if (context && context.resolution && context.resolution.hit) {
+      resolution = {
+        hit: true,
+        outcome: context.resolution.outcome || 'hit',
+        damageType: context.resolution.damageType || baseType,
+      };
+    }
+    if (!resolution) {
+      resolution = { hit: true, outcome: 'hit', damageType: baseType };
+    } else if (!resolution.damageType) {
+      resolution.damageType = baseType;
+    }
+    applyEffect(source, target, effect, now, log, { resolution });
   });
 }
 
@@ -126,8 +150,33 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
           kind: 'ability',
           abilityId: action.ability.id,
         });
-        action.ability.effects.forEach(e => applyEffect(actor, target, e, now, log));
-        processOnHitEffects(actor, target, 'ability', { ability: action.ability }, now, log);
+        let lastResolution = null;
+        let landedDamage = false;
+        const damageResults = [];
+        action.ability.effects.forEach(effect => {
+          const result = applyEffect(actor, target, effect, now, log, { resolution: lastResolution });
+          if (result && result.resolution) {
+            lastResolution = result.resolution;
+          }
+          if (result && result.hit && Number.isFinite(result.amount) && result.amount > 0) {
+            landedDamage = true;
+            damageResults.push(result);
+          }
+        });
+        if (landedDamage) {
+          const contextForOnHit = { ability: action.ability };
+          const primary = damageResults.find(res => res && res.damageType);
+          if (primary) {
+            contextForOnHit.damageType = primary.damageType;
+            contextForOnHit.resolution = primary.resolution;
+          } else if (lastResolution && lastResolution.hit) {
+            contextForOnHit.resolution = lastResolution;
+            if (lastResolution.damageType) {
+              contextForOnHit.damageType = lastResolution.damageType;
+            }
+          }
+          processOnHitEffects(actor, target, 'ability', contextForOnHit, now, log);
+        }
       } else {
         const effectType =
           actor.basicAttackEffectType || (actor.character.basicType === 'melee' ? 'PhysicalDamage' : 'MagicDamage');
@@ -164,15 +213,14 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
           effectType === 'PhysicalDamage'
             ? { type: 'PhysicalDamage', value: 0 }
             : { type: 'MagicDamage', value: 0 };
-        applyEffect(actor, target, effect, now, log);
-        processOnHitEffects(
-          actor,
-          target,
-          'basic',
-          { damageType: effectType === 'PhysicalDamage' ? 'physical' : 'magical' },
-          now,
-          log,
-        );
+        const result = applyEffect(actor, target, effect, now, log);
+        if (result && result.hit && Number.isFinite(result.amount) && result.amount > 0) {
+          const contextForOnHit = {
+            damageType: result.damageType || (effectType === 'PhysicalDamage' ? 'physical' : 'magical'),
+            resolution: result.resolution,
+          };
+          processOnHitEffects(actor, target, 'basic', contextForOnHit, now, log);
+        }
       }
     }
     nextTimes[idx] += actor.derived.attackIntervalSeconds;

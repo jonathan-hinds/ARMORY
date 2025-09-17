@@ -14,6 +14,7 @@ class Item {
     resistances = {},
     onHitEffects = [],
     attackIntervalModifier = 0,
+    chanceBonuses = {},
   }) {
     this.id = id;
     this.name = name;
@@ -29,6 +30,7 @@ class Item {
     this.resistances = resistances;
     this.onHitEffects = onHitEffects;
     this.attackIntervalModifier = attackIntervalModifier;
+    this.chanceBonuses = chanceBonuses;
   }
 }
 

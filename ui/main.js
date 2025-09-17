@@ -37,6 +37,49 @@ const SLOT_LABELS = {
   hands: 'Hands',
 };
 const STAT_KEYS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
+const CHANCE_LABELS = {
+  critChance: 'Crit Chance',
+  blockChance: 'Block Chance',
+  dodgeChance: 'Dodge Chance',
+  hitChance: 'Hit Chance',
+};
+const CHANCE_CAPS = { critChance: 50, blockChance: 30, dodgeChance: 30, hitChance: 100 };
+const HIT_BASE = 75;
+const HIT_RANGE = CHANCE_CAPS.hitChance - HIT_BASE;
+const HIT_SCALE = 45;
+
+function saturatingChance(value, cap, scale) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return cap * (1 - Math.exp(-value / scale));
+}
+
+function computeCritChanceLocal(attributes) {
+  const agility = attributes.agility || 0;
+  const strength = attributes.strength || 0;
+  const combined = agility * 0.65 + strength * 0.35;
+  return saturatingChance(combined, CHANCE_CAPS.critChance, 60);
+}
+
+function computeBlockChanceLocal(attributes) {
+  const stamina = attributes.stamina || 0;
+  const strength = attributes.strength || 0;
+  const combined = stamina * 0.7 + strength * 0.3;
+  return saturatingChance(combined, CHANCE_CAPS.blockChance, 70);
+}
+
+function computeDodgeChanceLocal(attributes) {
+  const wisdom = attributes.wisdom || 0;
+  const stamina = attributes.stamina || 0;
+  const combined = wisdom * 0.55 + stamina * 0.45;
+  return saturatingChance(combined, CHANCE_CAPS.dodgeChance, 65);
+}
+
+function computeHitChanceLocal(attributes) {
+  const agility = attributes.agility || 0;
+  const intellect = attributes.intellect || 0;
+  const combined = agility * 0.6 + intellect * 0.4;
+  return HIT_BASE + saturatingChance(combined, HIT_RANGE, HIT_SCALE);
+}
 
 let equipmentCatalog = null;
 let catalogPromise = null;
@@ -64,6 +107,10 @@ function computeDerived(character) {
   const intellect = attr.intellect || 0;
   const wisdom = attr.wisdom || 0;
   const attackInterval = 2.0 + 3 * Math.exp(-0.1 * agility);
+  const critChance = computeCritChanceLocal(attr);
+  const blockChance = computeBlockChanceLocal(attr);
+  const dodgeChance = computeDodgeChanceLocal(attr);
+  const hitChance = computeHitChanceLocal(attr);
   return {
     minMeleeAttack: strength * 2,
     maxMeleeAttack: strength * 2 + 4,
@@ -73,6 +120,11 @@ function computeDerived(character) {
     health: 100 + stamina * 10,
     mana: 50 + wisdom * 8,
     stamina: 50 + stamina * 8,
+    critChance,
+    blockChance,
+    dodgeChance,
+    hitChance,
+    chanceBonuses: { critChance: 0, blockChance: 0, dodgeChance: 0, hitChance: 0 },
   };
 }
 
@@ -172,6 +224,26 @@ function formatResistances(resistances) {
     .join(', ');
 }
 
+function formatChanceValue(value, { withSign = false } = {}) {
+  let numeric = Number.isFinite(value) ? Number(value) : 0;
+  numeric = Number(numeric.toFixed(1));
+  if (Object.is(numeric, -0)) numeric = 0;
+  let prefix = '';
+  if (withSign && numeric > 0) prefix = '+';
+  return `${prefix}${numeric}%`;
+}
+
+function formatChanceBonuses(bonuses) {
+  const entries = Object.entries(bonuses || {}).filter(([, value]) => Number.isFinite(value) && value);
+  if (!entries.length) return null;
+  return entries
+    .map(([key, value]) => {
+      const label = CHANCE_LABELS[key] || statLabel(key);
+      return `${formatChanceValue(value, { withSign: true })} ${label}`;
+    })
+    .join(', ');
+}
+
 function formatDuration(ms) {
   if (!Number.isFinite(ms) || ms <= 0) return '0s';
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -234,6 +306,8 @@ function itemTooltip(item) {
   add('Resources', resourceText || 'None');
   const resistText = formatResistances(item.resistances);
   add('Resistances', resistText || 'None');
+  const chanceText = formatChanceBonuses(item.chanceBonuses);
+  add('Chance', chanceText || 'None');
   if (typeof item.attackIntervalModifier === 'number' && item.attackIntervalModifier !== 0) {
     add(
       'Attack Interval',
@@ -2326,9 +2400,43 @@ function populateLoadoutSummary(container, derived) {
   addRow('Stamina', Math.round(derived.stamina || 0));
   addRow('Melee Resist', `${Math.round((derived.meleeResist || 0) * 100)}%`);
   addRow('Magic Resist', `${Math.round((derived.magicResist || 0) * 100)}%`);
+  addRow('Hit Chance', formatChanceValue(derived.hitChance));
+  addRow('Crit Chance', formatChanceValue(derived.critChance));
+  addRow('Block Chance', formatChanceValue(derived.blockChance));
+  addRow('Dodge Chance', formatChanceValue(derived.dodgeChance));
   const basic = derived.basicAttackEffectType === 'MagicDamage' ? 'Magic' : 'Physical';
   addRow('Basic Attack', basic);
   container.appendChild(derivedTable);
+
+  const chanceBonuses = derived.chanceBonuses || {};
+  const chanceTable = document.createElement('table');
+  chanceTable.className = 'stats-table';
+  const chanceHeader = document.createElement('tr');
+  ['Chance Stat', 'Gear Bonus', 'Total'].forEach(label => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    chanceHeader.appendChild(th);
+  });
+  chanceTable.appendChild(chanceHeader);
+  [
+    { key: 'hitChance', label: 'Hit Chance' },
+    { key: 'critChance', label: 'Crit Chance' },
+    { key: 'blockChance', label: 'Block Chance' },
+    { key: 'dodgeChance', label: 'Dodge Chance' },
+  ].forEach(({ key, label }) => {
+    const tr = document.createElement('tr');
+    const statTd = document.createElement('td');
+    statTd.textContent = label;
+    const gearTd = document.createElement('td');
+    gearTd.textContent = formatChanceValue(chanceBonuses[key], { withSign: true });
+    const totalTd = document.createElement('td');
+    totalTd.textContent = formatChanceValue(derived[key]);
+    tr.appendChild(statTd);
+    tr.appendChild(gearTd);
+    tr.appendChild(totalTd);
+    chanceTable.appendChild(tr);
+  });
+  container.appendChild(chanceTable);
 
   const heading = document.createElement('div');
   heading.textContent = 'On-Hit Effects';
@@ -2492,6 +2600,10 @@ function showLevelUpForm() {
   addDerivedRow('Health', baseDerived.health);
   addDerivedRow('Mana', baseDerived.mana);
   addDerivedRow('Stamina Pool', baseDerived.stamina);
+  addDerivedRow('Hit Chance', formatChanceValue(baseDerived.hitChance));
+  addDerivedRow('Crit Chance', formatChanceValue(baseDerived.critChance));
+  addDerivedRow('Block Chance', formatChanceValue(baseDerived.blockChance));
+  addDerivedRow('Dodge Chance', formatChanceValue(baseDerived.dodgeChance));
 
   box.appendChild(derivedTable);
 
@@ -2546,6 +2658,10 @@ function showLevelUpForm() {
     derivedRows['Health'].textContent = d.health;
     derivedRows['Mana'].textContent = d.mana;
     derivedRows['Stamina Pool'].textContent = d.stamina;
+    derivedRows['Hit Chance'].textContent = formatChanceValue(d.hitChance);
+    derivedRows['Crit Chance'].textContent = formatChanceValue(d.critChance);
+    derivedRows['Block Chance'].textContent = formatChanceValue(d.blockChance);
+    derivedRows['Dodge Chance'].textContent = formatChanceValue(d.dodgeChance);
   }
 
   updateDerived();
