@@ -156,6 +156,23 @@ async function getState(characterId) {
   return doc || null;
 }
 
+async function findState(characterId) {
+  if (!Number.isFinite(characterId)) {
+    return { state: null, created: false };
+  }
+  const state = await getState(characterId);
+  if (!state) {
+    return { state: null, created: false };
+  }
+  if (!Array.isArray(state.events)) {
+    state.events = [];
+  }
+  if (!Array.isArray(state.history)) {
+    state.history = [];
+  }
+  return { state, created: false };
+}
+
 async function persistState(state) {
   if (!state || typeof state.characterId !== 'number') {
     throw new Error('invalid adventure state');
