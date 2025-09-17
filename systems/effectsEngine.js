@@ -9,6 +9,53 @@ const BLOCK_DAMAGE_MULTIPLIER = 0.4;
 const MIN_HIT_CHANCE = 0.05;
 const MAX_HIT_CHANCE = 1;
 
+const CHANCE_STATS = ['critChance', 'blockChance', 'dodgeChance', 'hitChance'];
+
+function isChanceStat(stat) {
+  return CHANCE_STATS.includes(stat);
+}
+
+function formatChanceStat(stat) {
+  switch (stat) {
+    case 'critChance':
+      return 'critical chance';
+    case 'blockChance':
+      return 'block chance';
+    case 'dodgeChance':
+      return 'dodge chance';
+    case 'hitChance':
+      return 'hit chance';
+    default:
+      return 'chance';
+  }
+}
+
+function formatChanceAmount(amount) {
+  if (!Number.isFinite(amount)) return '0';
+  const abs = Math.abs(amount);
+  return Number.isInteger(abs) ? String(abs) : abs.toFixed(1);
+}
+
+function resolveDurationSeconds(effect, context = {}) {
+  if (!effect || typeof effect !== 'object') return 0;
+  if (typeof effect.durationSeconds === 'number') {
+    return Math.max(0, effect.durationSeconds);
+  }
+  if (typeof effect.duration === 'number') {
+    return Math.max(0, effect.duration);
+  }
+  if (effect.durationType === 'enemyAttackIntervals') {
+    const count = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    const enemy = context.enemy;
+    const interval =
+      enemy && enemy.derived && typeof enemy.derived.attackIntervalSeconds === 'number'
+        ? enemy.derived.attackIntervalSeconds
+        : 0;
+    return Math.max(0, interval * count);
+  }
+  return 0;
+}
+
 function clampProbability(value, min = 0, max = 1) {
   if (!Number.isFinite(value)) return min;
   const clamped = Math.min(Math.max(value, min), max);
@@ -206,6 +253,45 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         appliedEffect: 'Poison',
       };
     }
+    case 'BuffChance': {
+      const stat = typeof effect.stat === 'string' ? effect.stat : null;
+      const amount = typeof effect.amount === 'number' ? effect.amount : 0;
+      if (!stat || !isChanceStat(stat) || !Number.isFinite(amount) || amount === 0) {
+        return null;
+      }
+      if (!target.chanceBuffs) {
+        target.chanceBuffs = [];
+      }
+      const current = Number.isFinite(target.derived && target.derived[stat])
+        ? target.derived[stat]
+        : 0;
+      const newValue = current + amount;
+      if (!target.derived) {
+        target.derived = {};
+      }
+      target.derived[stat] = Number.isFinite(newValue) ? newValue : current;
+      const durationSeconds = resolveDurationSeconds(effect, context);
+      let expires = Infinity;
+      if (Number.isFinite(durationSeconds)) {
+        if (durationSeconds > 0) {
+          expires = now + durationSeconds;
+        } else if (durationSeconds === 0) {
+          expires = now;
+        }
+      }
+      target.chanceBuffs.push({ stat, amount, expires });
+      const amountText = formatChanceAmount(amount);
+      const sign = amount > 0 ? '+' : amount < 0 ? '-' : '';
+      pushLog(log, `${target.character.name} gains ${sign}${amountText}% ${formatChanceStat(stat)}`, {
+        sourceId: target.character.id,
+        targetId: target.character.id,
+        kind: 'buff',
+        stat,
+        amount,
+        duration: durationSeconds,
+      });
+      return null;
+    }
     default:
       return null;
   }
@@ -224,6 +310,35 @@ function tick(combatant, now, log) {
       return false;
     }
     return true;
+  });
+  if (!Array.isArray(combatant.chanceBuffs)) {
+    combatant.chanceBuffs = [];
+  }
+  combatant.chanceBuffs = combatant.chanceBuffs.filter(buff => {
+    if (!buff) return false;
+    const expires = buff.expires;
+    if (!Number.isFinite(expires) || now < expires) {
+      return true;
+    }
+    if (buff.stat && Number.isFinite(buff.amount)) {
+      const current = Number.isFinite(combatant.derived && combatant.derived[buff.stat])
+        ? combatant.derived[buff.stat]
+        : 0;
+      const updated = current - buff.amount;
+      if (!combatant.derived) {
+        combatant.derived = {};
+      }
+      combatant.derived[buff.stat] = Number.isFinite(updated) ? Math.max(0, updated) : current;
+    }
+    const amountText = formatChanceAmount(buff.amount);
+    pushLog(log, `${combatant.character.name}'s ${formatChanceStat(buff.stat)} bonus (${amountText}%) fades`, {
+      sourceId: combatant.character.id,
+      targetId: combatant.character.id,
+      kind: 'buffEnd',
+      stat: buff.stat,
+      amount: buff.amount,
+    });
+    return false;
   });
   combatant.dots = combatant.dots.filter(d => {
     while (now >= d.nextTick && now < d.expires) {
