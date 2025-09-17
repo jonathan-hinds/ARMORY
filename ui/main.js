@@ -993,6 +993,32 @@ async function fetchAdventureStatus() {
   return data;
 }
 
+function inventoryItemsEqual(a, b) {
+  const listA = Array.isArray(a) ? a : [];
+  const listB = Array.isArray(b) ? b : [];
+  if (listA.length !== listB.length) {
+    return false;
+  }
+  const counts = new Map();
+  listA.forEach(id => {
+    const key = id != null ? String(id) : '__null__';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+  for (const id of listB) {
+    const key = id != null ? String(id) : '__null__';
+    if (!counts.has(key)) {
+      return false;
+    }
+    const next = counts.get(key) - 1;
+    if (next <= 0) {
+      counts.delete(key);
+    } else {
+      counts.set(key, next);
+    }
+  }
+  return counts.size === 0;
+}
+
 function applyAdventureUpdates(status) {
   if (!status) return;
   let characterChanged = false;
@@ -1017,19 +1043,31 @@ function applyAdventureUpdates(status) {
     }
   }
   let playerChanged = false;
+  let inventoryDirty = false;
   if (status.player && currentPlayer && status.player.id === currentPlayer.id) {
+    const nextItems = Array.isArray(status.player.items) ? [...status.player.items] : [];
+    if (!inventoryItemsEqual(currentPlayer.items, nextItems)) {
+      inventoryDirty = true;
+    }
     if (currentPlayer.gold !== status.player.gold) {
       playerChanged = true;
     }
     currentPlayer.gold = status.player.gold;
+    currentPlayer.items = nextItems;
     if (inventoryView) {
       inventoryView.gold = status.player.gold;
     }
   }
+  const inventoryActive = isTabActive('inventory');
+  if (inventoryDirty) {
+    inventoryView = null;
+  }
   if (characterChanged && isTabActive('character')) {
     renderCharacter();
   }
-  if (characterChanged && isTabActive('inventory')) {
+  if (characterChanged && inventoryActive) {
+    renderInventory();
+  } else if (inventoryDirty && inventoryActive) {
     renderInventory();
   }
   if (playerChanged && isTabActive('shop')) {
