@@ -161,7 +161,7 @@ function titleCase(value) {
 
 const SHOP_CATEGORY_DEFINITIONS = [
   { value: 'weapons', label: 'Weapons' },
-  { value: 'equipment', label: 'Equipment' },
+  { value: 'armor', label: 'Armor' },
   { value: 'useables', label: 'Useable Items' },
 ];
 const SHOP_EFFECT_OPTIONS = [
@@ -759,18 +759,23 @@ function normalizeWeaponType(type) {
 }
 
 function getShopCategoryKey(item) {
-  if (!item) return 'equipment';
+  if (!item) return 'armor';
   if (isUseableItem(item)) return 'useables';
   if (item.slot === 'weapon') return 'weapons';
-  return 'equipment';
+  return 'armor';
 }
 
 function getShopSubgroupInfo(categoryKey, item) {
   if (categoryKey === 'weapons') {
-    const type = normalizeWeaponType(item.type);
     return {
-      key: type || 'general',
-      label: type ? titleCase(type) : 'General',
+      key: 'all-weapons',
+      label: 'Weapons',
+    };
+  }
+  if (categoryKey === 'armor') {
+    return {
+      key: 'all-armor',
+      label: 'Armor',
     };
   }
   if (categoryKey === 'useables') {
@@ -1073,19 +1078,22 @@ function renderShopGroups(container, items, messageEl) {
     section.appendChild(header);
 
     const subgroups = [...groupMap.values()].sort((a, b) => a.label.localeCompare(b.label));
+    const showTitles = subgroups.length > 1;
     subgroups.forEach(subgroup => {
       const subSection = document.createElement('div');
       subSection.className = 'shop-subsection';
-      const title = document.createElement('div');
-      title.className = 'shop-subsection-title';
-      const name = document.createElement('span');
-      name.textContent = subgroup.label;
-      title.appendChild(name);
-      const count = document.createElement('span');
-      count.className = 'shop-subsection-count';
-      count.textContent = `${subgroup.items.length} item${subgroup.items.length === 1 ? '' : 's'}`;
-      title.appendChild(count);
-      subSection.appendChild(title);
+      if (showTitles) {
+        const title = document.createElement('div');
+        title.className = 'shop-subsection-title';
+        const name = document.createElement('span');
+        name.textContent = subgroup.label;
+        title.appendChild(name);
+        const count = document.createElement('span');
+        count.className = 'shop-subsection-count';
+        count.textContent = `${subgroup.items.length} item${subgroup.items.length === 1 ? '' : 's'}`;
+        title.appendChild(count);
+        subSection.appendChild(title);
+      }
 
       const grid = document.createElement('div');
       grid.className = 'shop-card-grid';
