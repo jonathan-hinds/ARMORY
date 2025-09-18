@@ -184,6 +184,9 @@ function describeEffect(effect) {
     return `+${pct}% Damage for ${effect.duration || 0}s`;
   }
   if (effect.type === 'Stun') {
+    if (effect.durationFromTargetAttackInterval) {
+      return 'Stun for 1 enemy attack interval';
+    }
     return `Stun ${effect.duration || 0}s`;
   }
   if (effect.type === 'Poison') {
@@ -209,6 +212,9 @@ function describeUseTrigger(trigger) {
     }
     return 'Auto activation';
   }
+  if (trigger.type === 'reactive') {
+    return 'Reactive effect';
+  }
   return titleCase(trigger.type || 'Auto');
 }
 
@@ -227,6 +233,36 @@ function describeOnHit(entry) {
   }
   const conditionText = conditionParts.length ? ` (${conditionParts.join(', ')})` : '';
   return `${chance}% on ${trigger}${conditionText}: ${describeEffect(entry.effect)}`;
+}
+
+function describeReactiveEffect(entry) {
+  if (!entry || !entry.effect) return '';
+  const chanceValue = typeof entry.chance === 'number' ? entry.chance : 1;
+  let chanceText;
+  if (chanceValue >= 1) {
+    chanceText = 'Guaranteed';
+  } else if (chanceValue <= 0) {
+    chanceText = '0% chance';
+  } else {
+    chanceText = `${Math.round(chanceValue * 100)}% chance`;
+  }
+  let triggerText = 'on taking damage';
+  if (entry.trigger && entry.trigger.type === 'damageTaken') {
+    if (entry.trigger.damageType) {
+      triggerText = `on taking ${entry.trigger.damageType} damage`;
+    }
+  }
+  let targetText = '';
+  if (entry.target === 'attacker') {
+    targetText = ' (attacker)';
+  } else if (entry.target === 'self') {
+    targetText = ' (self)';
+  } else if (entry.target) {
+    targetText = ` (${entry.target})`;
+  }
+  const effectText = describeEffect(entry.effect);
+  const consumedText = entry.consumed ? ' (consumed on proc)' : '';
+  return `${chanceText} ${triggerText}: ${effectText}${targetText}${consumedText}`;
 }
 
 function formatAttributeBonuses(bonuses) {
@@ -318,6 +354,9 @@ function itemTooltip(item) {
     if (item.cost != null) add('Cost', `${item.cost} Gold`);
     add('Trigger', describeUseTrigger(item.useTrigger));
     add('Effect', item.useEffect ? describeEffect(item.useEffect) : 'None');
+    if (Array.isArray(item.reactiveEffects) && item.reactiveEffects.length) {
+      add('Reactive', item.reactiveEffects.map(describeReactiveEffect).join('<br/>'));
+    }
     if (item.useDuration) add('Duration', titleCase(item.useDuration));
     add('Consumed', item.useConsumed ? 'Yes' : 'No');
     add('Per Fight', 'One use per equipped slot');

@@ -19,6 +19,11 @@ function chanceRoll(probability) {
   return Math.random() < probability;
 }
 
+function cloneEffectData(effect) {
+  if (!effect || typeof effect !== 'object') return null;
+  return JSON.parse(JSON.stringify(effect));
+}
+
 function getDamageType(source, effectType) {
   if (effectType === 'MagicDamage') return 'magical';
   if (effectType === 'PhysicalDamage') return 'physical';
@@ -115,20 +120,72 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   });
 
   const resultResolution = { ...resolution, damageType: resolvedType, crit, blocked };
+  if (finalDamage > 0) {
+    const now = Number.isFinite(context.now) ? context.now : 0;
+    triggerReactiveDamageEffects(target, source, resolvedType, finalDamage, now, log);
+  }
   return { hit: true, amount: finalDamage, crit, blocked, damageType: resolvedType, resolution: resultResolution };
 }
 
+function triggerReactiveDamageEffects(target, source, damageType, amount, now, log) {
+  if (!target || !Array.isArray(target.useables) || !target.useables.length) return;
+  target.useables.forEach(entry => {
+    if (!entry || entry.used) return;
+    const item = entry.item;
+    if (!item || !Array.isArray(item.reactiveEffects) || !item.reactiveEffects.length) return;
+    for (const reactive of item.reactiveEffects) {
+      if (!reactive || entry.used) break;
+      const trigger = reactive.trigger || {};
+      if (trigger.type !== 'damageTaken') continue;
+      if (trigger.damageType && trigger.damageType !== damageType) continue;
+      const chance = typeof reactive.chance === 'number' ? reactive.chance : 1;
+      if (chance < 1 && !chanceRoll(chance)) continue;
+      const effectTarget = reactive.target === 'attacker' ? source : target;
+      if (!effectTarget) continue;
+      const effect = cloneEffectData(reactive.effect);
+      if (!effect) continue;
+      if (effect.durationFromTargetAttackInterval) {
+        const interval = effectTarget.derived && effectTarget.derived.attackIntervalSeconds;
+        if (Number.isFinite(interval) && interval > 0) {
+          effect.duration = interval;
+        }
+        delete effect.durationFromTargetAttackInterval;
+      }
+      const message = `${target.character.name}'s ${item.name} reacts to the attack`;
+      pushLog(log, message, {
+        sourceId: target.character.id,
+        targetId: effectTarget.character.id,
+        kind: 'useable',
+        itemId: item.id,
+      });
+      const resolutionContext = { hit: true, outcome: 'hit', damageType };
+      applyEffect(target, effectTarget, effect, now, log, { resolution: resolutionContext });
+      if (reactive.consumed || item.useConsumed) {
+        entry.used = true;
+        if (target.usedUseableIds && item.id) {
+          target.usedUseableIds.add(item.id);
+        }
+        if (Array.isArray(target.consumedUseables)) {
+          target.consumedUseables.push({ slot: entry.slot, itemId: item.id });
+        }
+      }
+      break;
+    }
+  });
+}
+
 function applyEffect(source, target, effect, now, log, context = {}) {
+  const contextWithNow = { ...context, now };
   switch (effect.type) {
     case 'PhysicalDamage': {
       const bonus = typeof effect.value === 'number' ? effect.value : 0;
       const base = bonus + randBetween(source.derived.minMeleeAttack, source.derived.maxMeleeAttack);
-      return applyDamage(source, target, base, 'physical', log, context);
+      return applyDamage(source, target, base, 'physical', log, contextWithNow);
     }
     case 'MagicDamage': {
       const bonus = typeof effect.value === 'number' ? effect.value : 0;
       const base = bonus + randBetween(source.derived.minMagicAttack, source.derived.maxMagicAttack);
-      return applyDamage(source, target, base, 'magical', log, context);
+      return applyDamage(source, target, base, 'magical', log, contextWithNow);
     }
     case 'Heal': {
       const amount = typeof effect.value === 'number' ? effect.value : 0;

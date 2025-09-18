@@ -19,6 +19,18 @@ function cloneEffect(entry) {
   return cloned;
 }
 
+function cloneReactiveEffect(entry) {
+  if (!entry) return null;
+  const cloned = { ...entry };
+  if (entry.trigger) {
+    cloned.trigger = { ...entry.trigger };
+  }
+  if (entry.effect) {
+    cloned.effect = JSON.parse(JSON.stringify(entry.effect));
+  }
+  return cloned;
+}
+
 function createItem(entry) {
   const item = new Item(entry);
   item.attributeBonuses = Object.freeze({ ...(item.attributeBonuses || {}) });
@@ -29,6 +41,7 @@ function createItem(entry) {
   item.onHitEffects = Object.freeze((item.onHitEffects || []).map(cloneEffect).filter(Boolean));
   item.useTrigger = item.useTrigger ? Object.freeze({ ...item.useTrigger }) : null;
   item.useEffect = item.useEffect ? Object.freeze(cloneEffect(item.useEffect) || item.useEffect) : null;
+  item.reactiveEffects = Object.freeze((item.reactiveEffects || []).map(cloneReactiveEffect).filter(Boolean));
   return Object.freeze(item);
 }
 

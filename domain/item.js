@@ -20,6 +20,7 @@ class Item {
     useEffect = null,
     useConsumed = false,
     useDuration = null,
+    reactiveEffects = [],
   }) {
     this.id = id;
     this.name = name;
@@ -41,6 +42,7 @@ class Item {
     this.useEffect = useEffect;
     this.useConsumed = useConsumed;
     this.useDuration = useDuration;
+    this.reactiveEffects = reactiveEffects;
   }
 }
 
