@@ -1122,47 +1122,6 @@ function createTag(text) {
   return tag;
 }
 
-function createStatLine(label, value) {
-  if (!value) return null;
-  const line = document.createElement('div');
-  line.className = 'stat-line';
-  const labelEl = document.createElement('span');
-  labelEl.className = 'stat-label';
-  labelEl.textContent = label;
-  const valueEl = document.createElement('span');
-  valueEl.className = 'stat-value';
-  valueEl.textContent = value;
-  line.appendChild(labelEl);
-  line.appendChild(valueEl);
-  return line;
-}
-
-function formatScalingSummary(scaling) {
-  const entries = Object.entries(scaling || {}).filter(([, letter]) => letter);
-  if (!entries.length) return null;
-  return entries
-    .map(([stat, letter]) => `${statLabel(stat)} ${String(letter).toUpperCase()}`)
-    .join(' • ');
-}
-
-function formatOnHitSummary(onHitEffects) {
-  if (!Array.isArray(onHitEffects) || !onHitEffects.length) return null;
-  return onHitEffects.map(describeOnHit).join(' | ');
-}
-
-function formatDamageRange(baseDamage) {
-  if (!baseDamage || (baseDamage.min == null && baseDamage.max == null)) return null;
-  const rawMin = baseDamage.min != null ? Number(baseDamage.min) : null;
-  const rawMax = baseDamage.max != null ? Number(baseDamage.max) : null;
-  const min = Number.isFinite(rawMin) ? rawMin : null;
-  const max = Number.isFinite(rawMax) ? rawMax : null;
-  if (min != null && max != null) {
-    return `${min}-${max}`;
-  }
-  const value = min != null ? min : max;
-  return value != null ? `${value}` : null;
-}
-
 function buildShopItemCard(item, messageEl) {
   const card = document.createElement('div');
   card.className = 'shop-item-card';
@@ -1170,6 +1129,7 @@ function buildShopItemCard(item, messageEl) {
   const header = document.createElement('div');
   header.className = 'card-header';
   const name = document.createElement('div');
+  name.className = 'card-name';
   name.textContent = item.name;
   header.appendChild(name);
   const rarity = document.createElement('div');
@@ -1196,40 +1156,12 @@ function buildShopItemCard(item, messageEl) {
     card.appendChild(tags);
   }
 
-  const stats = document.createElement('div');
-  stats.className = 'card-stats';
-  const damage = createStatLine('Damage', formatDamageRange(item.baseDamage));
-  if (damage) stats.appendChild(damage);
-  const scaling = createStatLine('Scaling', formatScalingSummary(item.scaling));
-  if (scaling) stats.appendChild(scaling);
-  const attributes = createStatLine('Attributes', formatAttributeBonuses(item.attributeBonuses));
-  if (attributes) stats.appendChild(attributes);
-  const resources = createStatLine('Resources', formatResourceBonuses(item.resourceBonuses));
-  if (resources) stats.appendChild(resources);
-  const chance = createStatLine('Chance', formatChanceBonuses(item.chanceBonuses));
-  if (chance) stats.appendChild(chance);
-  if (isUseableItem(item)) {
-    const trigger = createStatLine('Trigger', describeUseTrigger(item.useTrigger));
-    if (trigger) stats.appendChild(trigger);
-    const effect = createStatLine('Effect', item.useEffect ? describeEffect(item.useEffect) : null);
-    if (effect) stats.appendChild(effect);
-  } else {
-    const onHit = createStatLine('On Hit', formatOnHitSummary(item.onHitEffects));
-    if (onHit) stats.appendChild(onHit);
-  }
-  if (stats.childElementCount) {
-    card.appendChild(stats);
-  }
-
   const footer = document.createElement('div');
   footer.className = 'card-footer';
   const cost = document.createElement('div');
+  cost.className = 'card-cost';
   cost.textContent = `${getItemCost(item)} Gold`;
   footer.appendChild(cost);
-  const owned = document.createElement('div');
-  owned.textContent = `Owned ${getOwnedCount(item.id)}`;
-  footer.appendChild(owned);
-  card.appendChild(footer);
 
   const button = document.createElement('button');
   button.textContent = 'Buy';
@@ -1239,7 +1171,9 @@ function buildShopItemCard(item, messageEl) {
     button.disabled = true;
   }
   button.addEventListener('click', () => purchaseItem(item, messageEl));
-  card.appendChild(button);
+  footer.appendChild(button);
+
+  card.appendChild(footer);
 
   attachTooltip(card, () => itemTooltip(item));
   return card;
@@ -1277,11 +1211,6 @@ async function refreshInventory(force = false) {
 async function ensureInventory() {
   if (inventoryView) return inventoryView;
   return refreshInventory(true);
-}
-
-function getOwnedCount(itemId) {
-  if (!inventoryView || !inventoryView.ownedCounts) return 0;
-  return inventoryView.ownedCounts[itemId] || 0;
 }
 
 function getEquippedSlotItem(slot) {

@@ -517,18 +517,16 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .shop-subsection + .shop-subsection { border-top:2px solid #000; }
 .shop-subsection-title { display:flex; justify-content:space-between; align-items:center; text-transform:uppercase; font-weight:bold; letter-spacing:1px; }
 .shop-subsection-count { font-size:12px; }
-.shop-card-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(220px,1fr)); gap:12px; }
-.shop-item-card { border:2px solid #000; background:#fff; box-shadow:4px 4px 0 #000; padding:12px; display:flex; flex-direction:column; gap:10px; min-height:200px; }
-.shop-item-card .card-header { display:flex; justify-content:space-between; align-items:center; text-transform:uppercase; font-weight:bold; letter-spacing:1px; }
+.shop-card-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px,1fr)); gap:12px; }
+.shop-item-card { border:2px solid #000; background:#fff; box-shadow:4px 4px 0 #000; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:0; }
+.shop-item-card .card-header { display:flex; justify-content:space-between; align-items:flex-start; text-transform:uppercase; font-weight:bold; letter-spacing:1px; gap:8px; }
+.shop-item-card .card-name { flex:1; font-size:14px; line-height:1.2; }
 .shop-item-card .card-rarity { border:2px solid #000; padding:2px 6px; font-size:11px; }
-.shop-item-card .card-tags { display:flex; flex-wrap:wrap; gap:6px; font-size:11px; text-transform:uppercase; letter-spacing:1px; }
+.shop-item-card .card-tags { display:flex; flex-wrap:wrap; gap:4px; font-size:10px; text-transform:uppercase; letter-spacing:1px; }
 .shop-item-card .card-tag { border:1px solid #000; padding:2px 6px; }
-.shop-item-card .card-stats { display:flex; flex-direction:column; gap:6px; font-size:12px; }
-.shop-item-card .stat-line { display:flex; flex-direction:column; gap:2px; }
-.shop-item-card .stat-label { text-transform:uppercase; font-size:11px; letter-spacing:1px; font-weight:bold; }
-.shop-item-card .stat-value { line-height:1.3; }
-.shop-item-card .card-footer { display:flex; justify-content:space-between; align-items:center; font-weight:bold; text-transform:uppercase; }
-.shop-item-card button { margin-top:auto; font-weight:bold; text-transform:uppercase; box-shadow:3px 3px 0 #000; }
+.shop-item-card .card-footer { margin-top:auto; display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:bold; text-transform:uppercase; letter-spacing:1px; }
+.shop-item-card .card-cost { font-size:12px; }
+.shop-item-card button { font-weight:bold; text-transform:uppercase; box-shadow:3px 3px 0 #000; padding:6px 10px; }
 .shop-empty { padding:24px; text-align:center; text-transform:uppercase; letter-spacing:1px; font-weight:bold; border:2px dashed #000; }
 
 @media (max-width: 900px) {
