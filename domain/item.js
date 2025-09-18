@@ -21,6 +21,8 @@ class Item {
     useConsumed = false,
     useDuration = null,
     useTarget = 'self',
+    useRepeatable = false,
+    useConsumedAfterCombat = false,
   }) {
     this.id = id;
     this.name = name;
@@ -43,6 +45,8 @@ class Item {
     this.useConsumed = useConsumed;
     this.useDuration = useDuration;
     this.useTarget = useTarget;
+    this.useRepeatable = useRepeatable;
+    this.useConsumedAfterCombat = useConsumedAfterCombat;
   }
 }
 

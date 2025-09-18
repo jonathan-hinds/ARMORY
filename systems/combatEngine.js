@@ -60,10 +60,14 @@ function createCombatant(character, equipmentMap) {
     damageBuff: 0,
     buffs: [],
     chanceBuffs: [],
+    resourceCostModifiers: {},
+    resourceCostBuffs: [],
     dots: [],
+    hots: [],
     stunnedUntil: 0,
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
+    attacksPerformed: 0,
   };
 }
 
@@ -99,6 +103,59 @@ function meetsUseTrigger(trigger, combatant, context = {}) {
       return context.damageType === trigger.damageType;
     }
     return true;
+  } else if (trigger.type === 'onAction') {
+    if (!context || context.event !== 'action') return false;
+    const actor = context.actor;
+    const ownerRequired = trigger.owner !== false;
+    if (ownerRequired) {
+      if (actor && actor !== combatant) {
+        return false;
+      }
+    } else if (actor === combatant) {
+      return false;
+    }
+    const actions = Array.isArray(trigger.actions)
+      ? trigger.actions
+      : trigger.action
+      ? [trigger.action]
+      : null;
+    if (actions && !actions.includes(context.actionType)) {
+      return false;
+    }
+    if (trigger.requiresAttack && !context.isAttack) {
+      return false;
+    }
+    if (trigger.firstOnly && !context.isFirstAttack) {
+      return false;
+    }
+    return true;
+  } else if (trigger.type === 'onHit') {
+    if (!context || context.event !== 'hit') return false;
+    if (!context.hit) return false;
+    const actor = context.actor;
+    const ownerRequired = trigger.owner !== false;
+    if (ownerRequired) {
+      if (actor && actor !== combatant) {
+        return false;
+      }
+    } else if (actor === combatant) {
+      return false;
+    }
+    const actions = Array.isArray(trigger.actions)
+      ? trigger.actions
+      : trigger.action
+      ? [trigger.action]
+      : null;
+    if (actions && !actions.includes(context.actionType)) {
+      return false;
+    }
+    if (trigger.requiresAttack && !context.isAttack) {
+      return false;
+    }
+    if (trigger.damageType && context.damageType && trigger.damageType !== context.damageType) {
+      return false;
+    }
+    return true;
   }
   return false;
 }
@@ -106,45 +163,57 @@ function meetsUseTrigger(trigger, combatant, context = {}) {
 function tryUseCombatantItem(combatant, enemy, now, log, context = {}) {
   if (!combatant.useables || !combatant.useables.length) return;
   combatant.useables.forEach(entry => {
-    if (!entry || entry.used) return;
+    if (!entry) return;
+    if (entry.disabled) return;
     const item = entry.item;
     if (!item) return;
+    const repeatable = !!item.useRepeatable;
+    if (!repeatable && entry.used) return;
     const trigger = item.useTrigger;
     const effect = item.useEffect;
-    if (combatant.usedUseableIds && combatant.usedUseableIds.has(item.id)) {
+    if (!effect || !meetsUseTrigger(trigger, combatant, context)) return;
+    if (!repeatable && combatant.usedUseableIds && combatant.usedUseableIds.has(item.id)) {
       entry.used = true;
       return;
     }
-    if (!effect || !meetsUseTrigger(trigger, combatant, context)) return;
     const chance = typeof effect.chance === 'number' ? effect.chance : null;
     if (Number.isFinite(chance) && chance >= 0 && chance <= 1) {
       if (Math.random() > chance) {
         return;
       }
     }
-    entry.used = true;
-    if (combatant.usedUseableIds && item) {
-      combatant.usedUseableIds.add(item.id);
-    }
-    pushLog(log, `${combatant.character.name} consumes ${item.name}`, {
+    const verb = item.useConsumed ? 'consumes' : 'activates';
+    pushLog(log, `${combatant.character.name} ${verb} ${item.name}`, {
       sourceId: combatant.character.id,
       targetId: combatant.character.id,
       kind: 'useable',
       itemId: item.id,
     });
     const target = item.useTarget === 'enemy' ? enemy : combatant;
-    const effectContext = { resolution: { hit: true } };
-    if (target === enemy) {
-      effectContext.enemy = enemy || target;
-      if (context.damageType) {
-        effectContext.resolution.damageType = context.damageType;
-      }
-    } else {
-      effectContext.enemy = enemy;
+    const baseResolution =
+      context && context.resolution && context.resolution.hit ? context.resolution : null;
+    const effectContext = {
+      ...context,
+      resolution: baseResolution ? { ...baseResolution } : { hit: true },
+      enemy: target === enemy ? enemy || target : enemy,
+      source: combatant,
+      actor: context && context.actor ? context.actor : combatant,
+      targetCombatant: target || combatant,
+    };
+    if (target === enemy && context.damageType && !effectContext.resolution.damageType) {
+      effectContext.resolution.damageType = context.damageType;
     }
     applyEffect(combatant, target || combatant, effect, now, log, effectContext);
-    if (item.useConsumed) {
-      combatant.consumedUseables.push({ slot: entry.slot, itemId: item.id });
+    if (!repeatable) {
+      entry.used = true;
+      if (combatant.usedUseableIds && item) {
+        combatant.usedUseableIds.add(item.id);
+      }
+      if (item.useConsumed) {
+        combatant.consumedUseables.push({ slot: entry.slot, itemId: item.id });
+      }
+    } else {
+      entry.activationCount = (entry.activationCount || 0) + 1;
     }
   });
 }
@@ -305,6 +374,7 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
             handleDamageTaken(target, actor, resolvedDamageType, result.amount, now, log);
           }
         });
+        const attemptedAttack = lastResolution !== null;
         if (landedDamage) {
           const contextForOnHit = { ability: action.ability };
           const primary = damageResults.find(res => res && res.damageType);
@@ -317,7 +387,38 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
               contextForOnHit.damageType = lastResolution.damageType;
             }
           }
+          const triggerResult = primary || damageResults[0];
+          if (triggerResult) {
+            tryUseCombatantItem(actor, target, now, log, {
+              event: 'hit',
+              actor,
+              target,
+              actionType: 'ability',
+              ability: action.ability,
+              damageType: triggerResult.damageType || contextForOnHit.damageType,
+              resolution: triggerResult.resolution || contextForOnHit.resolution,
+              amount: triggerResult.amount,
+              hit: true,
+              isAttack: true,
+            });
+          }
           processOnHitEffects(actor, target, 'ability', contextForOnHit, now, log);
+        }
+        const actionContext = {
+          event: 'action',
+          actor,
+          target,
+          actionType: 'ability',
+          ability: action.ability,
+          isAbility: true,
+          isBasic: false,
+          isAttack: attemptedAttack,
+          isFirstAttack: attemptedAttack && ((actor.attacksPerformed || 0) <= 0),
+          hit: landedDamage,
+        };
+        tryUseCombatantItem(actor, target, now, log, actionContext);
+        if (attemptedAttack) {
+          actor.attacksPerformed = (actor.attacksPerformed || 0) + 1;
         }
       } else {
         const effectType =
@@ -360,12 +461,36 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
           const resolvedDamageType =
             result.damageType || (effectType === 'PhysicalDamage' ? 'physical' : 'magical');
           handleDamageTaken(target, actor, resolvedDamageType, result.amount, now, log);
+          tryUseCombatantItem(actor, target, now, log, {
+            event: 'hit',
+            actor,
+            target,
+            actionType: 'basic',
+            damageType: resolvedDamageType,
+            resolution: result.resolution,
+            amount: result.amount,
+            hit: true,
+            isAttack: true,
+          });
           const contextForOnHit = {
             damageType: result.damageType || (effectType === 'PhysicalDamage' ? 'physical' : 'magical'),
             resolution: result.resolution,
           };
           processOnHitEffects(actor, target, 'basic', contextForOnHit, now, log);
         }
+        const actionContext = {
+          event: 'action',
+          actor,
+          target,
+          actionType: 'basic',
+          isAbility: false,
+          isBasic: true,
+          isAttack: true,
+          hit: !!(result && result.hit),
+          isFirstAttack: (actor.attacksPerformed || 0) <= 0,
+        };
+        tryUseCombatantItem(actor, target, now, log, actionContext);
+        actor.attacksPerformed = (actor.attacksPerformed || 0) + 1;
       }
     }
     nextTimes[idx] += actor.derived.attackIntervalSeconds;
@@ -377,6 +502,19 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
       await new Promise(res => setTimeout(res, wait * 1000));
     }
   }
+  combatants.forEach(combatant => {
+    if (!combatant || !Array.isArray(combatant.useables)) return;
+    combatant.useables.forEach(entry => {
+      if (!entry || !entry.item) return;
+      if (!entry.item.useConsumedAfterCombat) return;
+      const already = combatant.consumedUseables.some(
+        consumed => consumed && consumed.itemId === entry.item.id && consumed.slot === entry.slot,
+      );
+      if (!already) {
+        combatant.consumedUseables.push({ slot: entry.slot, itemId: entry.item.id });
+      }
+    });
+  });
   const winner = a.health > 0 ? a : b;
   return {
     winnerId: winner.character.id,

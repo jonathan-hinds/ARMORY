@@ -41,6 +41,7 @@ const SLOT_LABELS = {
   useable2: 'Useable Slot 2',
 };
 const STAT_KEYS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
+const RESOURCE_LABELS = { health: 'HP', mana: 'MP', stamina: 'Stamina' };
 const CHANCE_LABELS = {
   critChance: 'Crit Chance',
   blockChance: 'Block Chance',
@@ -166,6 +167,14 @@ function displayDamageType(type) {
   return formatted || 'Melee';
 }
 
+function formatIntervalDuration(countRaw, singular, plural) {
+  if (!Number.isFinite(countRaw) || countRaw <= 0) return '';
+  const normalized = Number.isInteger(countRaw) ? countRaw : Number(countRaw.toFixed(1));
+  if (!Number.isFinite(normalized) || normalized <= 0) return '';
+  if (normalized === 1) return `1 ${singular}`;
+  return `${normalized} ${plural || `${singular}s`}`;
+}
+
 function formatEffectDurationText(effect) {
   if (!effect || typeof effect !== 'object') return '';
   if (typeof effect.duration === 'number' && Number.isFinite(effect.duration)) {
@@ -175,16 +184,28 @@ function formatEffectDurationText(effect) {
   }
   if (effect.durationType === 'enemyAttackIntervals') {
     const countRaw = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
-    if (!Number.isFinite(countRaw) || countRaw <= 0) return '';
-    const count = Number.isInteger(countRaw) ? countRaw : Number(countRaw.toFixed(1));
-    if (count === 1) return '1 enemy attack interval';
-    return `${count} enemy attack intervals`;
+    return formatIntervalDuration(countRaw, 'enemy attack interval');
+  }
+  if (effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals') {
+    const countRaw = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    return formatIntervalDuration(countRaw, 'user attack interval');
   }
   return '';
 }
 
 function describeEffect(effect) {
   if (!effect || typeof effect !== 'object') return '';
+  const applyEffectChance = text => {
+    const chance = typeof effect.chance === 'number' ? effect.chance : null;
+    if (!Number.isFinite(chance) || chance <= 0) {
+      return text;
+    }
+    const pct = Math.round(Math.max(0, Math.min(1, chance)) * 100);
+    if (pct <= 0 || pct >= 100) {
+      return text;
+    }
+    return `${pct}% chance to ${text}`;
+  };
   if (effect.type === 'PhysicalDamage') {
     const amount = effect.value != null ? effect.value : effect.damage;
     return amount != null ? `Physical Damage ${amount}` : 'Physical Damage';
@@ -198,10 +219,17 @@ function describeEffect(effect) {
   }
   if (effect.type === 'RestoreResource') {
     const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
-    const labelMap = { health: 'HP', mana: 'MP', stamina: 'Stamina' };
-    const label = labelMap[resource] || titleCase(resource || 'Resource');
+    const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
     const amount = effect.value != null ? effect.value : effect.amount;
     return amount != null ? `Restore ${amount} ${label}` : `Restore ${label}`;
+  }
+  if (effect.type === 'BuffChance') {
+    const stat = typeof effect.stat === 'string' ? effect.stat : '';
+    const label = CHANCE_LABELS[stat] || titleCase(stat || 'Chance');
+    const amountText = formatChanceValue(effect.amount || 0, { withSign: true });
+    const durationText = formatEffectDurationText(effect);
+    const base = durationText ? `${amountText} ${label} for ${durationText}` : `${amountText} ${label}`;
+    return applyEffectChance(base);
   }
   if (effect.type === 'BuffDamagePct') {
     const pct = Math.round((effect.amount || 0) * 100);
@@ -229,6 +257,38 @@ function describeEffect(effect) {
     const duration = effect.duration != null ? effect.duration : 0;
     return `Ignite ${dmg} dmg/${interval}s for ${duration}s`;
   }
+  if (effect.type === 'HealOverTime') {
+    const total = effect.value != null ? effect.value : effect.amount;
+    const durationText = formatEffectDurationText(effect);
+    if (total != null && durationText) {
+      return applyEffectChance(`Heal ${total} HP over ${durationText}`);
+    }
+    if (total != null) {
+      return applyEffectChance(`Heal ${total} HP over time`);
+    }
+    return applyEffectChance('Heal over time');
+  }
+  if (effect.type === 'ResourceCostModifier') {
+    const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
+    const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
+    const percent = Math.round(Math.abs(effect.amount || 0) * 100);
+    const change = effect.amount >= 0 ? 'Reduce' : 'Increase';
+    const durationText = formatEffectDurationText(effect);
+    const base = durationText
+      ? `${change} ${label} costs by ${percent}% for ${durationText}`
+      : `${change} ${label} costs by ${percent}%`;
+    return applyEffectChance(base);
+  }
+  if (effect.type === 'StealResource') {
+    const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
+    const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
+    const amount = effect.value != null ? effect.value : effect.amount;
+    const base = amount != null ? `Steal ${amount} ${label}` : `Steal ${label}`;
+    return applyEffectChance(base);
+  }
+  if (effect.type === 'RemoveUseable') {
+    return applyEffectChance('Remove one enemy useable item');
+  }
   return effect.type || '';
 }
 
@@ -252,6 +312,55 @@ function describeUseTrigger(trigger) {
     const target = trigger.owner === false ? 'ally' : 'self';
     const damageText = trigger.damageType ? `${titleCase(trigger.damageType)} damage` : 'damage';
     return `On ${target} taking ${damageText}`;
+  }
+  if (trigger.type === 'onAction' || trigger.type === 'onHit') {
+    const ownerLabel = trigger.owner === false ? 'ally' : 'self';
+    const actions = Array.isArray(trigger.actions)
+      ? trigger.actions
+      : trigger.action
+      ? [trigger.action]
+      : [];
+    const uniqueActions = [...new Set(actions)];
+    const hasBasic = uniqueActions.includes('basic');
+    const hasAbility = uniqueActions.includes('ability');
+    let actionText = null;
+    if (trigger.requiresAttack && (hasBasic || hasAbility) && uniqueActions.every(a => a === 'basic' || a === 'ability')) {
+      if (hasBasic && hasAbility) {
+        actionText = 'attack';
+      } else if (hasBasic) {
+        actionText = 'basic attack';
+      } else if (hasAbility) {
+        actionText = 'ability attack';
+      }
+    }
+    if (!actionText) {
+      const mapped = uniqueActions.map(action => {
+        if (action === 'basic') return 'basic attack';
+        if (action === 'ability') return 'ability';
+        return titleCase(action);
+      });
+      if (!mapped.length) {
+        actionText = trigger.requiresAttack ? 'attack' : 'action';
+      } else if (mapped.length === 1) {
+        actionText = mapped[0];
+      } else if (mapped.length === 2 && mapped.includes('basic attack') && mapped.includes('ability')) {
+        actionText = 'basic attack or ability';
+      } else {
+        const last = mapped[mapped.length - 1];
+        actionText = `${mapped.slice(0, -1).join(', ')} or ${last}`;
+      }
+    }
+    const frequency = trigger.firstOnly ? 'On first' : 'On each';
+    let description = `${frequency} ${ownerLabel} ${actionText}`;
+    if (trigger.type === 'onHit') {
+      if (!/hit$/i.test(description)) {
+        description += ' hit';
+      }
+      if (trigger.damageType) {
+        description += ` (${titleCase(trigger.damageType)} only)`;
+      }
+    }
+    return description;
   }
   return titleCase(trigger.type || 'Auto');
 }

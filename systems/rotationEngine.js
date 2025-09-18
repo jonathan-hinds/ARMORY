@@ -12,14 +12,17 @@ function getAction(combatant, now, abilityMap) {
 
   const cooldownReady =
     !combatant.cooldowns[abilityId] || combatant.cooldowns[abilityId] <= now;
-  const availableResource =
-    typeof combatant[ability.costType] === 'number'
-      ? combatant[ability.costType]
-      : 0;
-  const hasResource = availableResource >= ability.costValue;
+  const costType = ability.costType;
+  const baseCost = typeof ability.costValue === 'number' ? ability.costValue : 0;
+  const modifiers = combatant.resourceCostModifiers || {};
+  const modifierValue = Number.isFinite(modifiers[costType]) ? modifiers[costType] : 0;
+  const costReduction = Math.max(0, Math.min(1, modifierValue));
+  const effectiveCost = Math.max(0, Math.ceil(baseCost * (1 - costReduction)));
+  const availableResource = typeof combatant[costType] === 'number' ? combatant[costType] : 0;
+  const hasResource = availableResource >= effectiveCost;
 
   if (cooldownReady && hasResource) {
-    combatant[ability.costType] -= ability.costValue;
+    combatant[costType] -= effectiveCost;
     combatant.cooldowns[abilityId] = now + ability.cooldown;
     combatant.rotationIndex =
       (combatant.rotationIndex + 1) % combatant.character.rotation.length;
@@ -37,15 +40,15 @@ function getAction(combatant, now, abilityMap) {
     };
   }
 
-  return {
-    type: 'basic',
-    reason: 'resource',
-    ability,
-    abilityId,
-    resourceType: ability.costType,
-    required: ability.costValue,
-    available: availableResource,
-  };
+    return {
+      type: 'basic',
+      reason: 'resource',
+      ability,
+      abilityId,
+      resourceType: costType,
+      required: effectiveCost,
+      available: availableResource,
+    };
 }
 
 module.exports = { getAction };
