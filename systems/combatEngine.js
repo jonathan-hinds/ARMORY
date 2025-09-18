@@ -67,7 +67,7 @@ function createCombatant(character, equipmentMap) {
   };
 }
 
-function meetsUseTrigger(trigger, combatant) {
+function meetsUseTrigger(trigger, combatant, context = {}) {
   if (!trigger || typeof trigger !== 'object') return false;
   if (trigger.type === 'auto') {
     if (trigger.stat === 'healthPct') {
@@ -76,39 +76,78 @@ function meetsUseTrigger(trigger, combatant) {
       const threshold = typeof trigger.threshold === 'number' ? trigger.threshold : 0;
       return pct <= threshold;
     }
+  } else if (trigger.type === 'onDamageTaken') {
+    if (context.event !== 'damageTaken') return false;
+    if (trigger.owner === false && context.target === combatant) {
+      return false;
+    }
+    if (trigger.owner !== false && context.target && context.target !== combatant) {
+      return false;
+    }
+    if (trigger.damageType) {
+      return context.damageType === trigger.damageType;
+    }
+    return true;
   }
   return false;
 }
 
-function tryUseCombatantItem(combatant, enemy, now, log) {
+function tryUseCombatantItem(combatant, enemy, now, log, context = {}) {
   if (!combatant.useables || !combatant.useables.length) return;
   combatant.useables.forEach(entry => {
     if (!entry || entry.used) return;
-    const trigger = entry.item && entry.item.useTrigger;
-    const effect = entry.item && entry.item.useEffect;
-    if (combatant.usedUseableIds && entry.item && combatant.usedUseableIds.has(entry.item.id)) {
+    const item = entry.item;
+    if (!item) return;
+    const trigger = item.useTrigger;
+    const effect = item.useEffect;
+    if (combatant.usedUseableIds && combatant.usedUseableIds.has(item.id)) {
       entry.used = true;
       return;
     }
-    if (!effect || !meetsUseTrigger(trigger, combatant)) return;
-    entry.used = true;
-    if (combatant.usedUseableIds && entry.item) {
-      combatant.usedUseableIds.add(entry.item.id);
+    if (!effect || !meetsUseTrigger(trigger, combatant, context)) return;
+    const chance = typeof effect.chance === 'number' ? effect.chance : null;
+    if (Number.isFinite(chance) && chance >= 0 && chance <= 1) {
+      if (Math.random() > chance) {
+        return;
+      }
     }
-    pushLog(log, `${combatant.character.name} consumes ${entry.item.name}`, {
+    entry.used = true;
+    if (combatant.usedUseableIds && item) {
+      combatant.usedUseableIds.add(item.id);
+    }
+    pushLog(log, `${combatant.character.name} consumes ${item.name}`, {
       sourceId: combatant.character.id,
       targetId: combatant.character.id,
       kind: 'useable',
-      itemId: entry.item.id,
+      itemId: item.id,
     });
-    applyEffect(combatant, combatant, effect, now, log, {
-      resolution: { hit: true },
-      enemy,
-    });
-    if (entry.item.useConsumed) {
-      combatant.consumedUseables.push({ slot: entry.slot, itemId: entry.item.id });
+    const target = item.useTarget === 'enemy' ? enemy : combatant;
+    const effectContext = { resolution: { hit: true } };
+    if (target === enemy) {
+      effectContext.enemy = enemy || target;
+      if (context.damageType) {
+        effectContext.resolution.damageType = context.damageType;
+      }
+    } else {
+      effectContext.enemy = enemy;
+    }
+    applyEffect(combatant, target || combatant, effect, now, log, effectContext);
+    if (item.useConsumed) {
+      combatant.consumedUseables.push({ slot: entry.slot, itemId: item.id });
     }
   });
+}
+
+function handleDamageTaken(victim, attacker, damageType, amount, now, log) {
+  if (!victim || !Number.isFinite(amount) || amount <= 0) return;
+  const context = {
+    event: 'damageTaken',
+    damageType,
+    amount,
+    source: attacker,
+    target: victim,
+  };
+  tryUseCombatantItem(victim, attacker, now, log, context);
 }
 
 function state(c) {
@@ -186,7 +225,11 @@ function processOnHitEffects(source, target, trigger, context = {}, now, log) {
     } else if (!resolution.damageType) {
       resolution.damageType = baseType;
     }
-    applyEffect(source, target, effect, now, log, { resolution });
+    const outcome = applyEffect(source, target, effect, now, log, { resolution });
+    if (outcome && outcome.hit && Number.isFinite(outcome.amount) && outcome.amount > 0) {
+      const resolvedDamageType = outcome.damageType || baseType;
+      handleDamageTaken(target, source, resolvedDamageType, outcome.amount, now, log);
+    }
   });
 }
 
@@ -246,6 +289,9 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
           if (result && result.hit && Number.isFinite(result.amount) && result.amount > 0) {
             landedDamage = true;
             damageResults.push(result);
+            const resolvedDamageType =
+              result.damageType || (effect.type === 'MagicDamage' ? 'magical' : effect.type === 'PhysicalDamage' ? 'physical' : null);
+            handleDamageTaken(target, actor, resolvedDamageType, result.amount, now, log);
           }
         });
         if (landedDamage) {
@@ -300,6 +346,9 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
             : { type: 'MagicDamage', value: 0 };
         const result = applyEffect(actor, target, effect, now, log);
         if (result && result.hit && Number.isFinite(result.amount) && result.amount > 0) {
+          const resolvedDamageType =
+            result.damageType || (effectType === 'PhysicalDamage' ? 'physical' : 'magical');
+          handleDamageTaken(target, actor, resolvedDamageType, result.amount, now, log);
           const contextForOnHit = {
             damageType: result.damageType || (effectType === 'PhysicalDamage' ? 'physical' : 'magical'),
             resolution: result.resolution,

@@ -356,6 +356,25 @@
       },
       "useDuration": "2 enemy attack intervals",
       "useConsumed": true
+    },
+    {
+      "id": "useable_ice_scroll",
+      "name": "Ice Scroll",
+      "slot": "useable",
+      "type": "scroll",
+      "category": "Scrolls",
+      "rarity": "Rare",
+      "cost": 170,
+      "useTrigger": { "type": "onDamageTaken", "damageType": "physical", "owner": true },
+      "useEffect": {
+        "type": "Stun",
+        "chance": 0.25,
+        "durationType": "enemyAttackIntervals",
+        "durationCount": 1
+      },
+      "useDuration": "1 enemy attack interval",
+      "useConsumed": true,
+      "useTarget": "enemy"
     }
   ]
 }
