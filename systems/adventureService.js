@@ -995,9 +995,6 @@ async function getAdventureStatus(characterId) {
 async function startAdventure(characterId, options = {}) {
   const config = await getAdventureConfig();
   const state = await getState(characterId);
-  if (state && isStateActive(state)) {
-    throw new Error('adventure already active');
-  }
   const allowedDays = Array.isArray(config.dayOptions) && config.dayOptions.length ? config.dayOptions : [config.totalDays];
   const requestedDays = options && Number.isFinite(options.days) ? Math.max(1, Math.round(options.days)) : null;
   let totalDays = config.totalDays;
@@ -1011,12 +1008,33 @@ async function startAdventure(characterId, options = {}) {
   if (!bundle) {
     throw error || new Error('failed to prepare adventure');
   }
-  if (state && !Array.isArray(state.history)) {
-    state.history = [];
-  }
-  if (state && state.completedAt && !state.finalized) {
-    finalizeAdventure(state, config, { outcome: state.outcome || 'complete', timestamp: state.completedAt });
-    await persistState(state);
+  if (state) {
+    let stateMutated = false;
+    if (!Array.isArray(state.events)) {
+      state.events = [];
+      stateMutated = true;
+    }
+    if (!Array.isArray(state.history)) {
+      state.history = [];
+      stateMutated = true;
+    }
+    const progress = await advanceAdventureState(state, config, bundle);
+    if (progress.characterDirty) {
+      await bundle.characterDoc.save();
+    }
+    if (progress.mutated) {
+      stateMutated = true;
+    }
+    if (state.completedAt && !state.finalized) {
+      finalizeAdventure(state, config, { outcome: state.outcome || 'complete', timestamp: state.completedAt });
+      stateMutated = true;
+    }
+    if (stateMutated) {
+      await persistState(state);
+    }
+    if (isStateActive(state)) {
+      throw new Error('adventure already active');
+    }
   }
   const baseHistory = state && Array.isArray(state.history) ? state.history.slice() : [];
   const start = Date.now();
