@@ -339,6 +339,19 @@
       "useConsumed": true
     },
     {
+      "id": "useable_mana_potion",
+      "name": "Mana Potion",
+      "slot": "useable",
+      "type": "potion",
+      "category": "Potions",
+      "rarity": "Common",
+      "cost": 45,
+      "useTrigger": { "type": "auto", "stat": "manaPct", "threshold": 0.15, "owner": true },
+      "useEffect": { "type": "RestoreResource", "resource": "mana", "value": 50 },
+      "useDuration": "instant",
+      "useConsumed": true
+    },
+    {
       "id": "useable_vanishing_powder",
       "name": "Vanishing Powder",
       "slot": "useable",
@@ -358,6 +371,26 @@
       "useConsumed": true
     },
     {
+      "id": "useable_toxins",
+      "name": "Toxins",
+      "slot": "useable",
+      "type": "tool",
+      "category": "Tools",
+      "rarity": "Uncommon",
+      "cost": 120,
+      "useTrigger": { "type": "onDamageTaken", "owner": true },
+      "useEffect": {
+        "type": "Poison",
+        "chance": 0.25,
+        "damage": 4,
+        "duration": 6,
+        "interval": 2
+      },
+      "useDuration": "instant on proc",
+      "useConsumed": true,
+      "useTarget": "enemy"
+    },
+    {
       "id": "useable_ice_scroll",
       "name": "Ice Scroll",
       "slot": "useable",
@@ -373,6 +406,26 @@
         "durationCount": 1
       },
       "useDuration": "1 enemy attack interval",
+      "useConsumed": true,
+      "useTarget": "enemy"
+    },
+    {
+      "id": "useable_fire_scroll",
+      "name": "Fire Scroll",
+      "slot": "useable",
+      "type": "scroll",
+      "category": "Scrolls",
+      "rarity": "Rare",
+      "cost": 170,
+      "useTrigger": { "type": "onDamageTaken", "damageType": "physical", "owner": true },
+      "useEffect": {
+        "type": "Ignite",
+        "chance": 0.25,
+        "damage": 5,
+        "duration": 6,
+        "interval": 2
+      },
+      "useDuration": "instant on proc",
       "useConsumed": true,
       "useTarget": "enemy"
     }

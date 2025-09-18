@@ -196,6 +196,13 @@ function describeEffect(effect) {
   if (effect.type === 'Heal') {
     return effect.value != null ? `Heal ${effect.value}` : 'Heal';
   }
+  if (effect.type === 'RestoreResource') {
+    const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
+    const labelMap = { health: 'HP', mana: 'MP', stamina: 'Stamina' };
+    const label = labelMap[resource] || titleCase(resource || 'Resource');
+    const amount = effect.value != null ? effect.value : effect.amount;
+    return amount != null ? `Restore ${amount} ${label}` : `Restore ${label}`;
+  }
   if (effect.type === 'BuffDamagePct') {
     const pct = Math.round((effect.amount || 0) * 100);
     return `+${pct}% Damage for ${effect.duration || 0}s`;
@@ -216,20 +223,28 @@ function describeEffect(effect) {
     const duration = effect.duration != null ? effect.duration : 0;
     return `Poison ${dmg} dmg/${interval}s for ${duration}s`;
   }
+  if (effect.type === 'Ignite') {
+    const dmg = effect.damage != null ? effect.damage : 0;
+    const interval = effect.interval != null ? effect.interval : 1;
+    const duration = effect.duration != null ? effect.duration : 0;
+    return `Ignite ${dmg} dmg/${interval}s for ${duration}s`;
+  }
   return effect.type || '';
 }
 
 function describeUseTrigger(trigger) {
   if (!trigger || typeof trigger !== 'object') return 'Manual activation';
   if (trigger.type === 'auto') {
-    if (trigger.stat === 'healthPct') {
+    const statLabels = { healthPct: 'HP', manaPct: 'MP', staminaPct: 'Stamina' };
+    if (trigger.stat && statLabels[trigger.stat]) {
       const threshold = trigger.threshold;
       const pct = typeof threshold === 'number' ? Math.round(Math.max(0, threshold) * 100) : null;
       const target = trigger.owner === false ? 'ally' : 'self';
+      const label = statLabels[trigger.stat];
       if (pct != null) {
-        return `Auto when ${target} HP < ${pct}%`;
+        return `Auto when ${target} ${label} < ${pct}%`;
       }
-      return `Auto when ${target} HP is low`;
+      return `Auto when ${target} ${label} is low`;
     }
     return 'Auto activation';
   }

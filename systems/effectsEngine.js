@@ -69,6 +69,7 @@ function chanceRoll(probability) {
 function getDamageType(source, effectType) {
   if (effectType === 'MagicDamage') return 'magical';
   if (effectType === 'PhysicalDamage') return 'physical';
+  if (effectType === 'Ignite') return 'magical';
   if (source && source.derived && source.derived.weaponDamageType) {
     return source.derived.weaponDamageType;
   }
@@ -190,6 +191,33 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       });
       return null;
     }
+    case 'RestoreResource': {
+      const recipient = target || source;
+      if (!recipient) return null;
+      const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : null;
+      const amount = typeof effect.value === 'number' ? effect.value : 0;
+      if (!resource || !Number.isFinite(amount) || amount <= 0) {
+        return null;
+      }
+      const derivedMax =
+        recipient.derived && Number.isFinite(recipient.derived[resource]) ? recipient.derived[resource] : null;
+      const before = Number.isFinite(recipient[resource]) ? recipient[resource] : 0;
+      const max = derivedMax != null && derivedMax > 0 ? derivedMax : before + amount;
+      const updated = Math.min(before + amount, max);
+      recipient[resource] = updated;
+      const restored = updated - before;
+      if (restored > 0 && recipient.character) {
+        const label = resource.charAt(0).toUpperCase() + resource.slice(1);
+        pushLog(log, `${recipient.character.name} restores ${restored} ${label}`, {
+          sourceId: recipient.character.id,
+          targetId: recipient.character.id,
+          kind: 'resource',
+          resource,
+          amount: restored,
+        });
+      }
+      return null;
+    }
     case 'BuffDamagePct': {
       const amount = typeof effect.amount === 'number' ? effect.amount : 0;
       const duration = typeof effect.duration === 'number' ? effect.duration : 0;
@@ -229,13 +257,16 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
       }
       const damage = typeof effect.damage === 'number' ? effect.damage : 0;
-      const interval = typeof effect.interval === 'number' ? effect.interval : 1;
-      const duration = typeof effect.duration === 'number' ? effect.duration : 0;
+      const interval = typeof effect.interval === 'number' && effect.interval > 0 ? effect.interval : 1;
+      const duration = typeof effect.duration === 'number' && effect.duration >= 0 ? effect.duration : 0;
       target.dots.push({
         damage,
         interval,
         nextTick: now + interval,
         expires: now + duration,
+        resistType: 'melee',
+        damageType: 'poison',
+        logLabel: 'poison damage',
       });
       pushLog(log, `${target.character.name} is poisoned`, {
         sourceId: target.character.id,
@@ -252,6 +283,41 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         damageType: resultResolution.damageType,
         resolution: resultResolution,
         appliedEffect: 'Poison',
+      };
+    }
+    case 'Ignite': {
+      const type = getDamageType(source, effect.type);
+      const resolution = resolveAttack(source, target, type, log, context.resolution);
+      if (!resolution.hit) {
+        return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
+      }
+      const damage = typeof effect.damage === 'number' ? effect.damage : 0;
+      const interval = typeof effect.interval === 'number' && effect.interval > 0 ? effect.interval : 1;
+      const duration = typeof effect.duration === 'number' && effect.duration >= 0 ? effect.duration : 0;
+      target.dots.push({
+        damage,
+        interval,
+        nextTick: now + interval,
+        expires: now + duration,
+        resistType: 'magic',
+        damageType: 'fire',
+        logLabel: 'fire damage',
+      });
+      pushLog(log, `${target.character.name} is ignited`, {
+        sourceId: target.character.id,
+        targetId: source.character.id,
+        kind: 'ignite',
+        interval,
+        duration,
+        damage,
+      });
+      const resultResolution = { ...resolution, damageType: resolution.damageType };
+      return {
+        hit: true,
+        amount: 0,
+        damageType: resultResolution.damageType,
+        resolution: resultResolution,
+        appliedEffect: 'Ignite',
       };
     }
     case 'BuffChance': {
@@ -342,19 +408,37 @@ function tick(combatant, now, log) {
     return false;
   });
   combatant.dots = combatant.dots.filter(d => {
-    while (now >= d.nextTick && now < d.expires) {
-      const dmg = Math.max(1, Math.round(d.damage * (1 - combatant.derived.meleeResist)));
+    if (!d) return false;
+    const interval = Number.isFinite(d.interval) && d.interval > 0 ? d.interval : 1;
+    const expires = Number.isFinite(d.expires) ? d.expires : Infinity;
+    if (!Number.isFinite(d.nextTick)) {
+      d.nextTick = now + interval;
+    }
+    while (now >= d.nextTick && now < expires) {
+      const resistType = d.resistType === 'magic' ? 'magic' : d.resistType === 'none' ? null : 'melee';
+      let resist = 0;
+      if (resistType === 'magic') {
+        resist = Number.isFinite(combatant.derived.magicResist) ? combatant.derived.magicResist : 0;
+      } else if (resistType === 'melee') {
+        resist = Number.isFinite(combatant.derived.meleeResist) ? combatant.derived.meleeResist : 0;
+      }
+      const baseDamage = Number.isFinite(d.damage) ? d.damage : 0;
+      const dmg = Math.max(1, Math.round(baseDamage * (1 - resist)));
       combatant.health -= dmg;
-      pushLog(log, `${combatant.character.name} takes ${dmg} poison damage`, {
+      const label = d.logLabel || `${d.damageType || 'damage'} damage`;
+      pushLog(log, `${combatant.character.name} takes ${dmg} ${label}`, {
         sourceId: combatant.character.id,
         targetId: combatant.character.id,
         kind: 'damage',
-        damageType: 'poison',
+        damageType: d.damageType || 'damage',
         amount: dmg,
       });
-      d.nextTick += d.interval;
+      d.nextTick += interval;
+      if (!Number.isFinite(d.nextTick)) {
+        break;
+      }
     }
-    return now < d.expires;
+    return now < expires;
   });
 }
 

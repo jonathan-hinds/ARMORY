@@ -70,9 +70,20 @@ function createCombatant(character, equipmentMap) {
 function meetsUseTrigger(trigger, combatant, context = {}) {
   if (!trigger || typeof trigger !== 'object') return false;
   if (trigger.type === 'auto') {
-    if (trigger.stat === 'healthPct') {
-      const max = combatant.derived && combatant.derived.health ? combatant.derived.health : 1;
-      const pct = max > 0 ? combatant.health / max : 0;
+    const pctStats = {
+      healthPct: { current: 'health', max: 'health' },
+      manaPct: { current: 'mana', max: 'mana' },
+      staminaPct: { current: 'stamina', max: 'stamina' },
+    };
+    const statConfig = pctStats[trigger.stat];
+    if (statConfig) {
+      const current = Number.isFinite(combatant[statConfig.current]) ? combatant[statConfig.current] : 0;
+      const max =
+        combatant.derived && Number.isFinite(combatant.derived[statConfig.max])
+          ? combatant.derived[statConfig.max]
+          : 0;
+      const safeMax = max > 0 ? max : 1;
+      const pct = safeMax > 0 ? current / safeMax : 0;
       const threshold = typeof trigger.threshold === 'number' ? trigger.threshold : 0;
       return pct <= threshold;
     }
