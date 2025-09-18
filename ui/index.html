@@ -46,7 +46,48 @@
           <div id="shop-gold">Gold: 0</div>
           <div id="shop-message" class="message hidden"></div>
         </div>
-        <div id="shop-grid" class="item-grid"></div>
+        <div class="shop-layout">
+          <aside id="shop-controls">
+            <div class="filter-section">
+              <h3>Categories</h3>
+              <div id="shop-category-filter" class="filter-options"></div>
+            </div>
+            <div class="filter-section">
+              <h3>Slots</h3>
+              <div id="shop-slot-filter" class="filter-options"></div>
+            </div>
+            <div class="filter-section">
+              <h3>Weapon Types</h3>
+              <div id="shop-weapon-filter" class="filter-options"></div>
+            </div>
+            <div class="filter-section">
+              <h3>Scaling</h3>
+              <div id="shop-scaling-filter" class="filter-options"></div>
+            </div>
+            <div class="filter-section">
+              <h3>Effects</h3>
+              <div id="shop-effect-filter" class="filter-options"></div>
+            </div>
+            <div class="filter-section">
+              <h3>Sort Order</h3>
+              <select id="shop-sort">
+                <option value="cost-asc">Cost • Low to High</option>
+                <option value="cost-desc">Cost • High to Low</option>
+                <option value="damage-desc">Damage • High to Low</option>
+                <option value="damage-asc">Damage • Low to High</option>
+                <option value="stat-desc">Stat Bonus • High to Low</option>
+                <option value="stat-asc">Stat Bonus • Low to High</option>
+              </select>
+            </div>
+            <button id="shop-reset" class="filter-reset">Reset Filters</button>
+          </aside>
+          <div class="shop-results">
+            <div id="shop-results-header" class="shop-results-header">
+              <div id="shop-results-summary"></div>
+            </div>
+            <div id="shop-grid" class="shop-category-list"></div>
+          </div>
+        </div>
       </div>
       <div id="character" class="tab-pane"></div>
       <div id="inventory" class="tab-pane">

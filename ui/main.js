@@ -159,6 +159,34 @@ function titleCase(value) {
     .trim();
 }
 
+const SHOP_CATEGORY_DEFINITIONS = [
+  { value: 'weapons', label: 'Weapons' },
+  { value: 'equipment', label: 'Equipment' },
+  { value: 'useables', label: 'Useable Items' },
+];
+const SHOP_EFFECT_OPTIONS = [
+  { value: 'onHit', label: 'On Hit Effects' },
+  { value: 'useEffect', label: 'Use Effect' },
+  { value: 'attributeBonus', label: 'Attribute Bonuses' },
+  { value: 'chanceBonus', label: 'Chance Bonuses' },
+  { value: 'resourceBonus', label: 'Resource Bonuses' },
+];
+const SHOP_SLOT_ORDER = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands', 'useable'];
+
+const shopFilters = {
+  categories: new Set(),
+  slots: new Set(),
+  weaponTypes: new Set(),
+  scaling: new Set(),
+  effects: new Set(),
+};
+let shopSortOrder = 'cost-asc';
+let shopControlsInitialized = false;
+let shopCatalogCache = [];
+let shopTotalItems = 0;
+
+setSetValues(shopFilters.categories, SHOP_CATEGORY_DEFINITIONS.map(option => option.value));
+
 function displayDamageType(type) {
   if (!type) return 'Melee';
   if (type === 'magic') return 'Magic';
@@ -715,6 +743,498 @@ function formatItemMeta(item) {
   }
   const typeText = item.type ? ` (${titleCase(item.type)})` : '';
   return `${rarity} • ${slotLabel(item.slot)}${typeText}`;
+}
+
+function setSetValues(targetSet, values) {
+  targetSet.clear();
+  values.forEach(value => {
+    if (value != null) {
+      targetSet.add(value);
+    }
+  });
+}
+
+function normalizeWeaponType(type) {
+  return typeof type === 'string' ? type.toLowerCase() : '';
+}
+
+function getShopCategoryKey(item) {
+  if (!item) return 'equipment';
+  if (isUseableItem(item)) return 'useables';
+  if (item.slot === 'weapon') return 'weapons';
+  return 'equipment';
+}
+
+function getShopSubgroupInfo(categoryKey, item) {
+  if (categoryKey === 'weapons') {
+    const type = normalizeWeaponType(item.type);
+    return {
+      key: type || 'general',
+      label: type ? titleCase(type) : 'General',
+    };
+  }
+  if (categoryKey === 'useables') {
+    const category = typeof item.category === 'string' && item.category ? item.category : 'general';
+    return {
+      key: category,
+      label: category ? titleCase(category) : 'General',
+    };
+  }
+  const slot = item.slot || 'misc';
+  return {
+    key: slot,
+    label: slotLabel(slot) || titleCase(slot),
+  };
+}
+
+function collectUniqueValues(values) {
+  return [...new Set(values)].filter(Boolean);
+}
+
+function pruneSetToOptions(targetSet, options) {
+  const valid = new Set(options.map(option => option.value));
+  [...targetSet].forEach(value => {
+    if (!valid.has(value)) {
+      targetSet.delete(value);
+    }
+  });
+}
+
+function buildSlotOptions(items) {
+  const slots = collectUniqueValues(items.map(item => item.slot));
+  const ordered = slots.sort((a, b) => {
+    const indexA = SHOP_SLOT_ORDER.indexOf(a);
+    const indexB = SHOP_SLOT_ORDER.indexOf(b);
+    if (indexA === -1 && indexB === -1) {
+      return slotLabel(a).localeCompare(slotLabel(b));
+    }
+    if (indexA === -1) return 1;
+    if (indexB === -1) return -1;
+    return indexA - indexB;
+  });
+  return ordered.map(slot => ({ value: slot, label: slotLabel(slot) || titleCase(slot) }));
+}
+
+function buildWeaponTypeOptions(items) {
+  const types = collectUniqueValues(
+    items.filter(item => item.slot === 'weapon').map(item => normalizeWeaponType(item.type))
+  ).sort((a, b) => a.localeCompare(b));
+  return types.map(type => ({ value: type, label: titleCase(type) }));
+}
+
+function buildScalingOptions(items) {
+  const scalingKeys = collectUniqueValues(
+    items.flatMap(item => Object.keys(item.scaling || {}))
+  );
+  const ordered = STAT_KEYS.filter(stat => scalingKeys.includes(stat));
+  const extras = scalingKeys.filter(stat => !STAT_KEYS.includes(stat)).sort((a, b) => a.localeCompare(b));
+  return [...ordered, ...extras].map(stat => ({ value: stat, label: statLabel(stat) }));
+}
+
+function renderCheckboxGroup(containerId, options, valueSet) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  container.innerHTML = '';
+  options.forEach(option => {
+    const label = document.createElement('label');
+    label.className = 'filter-option';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.value = option.value;
+    input.checked = valueSet.has(option.value);
+    input.addEventListener('change', () => {
+      if (input.checked) {
+        valueSet.add(option.value);
+      } else {
+        valueSet.delete(option.value);
+      }
+      updateShopDisplay();
+    });
+    const text = document.createElement('span');
+    text.textContent = option.label;
+    label.appendChild(input);
+    label.appendChild(text);
+    container.appendChild(label);
+  });
+}
+
+function resetShopFilters() {
+  setSetValues(shopFilters.categories, SHOP_CATEGORY_DEFINITIONS.map(option => option.value));
+  shopFilters.slots.clear();
+  shopFilters.weaponTypes.clear();
+  shopFilters.scaling.clear();
+  shopFilters.effects.clear();
+  shopSortOrder = 'cost-asc';
+}
+
+function initializeShopControls(items) {
+  const categoryOptions = SHOP_CATEGORY_DEFINITIONS;
+  const slotOptions = buildSlotOptions(items);
+  const weaponOptions = buildWeaponTypeOptions(items);
+  const scalingOptions = buildScalingOptions(items);
+
+  pruneSetToOptions(shopFilters.categories, categoryOptions);
+  pruneSetToOptions(shopFilters.slots, slotOptions);
+  pruneSetToOptions(shopFilters.weaponTypes, weaponOptions);
+  pruneSetToOptions(shopFilters.scaling, scalingOptions);
+  pruneSetToOptions(shopFilters.effects, SHOP_EFFECT_OPTIONS);
+
+  renderCheckboxGroup('shop-category-filter', categoryOptions, shopFilters.categories);
+  renderCheckboxGroup('shop-slot-filter', slotOptions, shopFilters.slots);
+  renderCheckboxGroup('shop-weapon-filter', weaponOptions, shopFilters.weaponTypes);
+  renderCheckboxGroup('shop-scaling-filter', scalingOptions, shopFilters.scaling);
+  renderCheckboxGroup('shop-effect-filter', SHOP_EFFECT_OPTIONS, shopFilters.effects);
+
+  const sortSelect = document.getElementById('shop-sort');
+  if (sortSelect) {
+    sortSelect.value = shopSortOrder;
+    if (!shopControlsInitialized) {
+      sortSelect.addEventListener('change', event => {
+        shopSortOrder = event.target.value;
+        updateShopDisplay();
+      });
+    }
+  }
+
+  const resetButton = document.getElementById('shop-reset');
+  if (resetButton && !shopControlsInitialized) {
+    resetButton.addEventListener('click', () => {
+      resetShopFilters();
+      initializeShopControls(shopCatalogCache);
+      const sortEl = document.getElementById('shop-sort');
+      if (sortEl) sortEl.value = shopSortOrder;
+      updateShopDisplay();
+    });
+  }
+
+  shopControlsInitialized = true;
+}
+
+function updateShopDisplay() {
+  const grid = document.getElementById('shop-grid');
+  if (!grid) return;
+  const summary = document.getElementById('shop-results-summary');
+  const messageEl = document.getElementById('shop-message');
+  grid.innerHTML = '';
+
+  if (!shopCatalogCache.length) {
+    const empty = document.createElement('div');
+    empty.className = 'shop-empty';
+    empty.textContent = 'No items available.';
+    grid.appendChild(empty);
+    if (summary) summary.textContent = '0 items available';
+    return;
+  }
+
+  const filtered = applyShopFilters(shopCatalogCache);
+  const sorted = sortShopItems(filtered);
+  if (sorted.length) {
+    renderShopGroups(grid, sorted, messageEl);
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'shop-empty';
+    empty.textContent = 'No items match the selected filters.';
+    grid.appendChild(empty);
+  }
+  if (summary) {
+    summary.textContent = `${filtered.length} of ${shopTotalItems} items displayed`;
+  }
+}
+
+function applyShopFilters(items) {
+  return items.filter(item => {
+    const categoryKey = getShopCategoryKey(item);
+    if (!shopFilters.categories.size) {
+      return false;
+    }
+    if (!shopFilters.categories.has(categoryKey)) {
+      return false;
+    }
+    if (shopFilters.slots.size && !shopFilters.slots.has(item.slot)) {
+      return false;
+    }
+    if (shopFilters.weaponTypes.size) {
+      const type = normalizeWeaponType(item.type);
+      if (!shopFilters.weaponTypes.has(type)) {
+        return false;
+      }
+    }
+    if (shopFilters.scaling.size) {
+      const scalingKeys = Object.keys(item.scaling || {});
+      if (!scalingKeys.some(stat => shopFilters.scaling.has(stat))) {
+        return false;
+      }
+    }
+    if (shopFilters.effects.size) {
+      for (const effect of shopFilters.effects) {
+        if (effect === 'onHit' && !(Array.isArray(item.onHitEffects) && item.onHitEffects.length)) {
+          return false;
+        }
+        if (effect === 'useEffect' && !item.useEffect) {
+          return false;
+        }
+        if (effect === 'attributeBonus' && !formatAttributeBonuses(item.attributeBonuses)) {
+          return false;
+        }
+        if (effect === 'chanceBonus' && !formatChanceBonuses(item.chanceBonuses)) {
+          return false;
+        }
+        if (effect === 'resourceBonus' && !formatResourceBonuses(item.resourceBonuses)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+}
+
+function sortShopItems(items) {
+  const comparator = getShopComparator();
+  return items.slice().sort(comparator);
+}
+
+function getShopComparator() {
+  const comparators = {
+    'cost-asc': createMetricComparator(getItemCost, 'asc'),
+    'cost-desc': createMetricComparator(getItemCost, 'desc'),
+    'damage-asc': createMetricComparator(getItemAverageDamage, 'asc'),
+    'damage-desc': createMetricComparator(getItemAverageDamage, 'desc'),
+    'stat-asc': createMetricComparator(getItemStatBonus, 'asc'),
+    'stat-desc': createMetricComparator(getItemStatBonus, 'desc'),
+  };
+  return comparators[shopSortOrder] || comparators['cost-asc'];
+}
+
+function createMetricComparator(metricFn, direction) {
+  return (a, b) => {
+    const valueA = metricFn(a);
+    const valueB = metricFn(b);
+    if (valueA !== valueB) {
+      return direction === 'desc' ? valueB - valueA : valueA - valueB;
+    }
+    const costA = getItemCost(a);
+    const costB = getItemCost(b);
+    if (costA !== costB) {
+      return costA - costB;
+    }
+    return (a.name || '').localeCompare(b.name || '');
+  };
+}
+
+function getItemCost(item) {
+  return typeof item.cost === 'number' ? item.cost : 0;
+}
+
+function getItemAverageDamage(item) {
+  if (!item || !item.baseDamage) return 0;
+  const min = Number(item.baseDamage.min);
+  const max = Number(item.baseDamage.max);
+  if (!Number.isFinite(min) && !Number.isFinite(max)) return 0;
+  if (!Number.isFinite(max)) return min || 0;
+  if (!Number.isFinite(min)) return max || 0;
+  return (min + max) / 2;
+}
+
+function getItemStatBonus(item) {
+  const bonuses = item && item.attributeBonuses ? Object.values(item.attributeBonuses) : [];
+  return bonuses.reduce((sum, value) => sum + (Number.isFinite(value) ? Number(value) : 0), 0);
+}
+
+function buildShopCategoryStructure(items) {
+  const structure = {};
+  items.forEach(item => {
+    const categoryKey = getShopCategoryKey(item);
+    const subgroup = getShopSubgroupInfo(categoryKey, item);
+    if (!structure[categoryKey]) {
+      structure[categoryKey] = new Map();
+    }
+    const groupMap = structure[categoryKey];
+    if (!groupMap.has(subgroup.key)) {
+      groupMap.set(subgroup.key, { label: subgroup.label, items: [] });
+    }
+    groupMap.get(subgroup.key).items.push(item);
+  });
+  return structure;
+}
+
+function renderShopGroups(container, items, messageEl) {
+  const structure = buildShopCategoryStructure(items);
+  let rendered = false;
+  SHOP_CATEGORY_DEFINITIONS.forEach(category => {
+    const groupMap = structure[category.value];
+    if (!groupMap || !groupMap.size) return;
+    rendered = true;
+    const section = document.createElement('section');
+    section.className = 'shop-category';
+    const totalCount = [...groupMap.values()].reduce((sum, subgroup) => sum + subgroup.items.length, 0);
+    const header = document.createElement('div');
+    header.className = 'shop-category-header';
+    header.textContent = `${category.label} (${totalCount})`;
+    section.appendChild(header);
+
+    const subgroups = [...groupMap.values()].sort((a, b) => a.label.localeCompare(b.label));
+    subgroups.forEach(subgroup => {
+      const subSection = document.createElement('div');
+      subSection.className = 'shop-subsection';
+      const title = document.createElement('div');
+      title.className = 'shop-subsection-title';
+      const name = document.createElement('span');
+      name.textContent = subgroup.label;
+      title.appendChild(name);
+      const count = document.createElement('span');
+      count.className = 'shop-subsection-count';
+      count.textContent = `${subgroup.items.length} item${subgroup.items.length === 1 ? '' : 's'}`;
+      title.appendChild(count);
+      subSection.appendChild(title);
+
+      const grid = document.createElement('div');
+      grid.className = 'shop-card-grid';
+      subgroup.items.forEach(item => {
+        grid.appendChild(buildShopItemCard(item, messageEl));
+      });
+      subSection.appendChild(grid);
+      section.appendChild(subSection);
+    });
+
+    container.appendChild(section);
+  });
+
+  if (!rendered) {
+    const empty = document.createElement('div');
+    empty.className = 'shop-empty';
+    empty.textContent = 'No items match the selected filters.';
+    container.appendChild(empty);
+  }
+}
+
+function createTag(text) {
+  const tag = document.createElement('div');
+  tag.className = 'card-tag';
+  tag.textContent = text;
+  return tag;
+}
+
+function createStatLine(label, value) {
+  if (!value) return null;
+  const line = document.createElement('div');
+  line.className = 'stat-line';
+  const labelEl = document.createElement('span');
+  labelEl.className = 'stat-label';
+  labelEl.textContent = label;
+  const valueEl = document.createElement('span');
+  valueEl.className = 'stat-value';
+  valueEl.textContent = value;
+  line.appendChild(labelEl);
+  line.appendChild(valueEl);
+  return line;
+}
+
+function formatScalingSummary(scaling) {
+  const entries = Object.entries(scaling || {}).filter(([, letter]) => letter);
+  if (!entries.length) return null;
+  return entries
+    .map(([stat, letter]) => `${statLabel(stat)} ${String(letter).toUpperCase()}`)
+    .join(' • ');
+}
+
+function formatOnHitSummary(onHitEffects) {
+  if (!Array.isArray(onHitEffects) || !onHitEffects.length) return null;
+  return onHitEffects.map(describeOnHit).join(' | ');
+}
+
+function formatDamageRange(baseDamage) {
+  if (!baseDamage || (baseDamage.min == null && baseDamage.max == null)) return null;
+  const rawMin = baseDamage.min != null ? Number(baseDamage.min) : null;
+  const rawMax = baseDamage.max != null ? Number(baseDamage.max) : null;
+  const min = Number.isFinite(rawMin) ? rawMin : null;
+  const max = Number.isFinite(rawMax) ? rawMax : null;
+  if (min != null && max != null) {
+    return `${min}-${max}`;
+  }
+  const value = min != null ? min : max;
+  return value != null ? `${value}` : null;
+}
+
+function buildShopItemCard(item, messageEl) {
+  const card = document.createElement('div');
+  card.className = 'shop-item-card';
+
+  const header = document.createElement('div');
+  header.className = 'card-header';
+  const name = document.createElement('div');
+  name.textContent = item.name;
+  header.appendChild(name);
+  const rarity = document.createElement('div');
+  rarity.className = 'card-rarity';
+  rarity.textContent = item.rarity || 'Common';
+  header.appendChild(rarity);
+  card.appendChild(header);
+
+  const tags = document.createElement('div');
+  tags.className = 'card-tags';
+  const slotTag = slotLabel(item.slot);
+  if (slotTag) tags.appendChild(createTag(slotTag));
+  if (item.slot === 'weapon') {
+    const typeTag = item.type ? titleCase(item.type) : '';
+    if (typeTag) tags.appendChild(createTag(typeTag));
+    if (item.damageType) tags.appendChild(createTag(`${titleCase(item.damageType)} Damage`));
+  } else if (isUseableItem(item)) {
+    const categoryTag = item.category ? titleCase(item.category) : '';
+    if (categoryTag) tags.appendChild(createTag(categoryTag));
+  } else if (item.type) {
+    tags.appendChild(createTag(titleCase(item.type)));
+  }
+  if (tags.childElementCount) {
+    card.appendChild(tags);
+  }
+
+  const stats = document.createElement('div');
+  stats.className = 'card-stats';
+  const damage = createStatLine('Damage', formatDamageRange(item.baseDamage));
+  if (damage) stats.appendChild(damage);
+  const scaling = createStatLine('Scaling', formatScalingSummary(item.scaling));
+  if (scaling) stats.appendChild(scaling);
+  const attributes = createStatLine('Attributes', formatAttributeBonuses(item.attributeBonuses));
+  if (attributes) stats.appendChild(attributes);
+  const resources = createStatLine('Resources', formatResourceBonuses(item.resourceBonuses));
+  if (resources) stats.appendChild(resources);
+  const chance = createStatLine('Chance', formatChanceBonuses(item.chanceBonuses));
+  if (chance) stats.appendChild(chance);
+  if (isUseableItem(item)) {
+    const trigger = createStatLine('Trigger', describeUseTrigger(item.useTrigger));
+    if (trigger) stats.appendChild(trigger);
+    const effect = createStatLine('Effect', item.useEffect ? describeEffect(item.useEffect) : null);
+    if (effect) stats.appendChild(effect);
+  } else {
+    const onHit = createStatLine('On Hit', formatOnHitSummary(item.onHitEffects));
+    if (onHit) stats.appendChild(onHit);
+  }
+  if (stats.childElementCount) {
+    card.appendChild(stats);
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'card-footer';
+  const cost = document.createElement('div');
+  cost.textContent = `${getItemCost(item)} Gold`;
+  footer.appendChild(cost);
+  const owned = document.createElement('div');
+  owned.textContent = `Owned ${getOwnedCount(item.id)}`;
+  footer.appendChild(owned);
+  card.appendChild(footer);
+
+  const button = document.createElement('button');
+  button.textContent = 'Buy';
+  const price = getItemCost(item);
+  const gold = currentCharacter ? currentCharacter.gold || 0 : 0;
+  if (!currentCharacter || gold < price) {
+    button.disabled = true;
+  }
+  button.addEventListener('click', () => purchaseItem(item, messageEl));
+  card.appendChild(button);
+
+  attachTooltip(card, () => itemTooltip(item));
+  return card;
 }
 
 async function refreshInventory(force = false) {
@@ -2479,7 +2999,11 @@ async function renderShop() {
   const goldDiv = document.getElementById('shop-gold');
   const message = document.getElementById('shop-message');
   if (!grid || !goldDiv || !message) return;
-  grid.textContent = 'Loading...';
+  grid.innerHTML = '';
+  const loading = document.createElement('div');
+  loading.className = 'shop-empty';
+  loading.textContent = 'Loading...';
+  grid.appendChild(loading);
   try {
     await ensureCatalog();
     await ensureInventory();
@@ -2489,43 +3013,11 @@ async function renderShop() {
     return;
   }
   clearMessage(message);
-  grid.innerHTML = '';
   goldDiv.textContent = `Gold: ${currentCharacter ? currentCharacter.gold || 0 : 0}`;
-  const items = getCatalogItems();
-  if (!items.length) {
-    grid.textContent = 'No items available.';
-    return;
-  }
-  items.forEach(item => {
-    const card = document.createElement('div');
-    card.className = 'item-card';
-    const name = document.createElement('div');
-    name.className = 'name';
-    name.textContent = item.name;
-    card.appendChild(name);
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = formatItemMeta(item);
-    card.appendChild(meta);
-    const cost = document.createElement('div');
-    cost.className = 'cost';
-    cost.textContent = `Cost: ${item.cost || 0} Gold`;
-    card.appendChild(cost);
-    const owned = document.createElement('div');
-    owned.className = 'owned';
-    owned.textContent = `Owned: ${getOwnedCount(item.id)}`;
-    card.appendChild(owned);
-    const button = document.createElement('button');
-    button.textContent = 'Buy';
-    const price = typeof item.cost === 'number' ? item.cost : 0;
-    if (!currentCharacter || (currentCharacter.gold || 0) < price) {
-      button.disabled = true;
-    }
-    button.addEventListener('click', () => purchaseItem(item, message));
-    card.appendChild(button);
-    attachTooltip(card, () => itemTooltip(item));
-    grid.appendChild(card);
-  });
+  shopCatalogCache = getCatalogItems();
+  shopTotalItems = shopCatalogCache.length;
+  initializeShopControls(shopCatalogCache);
+  updateShopDisplay();
 }
 
 async function purchaseItem(item, messageEl) {
