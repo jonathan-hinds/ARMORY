@@ -428,6 +428,122 @@
       "useDuration": "instant on proc",
       "useConsumed": true,
       "useTarget": "enemy"
+    },
+    {
+      "id": "useable_stamina_potion",
+      "name": "Stamina Potion",
+      "slot": "useable",
+      "type": "potion",
+      "category": "Potions",
+      "rarity": "Common",
+      "cost": 45,
+      "useTrigger": { "type": "auto", "stat": "staminaPct", "threshold": 0.15, "owner": true },
+      "useEffect": { "type": "RestoreResource", "resource": "stamina", "value": 50 },
+      "useDuration": "instant",
+      "useConsumed": true
+    },
+    {
+      "id": "useable_critical_potion",
+      "name": "Critical Potion",
+      "slot": "useable",
+      "type": "potion",
+      "category": "Potions",
+      "rarity": "Rare",
+      "cost": 160,
+      "useTrigger": {
+        "type": "onAction",
+        "actions": ["basic", "ability"],
+        "owner": true,
+        "requiresAttack": true,
+        "firstOnly": true
+      },
+      "useEffect": {
+        "type": "BuffChance",
+        "stat": "critChance",
+        "amount": 10,
+        "durationType": "userAttackIntervals",
+        "durationCount": 3
+      },
+      "useDuration": "3 user attack intervals",
+      "useConsumed": true
+    },
+    {
+      "id": "useable_first_aid_kit",
+      "name": "First Aid Kit",
+      "slot": "useable",
+      "type": "tool",
+      "category": "Tools",
+      "rarity": "Uncommon",
+      "cost": 150,
+      "useTrigger": { "type": "auto", "stat": "healthPct", "threshold": 0.25, "owner": true },
+      "useEffect": {
+        "type": "HealOverTime",
+        "value": 50,
+        "durationType": "userAttackIntervals",
+        "durationCount": 5
+      },
+      "useDuration": "5 user attack intervals",
+      "useConsumed": true
+    },
+    {
+      "id": "useable_thieving_tools",
+      "name": "Thieving Tools",
+      "slot": "useable",
+      "type": "tool",
+      "category": "Tools",
+      "rarity": "Rare",
+      "cost": 200,
+      "useTrigger": {
+        "type": "onAction",
+        "actions": ["basic", "ability"],
+        "owner": true,
+        "requiresAttack": true
+      },
+      "useEffect": { "type": "RemoveUseable", "chance": 0.05 },
+      "useDuration": "Lasts for the battle",
+      "useConsumed": false,
+      "useRepeatable": true,
+      "useConsumedAfterCombat": true,
+      "useTarget": "enemy"
+    },
+    {
+      "id": "useable_mana_scroll",
+      "name": "Mana Scroll",
+      "slot": "useable",
+      "type": "scroll",
+      "category": "Scrolls",
+      "rarity": "Rare",
+      "cost": 190,
+      "useTrigger": { "type": "onAction", "actions": ["basic", "ability"], "owner": true },
+      "useEffect": {
+        "type": "ResourceCostModifier",
+        "resource": "mana",
+        "amount": 1,
+        "chance": 0.1,
+        "durationType": "userAttackIntervals",
+        "durationCount": 3
+      },
+      "useDuration": "3 user attack intervals",
+      "useConsumed": true
+    },
+    {
+      "id": "useable_mana_steal_scroll",
+      "name": "Mana Steal Scroll",
+      "slot": "useable",
+      "type": "scroll",
+      "category": "Scrolls",
+      "rarity": "Rare",
+      "cost": 200,
+      "useTrigger": { "type": "onHit", "actions": ["basic"], "owner": true },
+      "useEffect": {
+        "type": "StealResource",
+        "resource": "mana",
+        "value": 25,
+        "chance": 0.2
+      },
+      "useDuration": "instant on proc",
+      "useConsumed": true,
+      "useTarget": "enemy"
     }
   ]
 }

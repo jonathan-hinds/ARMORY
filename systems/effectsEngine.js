@@ -53,6 +53,15 @@ function resolveDurationSeconds(effect, context = {}) {
         : 0;
     return Math.max(0, interval * count);
   }
+  if (effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals') {
+    const count = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    const actor = context.source || context.actor || context.user;
+    const interval =
+      actor && actor.derived && typeof actor.derived.attackIntervalSeconds === 'number'
+        ? actor.derived.attackIntervalSeconds
+        : 0;
+    return Math.max(0, interval * count);
+  }
   return 0;
 }
 
@@ -238,7 +247,7 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       if (!resolution.hit) {
         return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
       }
-      const durationSeconds = resolveDurationSeconds(effect, context);
+      const durationSeconds = resolveDurationSeconds(effect, { ...context, source });
       const duration = Number.isFinite(durationSeconds) ? durationSeconds : 0;
       target.stunnedUntil = Math.max(target.stunnedUntil, now + duration);
       pushLog(log, `${target.character.name} is stunned`, {
@@ -337,7 +346,7 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         target.derived = {};
       }
       target.derived[stat] = Number.isFinite(newValue) ? newValue : current;
-      const durationSeconds = resolveDurationSeconds(effect, context);
+      const durationSeconds = resolveDurationSeconds(effect, { ...context, source });
       let expires = Infinity;
       if (Number.isFinite(durationSeconds)) {
         if (durationSeconds > 0) {
@@ -356,6 +365,185 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         stat,
         amount,
         duration: durationSeconds,
+      });
+      return null;
+    }
+    case 'HealOverTime': {
+      const total = typeof effect.value === 'number' ? effect.value : 0;
+      if (!target || !Number.isFinite(total) || total <= 0) {
+        return null;
+      }
+      if (!Array.isArray(target.hots)) {
+        target.hots = [];
+      }
+      const durationSeconds = resolveDurationSeconds(effect, { ...context, source });
+      const explicitInterval =
+        typeof effect.interval === 'number' && effect.interval > 0 ? effect.interval : null;
+      const explicitTicks =
+        typeof effect.ticks === 'number' && effect.ticks > 0
+          ? Math.floor(effect.ticks)
+          : typeof effect.durationCount === 'number' && effect.durationCount > 0
+          ? Math.floor(effect.durationCount)
+          : null;
+      const ownerInterval =
+        source && source.derived && typeof source.derived.attackIntervalSeconds === 'number'
+          ? source.derived.attackIntervalSeconds
+          : null;
+      let interval = explicitInterval;
+      let totalDuration = Number.isFinite(durationSeconds) && durationSeconds > 0 ? durationSeconds : null;
+      if (!Number.isFinite(interval) || interval <= 0) {
+        if (Number.isFinite(totalDuration) && explicitTicks) {
+          interval = totalDuration / explicitTicks;
+        } else if (explicitTicks && Number.isFinite(ownerInterval) && ownerInterval > 0) {
+          interval = ownerInterval;
+          totalDuration = ownerInterval * explicitTicks;
+        } else if (Number.isFinite(totalDuration) && Number.isFinite(ownerInterval) && ownerInterval > 0) {
+          const derivedTicks = Math.max(1, Math.round(totalDuration / ownerInterval));
+          interval = totalDuration / derivedTicks;
+        } else if (Number.isFinite(ownerInterval) && ownerInterval > 0) {
+          interval = ownerInterval;
+        } else {
+          interval = 1;
+        }
+      }
+      if (!Number.isFinite(totalDuration) && explicitTicks && Number.isFinite(interval) && interval > 0) {
+        totalDuration = interval * explicitTicks;
+      }
+      if (!Number.isFinite(totalDuration) && Number.isFinite(interval) && interval > 0) {
+        totalDuration = interval * Math.max(1, explicitTicks || 1);
+      }
+      const clampedInterval = interval > 0 ? interval : 1;
+      const tickCount = Math.max(
+        1,
+        explicitTicks || (Number.isFinite(totalDuration) ? Math.round(totalDuration / clampedInterval) : 1),
+      );
+      const perTick = Number.isFinite(effect.tickValue) ? effect.tickValue : total / tickCount;
+      const expires = Number.isFinite(totalDuration) ? now + totalDuration : Infinity;
+      target.hots.push({
+        amountPerTick: perTick,
+        interval: clampedInterval,
+        nextTick: now + clampedInterval,
+        expires,
+        remaining: total,
+        ticksRemaining: tickCount,
+        sourceId: source && source.character ? source.character.id : null,
+      });
+      pushLog(log, `${target.character.name} begins recovering health over time`, {
+        sourceId: target.character.id,
+        targetId: target.character.id,
+        kind: 'buff',
+        amount: perTick,
+        duration: Number.isFinite(totalDuration) ? totalDuration : null,
+      });
+      return null;
+    }
+    case 'ResourceCostModifier': {
+      const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : null;
+      const amount = Number.isFinite(effect.amount) ? effect.amount : 0;
+      if (!resource || amount === 0) {
+        return null;
+      }
+      if (!target.resourceCostModifiers) {
+        target.resourceCostModifiers = {};
+      }
+      if (!Array.isArray(target.resourceCostBuffs)) {
+        target.resourceCostBuffs = [];
+      }
+      const current = Number.isFinite(target.resourceCostModifiers[resource])
+        ? target.resourceCostModifiers[resource]
+        : 0;
+      const updated = Math.min(1, Math.max(0, current + amount));
+      target.resourceCostModifiers[resource] = updated;
+      const durationSeconds = resolveDurationSeconds(effect, { ...context, source });
+      let expires = Infinity;
+      if (Number.isFinite(durationSeconds)) {
+        expires = durationSeconds > 0 ? now + durationSeconds : now;
+      }
+      target.resourceCostBuffs.push({ resource, amount, expires });
+      const percent = Math.round(amount * 100);
+      const label = resource.charAt(0).toUpperCase() + resource.slice(1);
+      const message =
+        amount >= 0
+          ? `${target.character.name} reduces ${label.toLowerCase()} costs by ${Math.abs(percent)}%`
+          : `${target.character.name}'s ${label.toLowerCase()} costs increase by ${Math.abs(percent)}%`;
+      pushLog(log, message, {
+        sourceId: target.character.id,
+        targetId: target.character.id,
+        kind: 'buff',
+        resource,
+        amount,
+        duration: Number.isFinite(durationSeconds) ? durationSeconds : null,
+      });
+      return null;
+    }
+    case 'StealResource': {
+      const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : null;
+      const amount = Number.isFinite(effect.value) ? effect.value : 0;
+      if (!resource || amount <= 0 || !target || !source) {
+        return null;
+      }
+      const available = Number.isFinite(target[resource]) ? Math.max(0, target[resource]) : 0;
+      if (available <= 0) {
+        return null;
+      }
+      const stolen = Math.min(amount, available);
+      target[resource] = available - stolen;
+      const sourceMax =
+        source.derived && Number.isFinite(source.derived[resource]) ? source.derived[resource] : null;
+      const sourceBefore = Number.isFinite(source[resource]) ? source[resource] : 0;
+      const sourceCap = sourceMax != null && sourceMax > 0 ? sourceMax : sourceBefore + stolen;
+      const newSourceValue = Math.min(sourceBefore + stolen, sourceCap);
+      source[resource] = newSourceValue;
+      const gained = newSourceValue - sourceBefore;
+      const label = resource.charAt(0).toUpperCase() + resource.slice(1);
+      pushLog(log, `${source.character.name} steals ${stolen} ${label} from ${target.character.name}`, {
+        sourceId: source.character.id,
+        targetId: target.character.id,
+        kind: 'resourceSteal',
+        resource,
+        amount: stolen,
+      });
+      if (gained < stolen) {
+        const wasted = stolen - gained;
+        if (wasted > 0) {
+          pushLog(log, `${source.character.name} cannot hold ${wasted} additional ${label.toLowerCase()}`, {
+            sourceId: source.character.id,
+            targetId: source.character.id,
+            kind: 'resourceOverflow',
+            resource,
+            amount: wasted,
+          });
+        }
+      }
+      return null;
+    }
+    case 'RemoveUseable': {
+      if (!target || !Array.isArray(target.useables) || target.useables.length === 0) {
+        return null;
+      }
+      const candidates = target.useables.filter(entry => entry && entry.item && !entry.used && !entry.disabled);
+      if (candidates.length === 0) {
+        return null;
+      }
+      const index = Math.floor(Math.random() * candidates.length);
+      const entry = candidates[index];
+      if (!entry || !entry.item) {
+        return null;
+      }
+      entry.used = true;
+      entry.disabled = true;
+      if (target.usedUseableIds) {
+        target.usedUseableIds.add(entry.item.id);
+      }
+      const alreadyConsumed = target.consumedUseables.some(used => used && used.itemId === entry.item.id);
+      if (!alreadyConsumed) {
+        target.consumedUseables.push({ slot: entry.slot, itemId: entry.item.id });
+      }
+      pushLog(log, `${target.character.name}'s ${entry.item.name} is stolen!`, {
+        sourceId: source && source.character ? source.character.id : null,
+        targetId: target.character.id,
+        kind: 'useableRemoved',
+        itemId: entry.item.id,
       });
       return null;
     }
@@ -406,6 +594,105 @@ function tick(combatant, now, log) {
       amount: buff.amount,
     });
     return false;
+  });
+  if (!combatant.resourceCostModifiers || typeof combatant.resourceCostModifiers !== 'object') {
+    combatant.resourceCostModifiers = {};
+  }
+  if (!Array.isArray(combatant.resourceCostBuffs)) {
+    combatant.resourceCostBuffs = [];
+  }
+  combatant.resourceCostBuffs = combatant.resourceCostBuffs.filter(buff => {
+    if (!buff) return false;
+    const expires = buff.expires;
+    if (!Number.isFinite(expires) || now < expires) {
+      return true;
+    }
+    const resource = typeof buff.resource === 'string' ? buff.resource : null;
+    if (resource) {
+      const current = Number.isFinite(combatant.resourceCostModifiers[resource])
+        ? combatant.resourceCostModifiers[resource]
+        : 0;
+      const updated = Number.isFinite(current - buff.amount) ? current - buff.amount : current;
+      combatant.resourceCostModifiers[resource] = Math.max(0, Math.min(1, updated));
+      const label = resource.charAt(0).toUpperCase() + resource.slice(1);
+      const percent = Math.round(Math.abs(buff.amount * 100));
+      const message =
+        buff.amount >= 0
+          ? `${combatant.character.name}'s ${label.toLowerCase()} cost reduction fades (${percent}%)`
+          : `${combatant.character.name}'s ${label.toLowerCase()} cost penalty ends (${percent}%)`;
+      pushLog(log, message, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+        resource,
+        amount: buff.amount,
+      });
+    }
+    return false;
+  });
+  if (!Array.isArray(combatant.hots)) {
+    combatant.hots = [];
+  }
+  combatant.hots = combatant.hots.filter(h => {
+    if (!h) return false;
+    const interval = Number.isFinite(h.interval) && h.interval > 0 ? h.interval : 1;
+    const expires = Number.isFinite(h.expires) ? h.expires : Infinity;
+    if (!Number.isFinite(h.nextTick)) {
+      h.nextTick = now + interval;
+    }
+    let remainingTicks = Number.isFinite(h.ticksRemaining) ? h.ticksRemaining : null;
+    let remainingAmount = Number.isFinite(h.remaining) ? h.remaining : null;
+    while (now >= h.nextTick && now < expires) {
+      const plannedAmount = Number.isFinite(h.amountPerTick) ? h.amountPerTick : 0;
+      if (plannedAmount <= 0) {
+        h.nextTick += interval;
+      } else {
+        const healAmount =
+          remainingAmount != null && remainingAmount < plannedAmount ? remainingAmount : plannedAmount;
+        const before = combatant.health;
+        const maxHealth =
+          combatant.derived && Number.isFinite(combatant.derived.health) ? combatant.derived.health : before;
+        const cappedMax = maxHealth > 0 ? maxHealth : before;
+        const updatedHealth = Math.min(before + healAmount, cappedMax);
+        combatant.health = updatedHealth;
+        const healed = updatedHealth - before;
+        if (healed > 0) {
+          pushLog(log, `${combatant.character.name} regenerates ${Math.round(healed)} health`, {
+            sourceId: combatant.character.id,
+            targetId: combatant.character.id,
+            kind: 'heal',
+            amount: healed,
+          });
+        }
+        if (remainingAmount != null) {
+          remainingAmount = Math.max(0, remainingAmount - healAmount);
+        }
+      }
+      if (remainingTicks != null) {
+        remainingTicks -= 1;
+      }
+      h.nextTick += interval;
+      if (remainingTicks != null && remainingTicks <= 0) {
+        break;
+      }
+      if (remainingAmount != null && remainingAmount <= 0) {
+        break;
+      }
+    }
+    h.ticksRemaining = remainingTicks;
+    h.remaining = remainingAmount;
+    const stillTicks = remainingTicks == null || remainingTicks > 0;
+    const stillAmount = remainingAmount == null || remainingAmount > 0;
+    const stillTime = now < expires;
+    const keep = stillTicks && stillAmount && stillTime;
+    if (!keep) {
+      pushLog(log, `${combatant.character.name}'s healing over time fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+      });
+    }
+    return keep;
   });
   combatant.dots = combatant.dots.filter(d => {
     if (!d) return false;
