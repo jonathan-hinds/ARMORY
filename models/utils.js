@@ -38,12 +38,10 @@ function ensureAttributesShape(attributes = {}) {
 function serializePlayer(doc) {
   const plain = toPlainObject(doc);
   if (!plain) return null;
-  const { playerId, name, gold, items, characterId } = plain;
+  const { playerId, name, characterId } = plain;
   return {
     id: typeof playerId === 'number' ? playerId : null,
     name,
-    gold: typeof gold === 'number' ? gold : 0,
-    items: Array.isArray(items) ? [...items] : [],
     characterId: characterId != null ? characterId : null,
   };
 }
@@ -62,6 +60,8 @@ function serializeCharacter(doc) {
     rotation,
     equipment,
     useables,
+    gold,
+    items,
   } = plain;
   return {
     id: typeof characterId === 'number' ? characterId : null,
@@ -74,6 +74,8 @@ function serializeCharacter(doc) {
     rotation: Array.isArray(rotation) ? [...rotation] : [],
     equipment: ensureEquipmentShape(equipment),
     useables: ensureUseableShape(useables),
+    gold: typeof gold === 'number' ? gold : 0,
+    items: Array.isArray(items) ? [...items] : [],
   };
 }
 

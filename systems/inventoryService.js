@@ -1,10 +1,8 @@
-const PlayerModel = require('../models/Player');
 const CharacterModel = require('../models/Character');
 const {
   ensureEquipmentShape,
   ensureUseableShape,
   serializeCharacter,
-  serializePlayer,
   EQUIPMENT_SLOTS,
   USEABLE_SLOTS,
 } = require('../models/utils');
@@ -21,19 +19,14 @@ async function getInventory(playerId, characterId) {
   if (!playerId || !characterId) {
     throw new Error('playerId and characterId required');
   }
-  const [playerDoc, characterDoc, equipmentMap] = await Promise.all([
-    PlayerModel.findOne({ playerId }).lean(),
-    CharacterModel.findOne({ characterId }).lean(),
+  const [characterDoc, equipmentMap] = await Promise.all([
+    CharacterModel.findOne({ characterId, playerId }).lean(),
     getEquipmentMap(),
   ]);
-  if (!playerDoc) {
-    throw new Error('player not found');
-  }
-  if (!characterDoc || characterDoc.playerId !== playerId) {
+  if (!characterDoc) {
     throw new Error('character not found');
   }
 
-  const player = serializePlayer(playerDoc);
   const character = serializeCharacter(characterDoc);
 
   const equipmentIds = ensureEquipmentShape(character.equipment || {});
@@ -57,7 +50,7 @@ async function getInventory(playerId, characterId) {
   const derived = compute(character, equippedForCompute);
 
   const counts = new Map();
-  (Array.isArray(player.items) ? player.items : []).forEach(id => {
+  (Array.isArray(character.items) ? character.items : []).forEach(id => {
     if (!counts.has(id)) counts.set(id, 0);
     counts.set(id, counts.get(id) + 1);
   });
@@ -90,7 +83,7 @@ async function getInventory(playerId, characterId) {
   );
 
   return {
-    gold: typeof player.gold === 'number' ? player.gold : 0,
+    gold: typeof character.gold === 'number' ? character.gold : 0,
     character: sanitizedCharacter,
     equipped: equippedItems,
     useables: equippedUseables,
@@ -108,15 +101,11 @@ async function setEquipment(playerId, characterId, slot, itemId) {
   if (!allSlots.includes(slot)) {
     throw new Error('invalid equipment slot');
   }
-  const [playerDoc, characterDoc, equipmentMap] = await Promise.all([
-    PlayerModel.findOne({ playerId }).lean(),
-    CharacterModel.findOne({ characterId }),
+  const [characterDoc, equipmentMap] = await Promise.all([
+    CharacterModel.findOne({ characterId, playerId }),
     getEquipmentMap(),
   ]);
-  if (!playerDoc) {
-    throw new Error('player not found');
-  }
-  if (!characterDoc || characterDoc.playerId !== playerId) {
+  if (!characterDoc) {
     throw new Error('character not found');
   }
 
@@ -158,7 +147,7 @@ async function setEquipment(playerId, characterId, slot, itemId) {
     } else if (item.slot !== slot) {
       throw new Error('item cannot be equipped in this slot');
     }
-    const owned = (Array.isArray(playerDoc.items) ? playerDoc.items : []).filter(id => id === itemId).length;
+    const owned = (Array.isArray(character.items) ? character.items : []).filter(id => id === itemId).length;
     if (owned <= 0) {
       throw new Error('item not owned');
     }

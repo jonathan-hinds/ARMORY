@@ -43,6 +43,8 @@ const characterSchema = new mongoose.Schema(
     rotation: { type: [Number], default: [] },
     equipment: { type: equipmentSchema, default: () => ({}) },
     useables: { type: useableSchema, default: () => ({}) },
+    gold: { type: Number, default: 0 },
+    items: { type: [String], default: [] },
   },
   { timestamps: true }
 );

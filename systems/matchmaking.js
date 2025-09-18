@@ -1,5 +1,4 @@
 const CharacterModel = require('../models/Character');
-const PlayerModel = require('../models/Player');
 const { serializeCharacter } = require('../models/utils');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
@@ -45,15 +44,6 @@ async function queueMatch(characterId, send) {
           characterDocs.forEach(doc => {
             characterMap.set(doc.characterId, doc);
           });
-          const playerIds = Array.from(
-            new Set(characterDocs.map(doc => doc.playerId))
-          );
-          const playerDocs = await PlayerModel.find({ playerId: { $in: playerIds } });
-          const playerMap = new Map();
-          playerDocs.forEach(doc => {
-            playerMap.set(doc.playerId, doc);
-          });
-
           const consumedMap = result.consumedUseables || {};
 
           function consumeUseables(charWrapper) {
@@ -64,29 +54,27 @@ async function queueMatch(characterId, send) {
             if (!characterDoc.useables) {
               characterDoc.useables = { useable1: null, useable2: null };
             }
-            const playerDoc = playerMap.get(characterDoc.playerId);
-            if (!playerDoc) return;
-            if (!Array.isArray(playerDoc.items)) {
-              playerDoc.items = [];
-            }
             let modifiedUseables = false;
             let itemsModified = false;
+            if (!Array.isArray(characterDoc.items)) {
+              characterDoc.items = [];
+            }
             consumed.forEach(entry => {
-              const idx = playerDoc.items.indexOf(entry.itemId);
+              const idx = characterDoc.items.indexOf(entry.itemId);
               if (idx !== -1) {
-                playerDoc.items.splice(idx, 1);
+                characterDoc.items.splice(idx, 1);
                 itemsModified = true;
               }
               if (characterDoc.useables[entry.slot] === entry.itemId) {
-                const remaining = playerDoc.items.filter(id => id === entry.itemId).length;
+                const remaining = characterDoc.items.filter(id => id === entry.itemId).length;
                 if (remaining <= 0) {
                   characterDoc.useables[entry.slot] = null;
                   modifiedUseables = true;
                 }
               }
             });
-            if (itemsModified && typeof playerDoc.markModified === 'function') {
-              playerDoc.markModified('items');
+            if (itemsModified && typeof characterDoc.markModified === 'function') {
+              characterDoc.markModified('items');
             }
             if (modifiedUseables && typeof characterDoc.markModified === 'function') {
               characterDoc.markModified('useables');
@@ -98,20 +86,16 @@ async function queueMatch(characterId, send) {
             if (!characterDoc) {
               throw new Error('character not found for rewards');
             }
-            const playerDoc = playerMap.get(characterDoc.playerId);
-            if (!playerDoc) {
-              throw new Error('player not found for rewards');
-            }
             const pct = won ? 0.05 + Math.random() * 0.05 : 0.01 + Math.random() * 0.01;
             const xpGain = Math.round(xpForNextLevel(characterDoc.level || 1) * pct);
             characterDoc.xp = (characterDoc.xp || 0) + xpGain;
             const gpGain = won ? 10 : 2;
-            playerDoc.gold = (playerDoc.gold || 0) + gpGain;
+            characterDoc.gold = (characterDoc.gold || 0) + gpGain;
             return {
               xpGain,
               gpGain,
               character: serializeCharacter(characterDoc),
-              gold: typeof playerDoc.gold === 'number' ? playerDoc.gold : 0,
+              gold: typeof characterDoc.gold === 'number' ? characterDoc.gold : 0,
             };
           }
 
@@ -121,10 +105,7 @@ async function queueMatch(characterId, send) {
           const rewardA = reward(a, result.winnerId === a.character.id);
           const rewardB = reward(b, result.winnerId === b.character.id);
 
-          await Promise.all([
-            ...characterDocs.map(doc => doc.save()),
-            ...playerDocs.map(doc => doc.save()),
-          ]);
+          await Promise.all(characterDocs.map(doc => doc.save()));
 
           a.send({
             type: 'end',

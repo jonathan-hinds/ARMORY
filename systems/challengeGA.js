@@ -1,9 +1,7 @@
 const ChallengeStateModel = require('../models/ChallengeState');
 const CharacterModel = require('../models/Character');
-const PlayerModel = require('../models/Player');
 const {
   serializeCharacter,
-  serializePlayer,
   ensureEquipmentShape,
   EQUIPMENT_SLOTS,
   STATS,
@@ -507,7 +505,7 @@ function buildOpponentPreview(character, equipmentMap, metrics) {
   return preview;
 }
 
-async function buildChallengeContext(characterId, { includePlayer = false } = {}) {
+async function buildChallengeContext(characterId) {
   const characterDoc = await CharacterModel.findOne({ characterId });
   if (!characterDoc) {
     throw new Error('character not found');
@@ -516,19 +514,10 @@ async function buildChallengeContext(characterId, { includePlayer = false } = {}
     throw new Error('character rotation invalid');
   }
 
-  const playerPromise = includePlayer
-    ? PlayerModel.findOne({ playerId: characterDoc.playerId })
-    : Promise.resolve(null);
-
-  const [abilities, equipmentMap, playerDoc] = await Promise.all([
+  const [abilities, equipmentMap] = await Promise.all([
     getAbilities(),
     getEquipmentMap(),
-    playerPromise,
   ]);
-
-  if (includePlayer && !playerDoc) {
-    throw new Error('player not found');
-  }
 
   const abilityIds = abilities.map(a => a.id);
   const abilityMap = new Map(abilities.map(ability => [ability.id, ability]));
@@ -551,7 +540,6 @@ async function buildChallengeContext(characterId, { includePlayer = false } = {}
   return {
     characterDoc,
     character,
-    playerDoc,
     abilityIds,
     abilityMap,
     equipmentMap,
@@ -561,10 +549,10 @@ async function buildChallengeContext(characterId, { includePlayer = false } = {}
   };
 }
 
-async function prepareChallenge(characterId, { includePlayer = false } = {}) {
+async function prepareChallenge(characterId) {
   const [state, contextBundle] = await Promise.all([
     getState(characterId),
-    buildChallengeContext(characterId, { includePlayer }),
+    buildChallengeContext(characterId),
   ]);
 
   const context = {
@@ -756,7 +744,7 @@ async function startChallenge(characterId, options = {}) {
 }
 
 async function runChallengeFight(characterId, send) {
-  const prep = await prepareChallenge(characterId, { includePlayer: true });
+  const prep = await prepareChallenge(characterId);
 
   if (!prep.state.currentOpponent || !prep.state.currentOpponent.character) {
     throw new Error('no active opponent');
@@ -787,8 +775,8 @@ async function runChallengeFight(characterId, send) {
   const consumed = result.consumedUseables || {};
   const consumedByPlayer = consumed[prep.character.id] || [];
   if (consumedByPlayer.length) {
-    if (!Array.isArray(prep.playerDoc.items)) {
-      prep.playerDoc.items = [];
+    if (!Array.isArray(prep.characterDoc.items)) {
+      prep.characterDoc.items = [];
     }
     if (!prep.characterDoc.useables) {
       prep.characterDoc.useables = { useable1: null, useable2: null };
@@ -796,21 +784,21 @@ async function runChallengeFight(characterId, send) {
     let modifiedUseables = false;
     let itemsModified = false;
     consumedByPlayer.forEach(entry => {
-      const idx = prep.playerDoc.items.indexOf(entry.itemId);
+      const idx = prep.characterDoc.items.indexOf(entry.itemId);
       if (idx !== -1) {
-        prep.playerDoc.items.splice(idx, 1);
+        prep.characterDoc.items.splice(idx, 1);
         itemsModified = true;
       }
       if (prep.characterDoc.useables[entry.slot] === entry.itemId) {
-        const remaining = prep.playerDoc.items.filter(id => id === entry.itemId).length;
+        const remaining = prep.characterDoc.items.filter(id => id === entry.itemId).length;
         if (remaining <= 0) {
           prep.characterDoc.useables[entry.slot] = null;
           modifiedUseables = true;
         }
       }
     });
-    if (itemsModified && typeof prep.playerDoc.markModified === 'function') {
-      prep.playerDoc.markModified('items');
+    if (itemsModified && typeof prep.characterDoc.markModified === 'function') {
+      prep.characterDoc.markModified('items');
     }
     if (modifiedUseables && typeof prep.characterDoc.markModified === 'function') {
       prep.characterDoc.markModified('useables');
@@ -821,13 +809,12 @@ async function runChallengeFight(characterId, send) {
     xpGain = rewards.xpGain;
     gpGain = rewards.goldGain;
     prep.characterDoc.xp = (prep.characterDoc.xp || 0) + xpGain;
-    prep.playerDoc.gold = (prep.playerDoc.gold || 0) + gpGain;
+    prep.characterDoc.gold = (prep.characterDoc.gold || 0) + gpGain;
   }
 
-  await Promise.all([prep.characterDoc.save(), prep.playerDoc.save()]);
+  await prep.characterDoc.save();
 
   const updatedCharacter = serializeCharacter(prep.characterDoc);
-  const updatedPlayer = serializePlayer(prep.playerDoc);
 
   const lastMetrics = prep.state.currentOpponent && prep.state.currentOpponent.metrics
     ? {
@@ -914,7 +901,7 @@ async function runChallengeFight(characterId, send) {
     xpGain,
     gpGain,
     character: updatedCharacter,
-    gold: updatedPlayer.gold,
+    gold: updatedCharacter.gold,
     challenge: buildChallengePayload(nextState, updatedCharacter.level || 1),
   });
 }
