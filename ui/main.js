@@ -827,12 +827,25 @@ function buildWeaponTypeOptions(items) {
   return types.map(type => ({ value: type, label: titleCase(type) }));
 }
 
+function getItemStatKeys(item) {
+  const scalingKeys = Object.keys(item.scaling || {});
+  const attributeKeys = Object.entries(item.attributeBonuses || {})
+    .filter(([, value]) => {
+      if (value == null) return false;
+      const numeric = Number(value);
+      if (Number.isFinite(numeric)) {
+        return numeric !== 0;
+      }
+      return Boolean(value);
+    })
+    .map(([stat]) => stat);
+  return collectUniqueValues([...scalingKeys, ...attributeKeys]);
+}
+
 function buildScalingOptions(items) {
-  const scalingKeys = collectUniqueValues(
-    items.flatMap(item => Object.keys(item.scaling || {}))
-  );
-  const ordered = STAT_KEYS.filter(stat => scalingKeys.includes(stat));
-  const extras = scalingKeys.filter(stat => !STAT_KEYS.includes(stat)).sort((a, b) => a.localeCompare(b));
+  const statKeys = collectUniqueValues(items.flatMap(item => getItemStatKeys(item)));
+  const ordered = STAT_KEYS.filter(stat => statKeys.includes(stat));
+  const extras = statKeys.filter(stat => !STAT_KEYS.includes(stat)).sort((a, b) => a.localeCompare(b));
   return [...ordered, ...extras].map(stat => ({ value: stat, label: statLabel(stat) }));
 }
 
@@ -965,8 +978,8 @@ function applyShopFilters(items) {
       }
     }
     if (shopFilters.scaling.size) {
-      const scalingKeys = Object.keys(item.scaling || {});
-      if (!scalingKeys.some(stat => shopFilters.scaling.has(stat))) {
+      const statKeys = getItemStatKeys(item);
+      if (!statKeys.some(stat => shopFilters.scaling.has(stat))) {
         return false;
       }
     }
