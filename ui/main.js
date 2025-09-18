@@ -673,21 +673,104 @@ function isTabActive(id) {
 
 function renderCharacters() {
   const list = document.getElementById('character-list');
+  if (!list) return;
   list.innerHTML = '';
+  list.classList.toggle('empty', characters.length === 0);
+  if (!characters.length) {
+    const empty = document.createElement('div');
+    empty.className = 'character-empty-card';
+    empty.textContent = 'No characters yet. Forge a new legend!';
+    list.appendChild(empty);
+    return;
+  }
   characters.forEach(c => {
-    const li = document.createElement('li');
-    const stats = c.attributes;
-    const name = c.name || `Character ${c.id}`;
-    const info = document.createElement('span');
-    info.className = 'info';
-    const typeLabel = displayDamageType(c.basicType);
-    info.textContent = `${name} Lv${c.level || 1} (Damage: ${typeLabel}) - STR:${stats.strength} STA:${stats.stamina} AGI:${stats.agility} INT:${stats.intellect} WIS:${stats.wisdom}`;
+    const card = document.createElement('div');
+    card.className = 'character-card';
+
+    const header = document.createElement('div');
+    header.className = 'card-header';
+    card.appendChild(header);
+
+    const name = document.createElement('div');
+    name.className = 'character-name';
+    name.textContent = c.name || `Character ${c.id}`;
+    header.appendChild(name);
+
+    const level = document.createElement('div');
+    level.className = 'character-level';
+    level.textContent = `Level ${c.level || 1}`;
+    header.appendChild(level);
+
+    const type = document.createElement('div');
+    type.className = 'character-type';
+    type.textContent = `${displayDamageType(c.basicType)} Damage`;
+    card.appendChild(type);
+
+    const xpSection = document.createElement('div');
+    xpSection.className = 'character-xp';
+    card.appendChild(xpSection);
+
+    const levelValue = c.level || 1;
+    const xpNeeded = xpForNextLevel(levelValue);
+    const xpCurrent = c.xp || 0;
+    const xpLabel = document.createElement('div');
+    xpLabel.className = 'xp-label';
+    xpLabel.textContent = xpNeeded > 0 ? `XP ${xpCurrent} / ${xpNeeded}` : `XP ${xpCurrent}`;
+    xpSection.appendChild(xpLabel);
+
+    const xpBar = document.createElement('div');
+    xpBar.className = 'xp-bar';
+    xpSection.appendChild(xpBar);
+
+    const xpFill = document.createElement('div');
+    xpFill.className = 'xp-fill';
+    const progress = xpNeeded > 0 ? Math.min(1, Math.max(0, xpCurrent / xpNeeded)) : 1;
+    xpFill.style.width = `${progress * 100}%`;
+    xpBar.appendChild(xpFill);
+
+    if (xpNeeded > 0) {
+      const xpHint = document.createElement('div');
+      xpHint.className = 'xp-hint';
+      if (xpCurrent >= xpNeeded) {
+        xpHint.textContent = 'Ready to level up!';
+      } else {
+        const remaining = Math.max(0, xpNeeded - xpCurrent);
+        xpHint.textContent = `${remaining} XP to next level`;
+      }
+      xpSection.appendChild(xpHint);
+    }
+
+    const stats = c.attributes || {};
+    const attrGrid = document.createElement('div');
+    attrGrid.className = 'character-attributes';
+    STAT_KEYS.forEach(key => {
+      const attr = document.createElement('div');
+      attr.className = 'attribute';
+      const label = document.createElement('span');
+      label.className = 'label';
+      label.textContent = key.slice(0, 3).toUpperCase();
+      attr.appendChild(label);
+      const value = document.createElement('span');
+      value.className = 'value';
+      const statValue = stats[key];
+      value.textContent = Number.isFinite(statValue) ? statValue : 0;
+      attr.appendChild(value);
+      attrGrid.appendChild(attr);
+    });
+    card.appendChild(attrGrid);
+
+    const gold = document.createElement('div');
+    gold.className = 'character-gold';
+    const goldValue = Number.isFinite(c.gold) ? c.gold : 0;
+    gold.textContent = `Gold ${goldValue}`;
+    card.appendChild(gold);
+
     const btn = document.createElement('button');
-    btn.textContent = 'Select';
+    btn.textContent = 'Play';
     btn.addEventListener('click', () => enterGame(c));
-    li.appendChild(info);
-    li.appendChild(btn);
-    list.appendChild(li);
+    card.appendChild(btn);
+
+    list.appendChild(card);
   });
 }
 
