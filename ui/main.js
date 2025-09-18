@@ -166,6 +166,23 @@ function displayDamageType(type) {
   return formatted || 'Melee';
 }
 
+function formatEffectDurationText(effect) {
+  if (!effect || typeof effect !== 'object') return '';
+  if (typeof effect.duration === 'number' && Number.isFinite(effect.duration)) {
+    const value = effect.duration;
+    const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1);
+    return `${formatted}s`;
+  }
+  if (effect.durationType === 'enemyAttackIntervals') {
+    const countRaw = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    if (!Number.isFinite(countRaw) || countRaw <= 0) return '';
+    const count = Number.isInteger(countRaw) ? countRaw : Number(countRaw.toFixed(1));
+    if (count === 1) return '1 enemy attack interval';
+    return `${count} enemy attack intervals`;
+  }
+  return '';
+}
+
 function describeEffect(effect) {
   if (!effect || typeof effect !== 'object') return '';
   if (effect.type === 'PhysicalDamage') {
@@ -184,7 +201,14 @@ function describeEffect(effect) {
     return `+${pct}% Damage for ${effect.duration || 0}s`;
   }
   if (effect.type === 'Stun') {
-    return `Stun ${effect.duration || 0}s`;
+    const durationText = formatEffectDurationText(effect);
+    const actionText = durationText ? `stun for ${durationText}` : 'stun';
+    const chance = typeof effect.chance === 'number' && Number.isFinite(effect.chance) ? effect.chance : null;
+    if (chance != null) {
+      const pct = Math.round(Math.max(0, Math.min(1, chance)) * 100);
+      return `${pct}% chance to ${actionText}`;
+    }
+    return actionText.charAt(0).toUpperCase() + actionText.slice(1);
   }
   if (effect.type === 'Poison') {
     const dmg = effect.damage != null ? effect.damage : 0;
@@ -208,6 +232,11 @@ function describeUseTrigger(trigger) {
       return `Auto when ${target} HP is low`;
     }
     return 'Auto activation';
+  }
+  if (trigger.type === 'onDamageTaken') {
+    const target = trigger.owner === false ? 'ally' : 'self';
+    const damageText = trigger.damageType ? `${titleCase(trigger.damageType)} damage` : 'damage';
+    return `On ${target} taking ${damageText}`;
   }
   return titleCase(trigger.type || 'Auto');
 }

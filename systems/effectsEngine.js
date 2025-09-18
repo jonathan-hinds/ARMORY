@@ -210,7 +210,8 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       if (!resolution.hit) {
         return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
       }
-      const duration = typeof effect.duration === 'number' ? effect.duration : 0;
+      const durationSeconds = resolveDurationSeconds(effect, context);
+      const duration = Number.isFinite(durationSeconds) ? durationSeconds : 0;
       target.stunnedUntil = Math.max(target.stunnedUntil, now + duration);
       pushLog(log, `${target.character.name} is stunned`, {
         sourceId: target.character.id,
