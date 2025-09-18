@@ -1,9 +1,7 @@
 class Player {
-  constructor({ id, name, gold = 0, items = [], characterId = null }) {
+  constructor({ id, name, characterId = null }) {
     this.id = id;
     this.name = name;
-    this.gold = gold;
-    this.items = items;
     this.characterId = characterId;
   }
 }

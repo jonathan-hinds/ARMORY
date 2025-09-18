@@ -9,6 +9,8 @@ class Character {
     xp = 0,
     rotation = [],
     equipment = {},
+    gold = 0,
+    items = [],
   }) {
     this.id = id;
     this.playerId = playerId;
@@ -19,6 +21,8 @@ class Character {
     this.xp = xp;
     this.rotation = rotation;
     this.equipment = equipment; // {weapon:null, helmet:null, chest:null, legs:null, feet:null, hands:null}
+    this.gold = gold;
+    this.items = items;
   }
 }
 

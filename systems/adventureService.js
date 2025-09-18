@@ -2,7 +2,6 @@ const path = require('path');
 const AdventureStateModel = require('../models/AdventureState');
 const {
   serializeCharacter,
-  serializePlayer,
   STATS,
 } = require('../models/utils');
 const { readJSON } = require('../store/jsonStore');
@@ -641,13 +640,12 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
     timestamp,
   };
   let characterDirty = false;
-  let playerDirty = false;
   let ended = null;
   let defeatOpponent = null;
   if (eventDef.type === 'gold') {
     const amount = resolveAmountValue(eventDef.amount);
-    bundle.playerDoc.gold = (bundle.playerDoc.gold || 0) + amount;
-    playerDirty = true;
+    bundle.characterDoc.gold = (bundle.characterDoc.gold || 0) + amount;
+    characterDirty = true;
     event.amount = amount;
     event.message = formatMessage(eventDef.message, { amount }) || `Found ${amount} gold.`;
   } else if (eventDef.type === 'xp') {
@@ -659,11 +657,14 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
   } else if (eventDef.type === 'item') {
     const { item, rarity } = pickItemReward(eventDef, bundle);
     if (item) {
-      if (!Array.isArray(bundle.playerDoc.items)) {
-        bundle.playerDoc.items = [];
+      if (!Array.isArray(bundle.characterDoc.items)) {
+        bundle.characterDoc.items = [];
       }
-      bundle.playerDoc.items.push(item.id);
-      playerDirty = true;
+      bundle.characterDoc.items.push(item.id);
+      characterDirty = true;
+      if (typeof bundle.characterDoc.markModified === 'function') {
+        bundle.characterDoc.markModified('items');
+      }
       event.item = { id: item.id, name: item.name, rarity };
       event.rarity = rarity;
       event.message = formatMessage(eventDef.message, { item: item.name, rarity })
@@ -710,8 +711,8 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
     const consumed = result.consumedUseables || {};
     const consumedByPlayer = consumed[bundle.character.id] || [];
     if (consumedByPlayer.length) {
-      if (!Array.isArray(bundle.playerDoc.items)) {
-        bundle.playerDoc.items = [];
+      if (!Array.isArray(bundle.characterDoc.items)) {
+        bundle.characterDoc.items = [];
       }
       if (!bundle.characterDoc.useables) {
         bundle.characterDoc.useables = { useable1: null, useable2: null };
@@ -719,22 +720,21 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
       let modifiedUseables = false;
       let itemsModified = false;
       consumedByPlayer.forEach(entry => {
-        const idx = bundle.playerDoc.items.indexOf(entry.itemId);
+        const idx = bundle.characterDoc.items.indexOf(entry.itemId);
         if (idx !== -1) {
-          bundle.playerDoc.items.splice(idx, 1);
-          playerDirty = true;
+          bundle.characterDoc.items.splice(idx, 1);
           itemsModified = true;
         }
         if (bundle.characterDoc.useables[entry.slot] === entry.itemId) {
-          const remaining = bundle.playerDoc.items.filter(id => id === entry.itemId).length;
+          const remaining = bundle.characterDoc.items.filter(id => id === entry.itemId).length;
           if (remaining <= 0) {
             bundle.characterDoc.useables[entry.slot] = null;
             modifiedUseables = true;
           }
         }
       });
-      if (itemsModified && typeof bundle.playerDoc.markModified === 'function') {
-        bundle.playerDoc.markModified('items');
+      if (itemsModified && typeof bundle.characterDoc.markModified === 'function') {
+        bundle.characterDoc.markModified('items');
       }
       if (modifiedUseables) {
         characterDirty = true;
@@ -742,15 +742,17 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
           bundle.characterDoc.markModified('useables');
         }
       }
+      if (itemsModified) {
+        characterDirty = true;
+      }
     }
 
     if (playerWon) {
       xpGain = rewards.xpGain;
       goldGain = rewards.goldGain;
       bundle.characterDoc.xp = (bundle.characterDoc.xp || 0) + xpGain;
-      bundle.playerDoc.gold = (bundle.playerDoc.gold || 0) + goldGain;
+      bundle.characterDoc.gold = (bundle.characterDoc.gold || 0) + goldGain;
       characterDirty = true;
-      playerDirty = true;
       state.ga = {
         round: round + 1,
         parentA: clone(champion.genome),
@@ -787,16 +789,15 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
   }
   appendEvent(state, event, config);
   state.updatedAt = Date.now();
-  return { characterDirty, playerDirty, ended, opponent: defeatOpponent };
+  return { characterDirty, ended, opponent: defeatOpponent };
 }
 
 async function advanceAdventureState(state, config, bundle) {
   if (!state) {
-    return { mutated: false, characterDirty: false, playerDirty: false };
+    return { mutated: false, characterDirty: false };
   }
   let mutated = false;
   let characterDirty = false;
-  let playerDirty = false;
   let finalizeOptions = null;
 
   if (!isStateActive(state)) {
@@ -827,9 +828,6 @@ async function advanceAdventureState(state, config, bundle) {
       if (result.characterDirty) {
         characterDirty = true;
         refreshBundle(bundle);
-      }
-      if (result.playerDirty) {
-        playerDirty = true;
       }
       mutated = true;
       const nextAt = timestamp + randomIntervalMs(config);
@@ -872,10 +870,10 @@ async function advanceAdventureState(state, config, bundle) {
   if (mutated) {
     state.updatedAt = Date.now();
   }
-  return { mutated, characterDirty, playerDirty };
+  return { mutated, characterDirty };
 }
 
-function buildAdventurePayload(state, config, characterDoc, playerDoc, extra = {}) {
+function buildAdventurePayload(state, config, characterDoc, extra = {}) {
   const now = Date.now();
   const dayDurationMs = state && state.dayDurationMs ? state.dayDurationMs : Math.round(config.dayDurationMinutes * 60 * 1000);
   const totalDays = state && state.totalDays ? state.totalDays : config.totalDays;
@@ -900,7 +898,6 @@ function buildAdventurePayload(state, config, characterDoc, playerDoc, extra = {
         .sort((a, b) => (b.endedAt || 0) - (a.endedAt || 0))
     : [];
   const character = characterDoc ? serializeCharacter(characterDoc) : null;
-  const player = playerDoc ? serializePlayer(playerDoc) : null;
   return {
     active,
     startedAt,
@@ -915,7 +912,6 @@ function buildAdventurePayload(state, config, characterDoc, playerDoc, extra = {
     history,
     ga: state && state.ga ? { round: state.ga.round || 1 } : { round: 1 },
     character,
-    player,
     completedAt: state && state.completedAt ? state.completedAt : null,
     updatedAt: state && state.updatedAt ? state.updatedAt : null,
     outcome: state && state.outcome ? state.outcome : (state && state.completedAt ? 'complete' : null),
@@ -933,7 +929,7 @@ function buildAdventurePayload(state, config, characterDoc, playerDoc, extra = {
 
 async function loadBundle(characterId, options = {}) {
   try {
-    const bundle = await buildChallengeContext(characterId, { includePlayer: true });
+    const bundle = await buildChallengeContext(characterId);
     bundle.itemsByRarity = buildRarityIndex(bundle.equipmentMap);
     refreshBundle(bundle);
     return { bundle, error: null };
@@ -948,9 +944,9 @@ async function getAdventureStatus(characterId) {
   const { bundle, error } = await loadBundle(characterId, { includePlayer: true });
   if (!bundle) {
     if (!state) {
-      return buildAdventurePayload(null, config, null, null, { error: error ? error.message : null });
+      return buildAdventurePayload(null, config, null, { error: error ? error.message : null });
     }
-    return buildAdventurePayload(state, config, null, null, { error: error ? error.message : null });
+    return buildAdventurePayload(state, config, null, { error: error ? error.message : null });
   }
 
   let stateChanged = false;
@@ -987,16 +983,13 @@ async function getAdventureStatus(characterId) {
   if (progress.characterDirty) {
     await bundle.characterDoc.save();
   }
-  if (progress.playerDirty && bundle.playerDoc) {
-    await bundle.playerDoc.save();
-  }
   if (progress.mutated) {
     stateChanged = true;
   }
   if (stateChanged) {
     await persistState(state);
   }
-  return buildAdventurePayload(state, config, bundle.characterDoc, bundle.playerDoc, { error: error ? error.message : null });
+  return buildAdventurePayload(state, config, bundle.characterDoc, { error: error ? error.message : null });
 }
 
 async function startAdventure(characterId, options = {}) {
@@ -1048,7 +1041,7 @@ async function startAdventure(characterId, options = {}) {
   };
   appendEvent(newState, { id: `start-${start}`, type: 'start', timestamp: start, message: 'The adventure begins!' }, config);
   await persistState(newState);
-  return buildAdventurePayload(newState, config, bundle.characterDoc, bundle.playerDoc);
+  return buildAdventurePayload(newState, config, bundle.characterDoc);
 }
 
 async function isAdventureActive(characterId) {

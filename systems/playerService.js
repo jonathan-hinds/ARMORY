@@ -50,8 +50,6 @@ async function registerPlayer(name) {
   const playerDoc = await PlayerModel.create({
     playerId,
     name,
-    gold: 0,
-    items: [],
     characterId: null,
   });
   return { player: serializePlayer(playerDoc) };
@@ -86,6 +84,8 @@ async function createCharacter(playerId, name) {
     rotation: [],
     equipment: ensureEquipmentShape({}),
     useables: ensureUseableShape({}),
+    gold: 0,
+    items: [],
   });
   return serializeCharacter(characterDoc);
 }

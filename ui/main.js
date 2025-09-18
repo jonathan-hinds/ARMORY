@@ -525,8 +525,11 @@ function applyInventoryData(data) {
     }
     setRotationDamageType(data.character.basicType);
   }
-  if (currentPlayer && typeof data.gold === 'number') {
-    currentPlayer.gold = data.gold;
+  if (currentCharacter && typeof data.gold === 'number') {
+    currentCharacter.gold = data.gold;
+  }
+  if (inventoryView && typeof data.gold === 'number') {
+    inventoryView.gold = data.gold;
   }
 }
 
@@ -962,8 +965,11 @@ function updateAfterBattleEnd(data) {
     }
     setRotationDamageType(data.character.basicType);
   }
-  if (currentPlayer && typeof data.gold === 'number') {
-    currentPlayer.gold = data.gold;
+  if (currentCharacter && typeof data.gold === 'number') {
+    currentCharacter.gold = data.gold;
+    if (inventoryView) {
+      inventoryView.gold = data.gold;
+    }
   }
   const shouldRender = {
     shop: isTabActive('shop'),
@@ -1278,6 +1284,7 @@ function inventoryItemsEqual(a, b) {
 
 function applyAdventureUpdates(status) {
   if (!status) return;
+  let inventoryDirty = false;
   let characterChanged = false;
   if (status.character && typeof status.character.id === 'number') {
     if (!currentCharacter || currentCharacter.id !== status.character.id) {
@@ -1289,6 +1296,13 @@ function applyAdventureUpdates(status) {
     ) {
       characterChanged = true;
     }
+    const sameCharacter = currentCharacter && currentCharacter.id === status.character.id;
+    if (sameCharacter) {
+      const nextItems = Array.isArray(status.character.items) ? [...status.character.items] : [];
+      if (!inventoryItemsEqual(currentCharacter.items, nextItems)) {
+        inventoryDirty = true;
+      }
+    }
     currentCharacter = status.character;
     const idx = characters.findIndex(c => c.id === status.character.id);
     if (idx >= 0) {
@@ -1299,20 +1313,19 @@ function applyAdventureUpdates(status) {
       inventoryView.character = { ...inventoryView.character, ...status.character };
     }
   }
-  let playerChanged = false;
-  let inventoryDirty = false;
-  if (status.player && currentPlayer && status.player.id === currentPlayer.id) {
-    const nextItems = Array.isArray(status.player.items) ? [...status.player.items] : [];
-    if (!inventoryItemsEqual(currentPlayer.items, nextItems)) {
+  let goldChanged = false;
+  if (status.character && currentCharacter && status.character.id === currentCharacter.id) {
+    const nextItems = Array.isArray(status.character.items) ? [...status.character.items] : [];
+    if (!inventoryItemsEqual(currentCharacter.items, nextItems)) {
       inventoryDirty = true;
     }
-    if (currentPlayer.gold !== status.player.gold) {
-      playerChanged = true;
+    if (typeof status.character.gold === 'number' && (currentCharacter.gold || 0) !== status.character.gold) {
+      goldChanged = true;
     }
-    currentPlayer.gold = status.player.gold;
-    currentPlayer.items = nextItems;
-    if (inventoryView) {
-      inventoryView.gold = status.player.gold;
+    currentCharacter.gold = status.character.gold;
+    currentCharacter.items = nextItems;
+    if (inventoryView && inventoryView.character && inventoryView.character.id === status.character.id) {
+      inventoryView.gold = status.character.gold;
     }
   }
   const inventoryActive = isTabActive('inventory');
@@ -1327,7 +1340,7 @@ function applyAdventureUpdates(status) {
   } else if (inventoryDirty && inventoryActive) {
     renderInventory();
   }
-  if (playerChanged && isTabActive('shop')) {
+  if ((goldChanged || characterChanged) && isTabActive('shop')) {
     renderShop();
   }
 }
@@ -2285,7 +2298,7 @@ async function renderShop() {
   }
   clearMessage(message);
   grid.innerHTML = '';
-  goldDiv.textContent = `Gold: ${currentPlayer ? currentPlayer.gold || 0 : 0}`;
+  goldDiv.textContent = `Gold: ${currentCharacter ? currentCharacter.gold || 0 : 0}`;
   const items = getCatalogItems();
   if (!items.length) {
     grid.textContent = 'No items available.';
@@ -2313,7 +2326,7 @@ async function renderShop() {
     const button = document.createElement('button');
     button.textContent = 'Buy';
     const price = typeof item.cost === 'number' ? item.cost : 0;
-    if (!currentPlayer || (currentPlayer.gold || 0) < price) {
+    if (!currentCharacter || (currentCharacter.gold || 0) < price) {
       button.disabled = true;
     }
     button.addEventListener('click', () => purchaseItem(item, message));
@@ -2748,7 +2761,7 @@ async function renderCharacter() {
   pane.innerHTML = '';
   const xpNeeded = xpForNextLevel(currentCharacter.level || 1);
   const xpCurrent = currentCharacter.xp || 0;
-  const gold = currentPlayer ? currentPlayer.gold || 0 : 0;
+  const gold = currentCharacter ? currentCharacter.gold || 0 : 0;
   const derived = (inventoryView && inventoryView.derived) || computeDerived(currentCharacter);
 
   const page = document.createElement('div');

@@ -154,14 +154,11 @@ app.post("/shop/purchase", async (req, res) => {
   const { playerId, itemId, characterId } = req.body || {};
   const pid = parseInt(playerId, 10);
   const cid = parseInt(characterId, 10);
-  if (!pid || !itemId) {
-    return res.status(400).json({ error: "playerId and itemId required" });
+  if (!pid || !cid || !itemId) {
+    return res.status(400).json({ error: "playerId, characterId and itemId required" });
   }
   try {
-    await purchaseItem(pid, itemId);
-    if (!cid) {
-      return res.json({ success: true });
-    }
+    await purchaseItem(pid, cid, itemId);
     const data = await getInventory(pid, cid);
     res.json(data);
   } catch (err) {
