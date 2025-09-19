@@ -31,13 +31,22 @@ function ensureMaterialShape(materials = {}) {
     return {};
   }
   const shaped = {};
-  Object.entries(materials).forEach(([id, value]) => {
+  const assignIfValid = (id, value) => {
     if (id == null) return;
     const numeric = Number(value);
     if (Number.isFinite(numeric) && numeric > 0) {
       shaped[id] = numeric;
     }
-  });
+  };
+  if (materials instanceof Map) {
+    materials.forEach((value, key) => {
+      assignIfValid(key, value);
+    });
+  } else {
+    Object.entries(materials).forEach(([id, value]) => {
+      assignIfValid(id, value);
+    });
+  }
   return shaped;
 }
 
