@@ -7,6 +7,28 @@ let rotation = [];
 let rotationInitialized = false;
 let rotationDamageType = 'melee';
 
+const htmlElement = document.documentElement;
+const supportsTouch = (() => {
+  if (typeof window === 'undefined') return false;
+  if ('ontouchstart' in window || (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)) {
+    return true;
+  }
+  if (window.matchMedia) {
+    try {
+      return window.matchMedia('(pointer: coarse)').matches;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+})();
+
+if (supportsTouch && htmlElement) {
+  htmlElement.classList.add('supports-touch');
+}
+
+let pendingRotationFocusIndex = null;
+
 const rotationDamageTypeSelect = document.getElementById('rotation-damage-type');
 
 function normalizeDamageType(value) {
@@ -1425,6 +1447,7 @@ async function enterGame(character) {
   inventoryView = null;
   rotationInitialized = false;
   rotation = [];
+  pendingRotationFocusIndex = null;
   try {
     await refreshInventory(true);
   } catch (err) {
@@ -1465,6 +1488,7 @@ async function initRotation() {
   rotationInitialized = true;
   await loadAbilityCatalog();
   rotation = [...(currentCharacter.rotation || [])];
+  pendingRotationFocusIndex = null;
   setRotationDamageType(currentCharacter ? currentCharacter.basicType : null);
   renderAbilityPool();
   renderRotationList();
@@ -1477,6 +1501,56 @@ async function initRotation() {
   document.getElementById('save-rotation').addEventListener('click', saveRotation);
 }
 
+function normalizeRotationIndex(value) {
+  const parsed = parseInt(value, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function moveRotationItem(index, delta) {
+  if (!Number.isInteger(index) || !Number.isInteger(delta)) return;
+  const target = index + delta;
+  if (target < 0 || target >= rotation.length) return;
+  const [entry] = rotation.splice(index, 1);
+  rotation.splice(target, 0, entry);
+  pendingRotationFocusIndex = target;
+  renderRotationList();
+}
+
+function removeRotationItem(index) {
+  if (!Number.isInteger(index) || index < 0 || index >= rotation.length) return;
+  rotation.splice(index, 1);
+  pendingRotationFocusIndex = rotation.length ? Math.min(index, rotation.length - 1) : null;
+  renderRotationList();
+}
+
+function quickAddAbility(abilityId) {
+  const id = Number(abilityId);
+  if (!Number.isFinite(id)) return;
+  if (!abilityCatalog.some(ab => ab.id === id)) return;
+  rotation.push(id);
+  pendingRotationFocusIndex = rotation.length - 1;
+  renderRotationList();
+}
+
+function handleRotationItemKeydown(e) {
+  const index = normalizeRotationIndex(e.currentTarget.dataset.index);
+  if (!Number.isInteger(index)) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    removeRotationItem(index);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    moveRotationItem(index, -1);
+  } else if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    moveRotationItem(index, 1);
+  }
+}
+
+function stopRotationPropagation(e) {
+  e.stopPropagation();
+}
+
 function renderAbilityPool() {
   const phys = document.getElementById('physical-abilities');
   const mag = document.getElementById('magical-abilities');
@@ -1484,11 +1558,39 @@ function renderAbilityPool() {
   mag.innerHTML = '';
   abilityCatalog.forEach(ab => {
     const card = document.createElement('div');
-    card.textContent = ab.name;
     card.className = 'ability-card';
     card.dataset.id = ab.id;
     card.draggable = true;
+    card.tabIndex = 0;
+    const name = document.createElement('span');
+    name.className = 'ability-card-name';
+    name.textContent = ab.name;
+    card.appendChild(name);
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'ability-card-action';
+    addBtn.textContent = 'Add';
+    addBtn.addEventListener('mousedown', stopRotationPropagation);
+    addBtn.addEventListener('touchstart', stopRotationPropagation, { passive: true });
+    addBtn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      quickAddAbility(ab.id);
+    });
+    card.appendChild(addBtn);
     card.addEventListener('dragstart', handleDragStart);
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        quickAddAbility(ab.id);
+      }
+    });
+    if (supportsTouch) {
+      card.addEventListener('click', e => {
+        if (e.defaultPrevented) return;
+        quickAddAbility(ab.id);
+      });
+    }
     attachTooltip(card, () => abilityTooltip(ab));
     if (ab.school === 'physical') {
       phys.appendChild(card);
@@ -1507,22 +1609,94 @@ function renderRotationList() {
     const ability = abilityCatalog.find(a => a.id === id);
     if (!ability) return;
     const li = document.createElement('li');
-    li.textContent = ability.name;
+    li.className = 'rotation-item';
     li.dataset.id = id;
     li.dataset.index = idx;
     li.draggable = true;
+    li.tabIndex = 0;
     li.addEventListener('dragstart', handleDragStart);
+    li.addEventListener('keydown', handleRotationItemKeydown);
     li.addEventListener('dblclick', () => {
-      const i = parseInt(li.dataset.index, 10);
-      if (i >= 0) {
-        rotation.splice(i, 1);
-        renderRotationList();
+      const i = normalizeRotationIndex(li.dataset.index);
+      if (Number.isInteger(i)) {
+        removeRotationItem(i);
       }
     });
+    const name = document.createElement('span');
+    name.className = 'rotation-item-name';
+    name.textContent = ability.name;
+    li.appendChild(name);
+    const actions = document.createElement('div');
+    actions.className = 'rotation-item-actions';
+
+    const moveUp = document.createElement('button');
+    moveUp.type = 'button';
+    moveUp.textContent = '↑';
+    moveUp.title = 'Move up';
+    moveUp.addEventListener('mousedown', stopRotationPropagation);
+    moveUp.addEventListener('touchstart', stopRotationPropagation, { passive: true });
+    moveUp.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const currentIndex = normalizeRotationIndex(li.dataset.index);
+      if (Number.isInteger(currentIndex)) {
+        moveRotationItem(currentIndex, -1);
+      }
+    });
+
+    const moveDown = document.createElement('button');
+    moveDown.type = 'button';
+    moveDown.textContent = '↓';
+    moveDown.title = 'Move down';
+    moveDown.addEventListener('mousedown', stopRotationPropagation);
+    moveDown.addEventListener('touchstart', stopRotationPropagation, { passive: true });
+    moveDown.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const currentIndex = normalizeRotationIndex(li.dataset.index);
+      if (Number.isInteger(currentIndex)) {
+        moveRotationItem(currentIndex, 1);
+      }
+    });
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.title = 'Remove ability';
+    removeBtn.addEventListener('mousedown', stopRotationPropagation);
+    removeBtn.addEventListener('touchstart', stopRotationPropagation, { passive: true });
+    removeBtn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const currentIndex = normalizeRotationIndex(li.dataset.index);
+      if (Number.isInteger(currentIndex)) {
+        removeRotationItem(currentIndex);
+      }
+    });
+
+    const updateActionState = () => {
+      const currentIndex = normalizeRotationIndex(li.dataset.index);
+      moveUp.disabled = currentIndex === null || currentIndex <= 0;
+      moveDown.disabled = currentIndex === null || currentIndex >= rotation.length - 1;
+    };
+
+    updateActionState();
+
+    actions.appendChild(moveUp);
+    actions.appendChild(moveDown);
+    actions.appendChild(removeBtn);
+    li.appendChild(actions);
     attachTooltip(li, () => abilityTooltip(ability));
     list.appendChild(li);
   });
   list.scrollTop = atBottom ? list.scrollHeight : prevScroll;
+  if (pendingRotationFocusIndex !== null) {
+    const focusTarget = list.querySelector(`li[data-index="${pendingRotationFocusIndex}"]`);
+    if (focusTarget) {
+      focusTarget.focus();
+    }
+    pendingRotationFocusIndex = null;
+  }
 }
 
 function handleDragStart(e) {
@@ -1567,6 +1741,7 @@ function handleDrop(e) {
     if (existing < insertIndex) insertIndex--;
   }
   rotation.splice(insertIndex, 0, data.id);
+  pendingRotationFocusIndex = insertIndex;
   renderRotationList();
 }
 
@@ -1575,6 +1750,7 @@ function handleDropRemove(e) {
   const data = JSON.parse(e.dataTransfer.getData('text/plain'));
   if (data.from === 'rotation') {
     rotation.splice(data.index, 1);
+    pendingRotationFocusIndex = rotation.length ? Math.min(data.index, rotation.length - 1) : null;
     renderRotationList();
   }
 }
