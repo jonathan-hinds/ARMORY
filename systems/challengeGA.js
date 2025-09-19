@@ -11,7 +11,7 @@ const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
 const { compute } = require('./derivedStats');
 const { xpForNextLevel } = require('./characterService');
-const { processJobForCharacter } = require('./jobService');
+const { processJobForCharacter, ensureJobIdleForDoc } = require('./jobService');
 
 const MIN_POPULATION_SIZE = 10;
 const POPULATION_STEP = 10;
@@ -708,6 +708,8 @@ async function startChallenge(characterId, options = {}) {
   const state = prep.state;
   const force = !!options.force;
 
+  ensureJobIdleForDoc(prep.characterDoc);
+
   if (state.currentOpponent && state.currentOpponent.character && !force) {
     return buildChallengePayload(state, prep.characterDoc.level || 1);
   }
@@ -747,6 +749,7 @@ async function startChallenge(characterId, options = {}) {
 
 async function runChallengeFight(characterId, send) {
   const prep = await prepareChallenge(characterId);
+  ensureJobIdleForDoc(prep.characterDoc);
 
   if (!prep.state.currentOpponent || !prep.state.currentOpponent.character) {
     throw new Error('no active opponent');

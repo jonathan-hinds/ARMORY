@@ -18,6 +18,7 @@ const {
 } = require('./challengeGA');
 const { runCombat } = require('./combatEngine');
 const { getMaterialMap } = require('./materialService');
+const { ensureJobIdleForDoc } = require('./jobService');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const ADVENTURE_CONFIG_FILE = path.join(DATA_DIR, 'adventureConfig.json');
@@ -1116,6 +1117,7 @@ async function startAdventure(characterId, options = {}) {
   if (!bundle) {
     throw error || new Error('failed to prepare adventure');
   }
+  ensureJobIdleForDoc(bundle.characterDoc);
   if (state) {
     let stateMutated = false;
     if (!Array.isArray(state.events)) {

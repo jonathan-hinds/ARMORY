@@ -4,7 +4,7 @@ const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
 const { xpForNextLevel } = require('./characterService');
-const { processJobForCharacter } = require('./jobService');
+const { processJobForCharacter, ensureJobIdleForDoc } = require('./jobService');
 
 const queue = [];
 
@@ -15,6 +15,7 @@ async function loadCharacter(id) {
   if (changed) {
     await characterDoc.save();
   }
+  ensureJobIdleForDoc(characterDoc);
   return serializeCharacter(characterDoc);
 }
 

@@ -918,12 +918,14 @@ function clearJobStatusCache() {
 
 function normalizeJobSummary(job) {
   if (!job || typeof job !== 'object') {
-    return { jobId: null, startedAt: null, lastProcessedAt: null };
+    return { jobId: null, startedAt: null, lastProcessedAt: null, isWorking: false, workingSince: null };
   }
   const jobId = job.jobId != null ? String(job.jobId) : null;
   const startedAt = job.startedAt != null ? String(job.startedAt) : null;
   const lastProcessedAt = job.lastProcessedAt != null ? String(job.lastProcessedAt) : null;
-  return { jobId, startedAt, lastProcessedAt };
+  const workingSince = job.workingSince != null ? String(job.workingSince) : null;
+  const isWorking = !!job.isWorking;
+  return { jobId, startedAt, lastProcessedAt, workingSince, isWorking };
 }
 
 function shouldInvalidateJobStatus(previousCharacter, nextCharacter) {
@@ -938,6 +940,8 @@ function shouldInvalidateJobStatus(previousCharacter, nextCharacter) {
     prevSummary.jobId !== nextSummary.jobId
     || prevSummary.startedAt !== nextSummary.startedAt
     || prevSummary.lastProcessedAt !== nextSummary.lastProcessedAt
+    || prevSummary.workingSince !== nextSummary.workingSince
+    || prevSummary.isWorking !== nextSummary.isWorking
   );
 }
 
@@ -1481,7 +1485,7 @@ function renderJobSelectionContent(container, status) {
   container.innerHTML = '';
   const intro = document.createElement('p');
   intro.className = 'job-dialog-intro';
-  intro.textContent = 'Choose a profession. This choice is permanent for this character.';
+  intro.textContent = 'Choose a profession. This choice is permanent—clock in when you want to work and clock out to roam.';
   container.appendChild(intro);
 
   if (!status || !Array.isArray(status.jobs) || !status.jobs.length) {
@@ -1491,6 +1495,11 @@ function renderJobSelectionContent(container, status) {
     container.appendChild(empty);
     return;
   }
+
+  const tip = document.createElement('p');
+  tip.className = 'job-dialog-note';
+  tip.textContent = 'Professions use your materials to craft items each hour while you are on the clock.';
+  container.appendChild(tip);
 
   const grid = document.createElement('div');
   grid.className = 'job-card-grid';
@@ -1569,6 +1578,9 @@ function renderJobActiveContent(container, status) {
   const active = status.activeJob;
   const jobDef = status.jobs ? status.jobs.find(job => job.id === active.id) || active : active;
   const statName = active.attribute ? statLabel(active.attribute) : 'Attribute';
+  const isWorking = !!active.isWorking;
+  const workingSinceDate = active.workingSince ? new Date(active.workingSince) : null;
+  const lastAttemptDate = active.lastProcessedAt ? new Date(active.lastProcessedAt) : null;
 
   const summary = document.createElement('div');
   summary.className = 'job-active-summary';
@@ -1588,6 +1600,37 @@ function renderJobActiveContent(container, status) {
     desc.textContent = jobDef.description;
     summary.appendChild(desc);
   }
+
+  const shiftPanel = document.createElement('div');
+  shiftPanel.className = 'job-shift-panel';
+
+  const statusBadge = document.createElement('span');
+  statusBadge.className = `job-shift-status ${isWorking ? 'working' : 'idle'}`;
+  statusBadge.textContent = isWorking ? 'ON THE CLOCK' : 'OFF DUTY';
+  shiftPanel.appendChild(statusBadge);
+
+  const shiftMessage = document.createElement('p');
+  shiftMessage.className = 'job-shift-message';
+  shiftMessage.textContent = isWorking
+    ? 'Crafting runs in the background while materials are available. Clock out to take on adventures, matchmaking, or challenges.'
+    : 'Clock in to begin hourly crafting rolls. Stay off duty to freely adventure and battle opponents.';
+  shiftPanel.appendChild(shiftMessage);
+
+  const shiftButton = document.createElement('button');
+  shiftButton.className = 'job-shift-action';
+  shiftButton.textContent = isWorking ? 'Clock Out' : 'Clock In';
+  shiftButton.addEventListener('click', () => handleJobShiftToggle(!isWorking, container, shiftButton));
+  shiftPanel.appendChild(shiftButton);
+
+  summary.appendChild(shiftPanel);
+
+  const restriction = document.createElement('p');
+  restriction.className = 'job-restriction-note';
+  restriction.textContent = isWorking
+    ? 'Clock out before starting adventures, matchmaking battles, or challenges.'
+    : 'You are free to adventure, join matchmaking, or tackle challenges while off duty.';
+  summary.appendChild(restriction);
+
   container.appendChild(summary);
 
   const statsGrid = document.createElement('div');
@@ -1605,6 +1648,13 @@ function renderJobActiveContent(container, status) {
     stat.appendChild(v);
     statsGrid.appendChild(stat);
   };
+  addStat('Shift Status', isWorking ? 'On the Clock' : 'Off Duty');
+  if (workingSinceDate && !Number.isNaN(workingSinceDate.getTime())) {
+    addStat('Working Since', workingSinceDate.toLocaleString());
+  }
+  if (lastAttemptDate && !Number.isNaN(lastAttemptDate.getTime())) {
+    addStat('Last Attempt', lastAttemptDate.toLocaleString());
+  }
   const craftsPerHour = active.craftsPerHour || status.config?.craftsPerHour || 0;
   addStat('Crafts / Hour', craftsPerHour);
   addStat('Total Attempts', active.totalAttempts || 0);
@@ -1615,9 +1665,13 @@ function renderJobActiveContent(container, status) {
   const amount = active.statGainAmount != null ? active.statGainAmount : status.config?.statGainAmount;
   addStat('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
   addStat('Total Stat Gains', `${active.totalStatGain || 0} ${statName}`);
-  const nextText = active.secondsUntilNext == null ? 'Processing...' : formatDurationShort(active.secondsUntilNext);
+  const nextText = isWorking
+    ? active.secondsUntilNext == null
+      ? 'Processing...'
+      : formatDurationShort(active.secondsUntilNext)
+    : 'Clocked Out';
   addStat('Next Attempt', nextText);
-  if (active.nextAttemptAt) {
+  if (isWorking && active.nextAttemptAt) {
     const nextDate = new Date(active.nextAttemptAt);
     if (!Number.isNaN(nextDate.getTime())) {
       addStat('Next Attempt At', nextDate.toLocaleString());
@@ -1753,6 +1807,45 @@ async function handleSelectJob(jobId, container, button) {
     renderJobDialogContent(container, responsePayload);
   } catch (err) {
     alert(err && err.message ? err.message : 'Failed to select job');
+    if (button) button.disabled = false;
+  }
+}
+
+async function handleJobShiftToggle(shouldStart, container, button) {
+  if (!currentPlayer || !currentCharacter) return;
+  if (button) button.disabled = true;
+  let responsePayload = null;
+  try {
+    const endpoint = shouldStart ? 'start' : 'stop';
+    const res = await fetch(`/characters/${currentCharacter.id}/job/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : shouldStart ? 'Failed to start working' : 'Failed to stop working';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    try {
+      await refreshInventory(true);
+    } catch (err) {
+      console.error('inventory refresh failed', err);
+    }
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+  } catch (err) {
+    alert(err && err.message ? err.message : shouldStart ? 'Failed to start working' : 'Failed to stop working');
+  } finally {
     if (button) button.disabled = false;
   }
 }
