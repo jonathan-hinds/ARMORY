@@ -1,5 +1,5 @@
 const CharacterModel = require('../models/Character');
-const { serializeCharacter } = require('../models/utils');
+const { serializeCharacter, readMaterialCount, writeMaterialCount } = require('../models/utils');
 const { getItemById } = require('./equipmentService');
 const { getMaterialById } = require('./materialService');
 
@@ -27,8 +27,8 @@ async function purchaseItem(playerId, characterId, itemId) {
     if (!characterDoc.materials || typeof characterDoc.materials !== 'object') {
       characterDoc.materials = {};
     }
-    const current = Number(characterDoc.materials[material.id]) || 0;
-    characterDoc.materials[material.id] = current + 1;
+    const current = readMaterialCount(characterDoc.materials, material.id);
+    writeMaterialCount(characterDoc.materials, material.id, current + 1);
     if (typeof characterDoc.markModified === 'function') {
       characterDoc.markModified('materials');
     }

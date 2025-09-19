@@ -50,6 +50,35 @@ function ensureMaterialShape(materials = {}) {
   return shaped;
 }
 
+function readMaterialCount(materials, id) {
+  if (!materials || id == null) {
+    return 0;
+  }
+  if (typeof materials.get === 'function') {
+    const value = materials.get(id);
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+  const value = materials[id];
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function writeMaterialCount(materials, id, value) {
+  if (!materials || id == null) {
+    return;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return;
+  }
+  if (typeof materials.set === 'function') {
+    materials.set(id, numeric);
+  } else {
+    materials[id] = numeric;
+  }
+}
+
 function ensureAttributesShape(attributes = {}) {
   const shaped = {};
   STATS.forEach(stat => {
@@ -112,6 +141,8 @@ module.exports = {
   ensureEquipmentShape,
   ensureUseableShape,
   ensureMaterialShape,
+  readMaterialCount,
+  writeMaterialCount,
   ensureAttributesShape,
   serializeCharacter,
   serializePlayer,
