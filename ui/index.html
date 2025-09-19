@@ -96,44 +96,48 @@
           <div id="inventory-message" class="message hidden"></div>
         </div>
         <div class="inventory-layout">
-          <aside id="inventory-controls">
-            <div class="filter-section">
-              <h3>Categories</h3>
-              <div id="inventory-category-filter" class="filter-options"></div>
+          <div id="inventory-controls" class="inventory-filter-bar">
+            <div class="inventory-filters-grid">
+              <div class="filter-section">
+                <h3>Categories</h3>
+                <div id="inventory-category-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section">
+                <h3>Slots</h3>
+                <div id="inventory-slot-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section">
+                <h3>Weapon Types</h3>
+                <div id="inventory-weapon-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section">
+                <h3>Scaling</h3>
+                <div id="inventory-scaling-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section">
+                <h3>Effects</h3>
+                <div id="inventory-effect-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section">
+                <h3>Sort Order</h3>
+                <select id="inventory-sort">
+                  <option value="name-asc">Name • A to Z</option>
+                  <option value="name-desc">Name • Z to A</option>
+                  <option value="rarity-desc">Rarity • High to Low</option>
+                  <option value="rarity-asc">Rarity • Low to High</option>
+                  <option value="cost-asc">Cost • Low to High</option>
+                  <option value="cost-desc">Cost • High to Low</option>
+                  <option value="damage-desc">Damage • High to Low</option>
+                  <option value="damage-asc">Damage • Low to High</option>
+                  <option value="stat-desc">Stat Bonus • High to Low</option>
+                  <option value="stat-asc">Stat Bonus • Low to High</option>
+                </select>
+              </div>
             </div>
-            <div class="filter-section">
-              <h3>Slots</h3>
-              <div id="inventory-slot-filter" class="filter-options"></div>
+            <div class="inventory-filter-actions">
+              <button id="inventory-reset" class="filter-reset">Reset Filters</button>
             </div>
-            <div class="filter-section">
-              <h3>Weapon Types</h3>
-              <div id="inventory-weapon-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Scaling</h3>
-              <div id="inventory-scaling-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Effects</h3>
-              <div id="inventory-effect-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Sort Order</h3>
-              <select id="inventory-sort">
-                <option value="name-asc">Name • A to Z</option>
-                <option value="name-desc">Name • Z to A</option>
-                <option value="rarity-desc">Rarity • High to Low</option>
-                <option value="rarity-asc">Rarity • Low to High</option>
-                <option value="cost-asc">Cost • Low to High</option>
-                <option value="cost-desc">Cost • High to Low</option>
-                <option value="damage-desc">Damage • High to Low</option>
-                <option value="damage-asc">Damage • Low to High</option>
-                <option value="stat-desc">Stat Bonus • High to Low</option>
-                <option value="stat-asc">Stat Bonus • Low to High</option>
-              </select>
-            </div>
-            <button id="inventory-reset" class="filter-reset">Reset Filters</button>
-          </aside>
+          </div>
           <div class="inventory-results">
             <div class="inventory-results-header">
               <div id="inventory-results-summary"></div>
