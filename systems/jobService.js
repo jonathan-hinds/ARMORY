@@ -28,6 +28,15 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 
+function normalizeDateValue(value) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date;
+}
+
 function sanitizePositiveInteger(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) {
@@ -190,6 +199,27 @@ function ensureJobState(characterDoc) {
     characterDoc.job = {};
   }
   const jobState = characterDoc.job;
+  if (typeof jobState.isWorking !== 'boolean') {
+    jobState.isWorking = !!(jobState.jobId && jobState.startedAt);
+  }
+  const startedAt = normalizeDateValue(jobState.startedAt);
+  if (startedAt && jobState.startedAt !== startedAt) {
+    jobState.startedAt = startedAt;
+  }
+  const lastProcessedAt = normalizeDateValue(jobState.lastProcessedAt);
+  if (lastProcessedAt && jobState.lastProcessedAt !== lastProcessedAt) {
+    jobState.lastProcessedAt = lastProcessedAt;
+  }
+  const workingSince = normalizeDateValue(jobState.workingSince);
+  if (jobState.isWorking) {
+    if (!workingSince && (startedAt || lastProcessedAt)) {
+      jobState.workingSince = lastProcessedAt || startedAt;
+    } else if (workingSince && jobState.workingSince !== workingSince) {
+      jobState.workingSince = workingSince;
+    }
+  } else if (jobState.workingSince) {
+    jobState.workingSince = null;
+  }
   if (!jobState.statGains || typeof jobState.statGains !== 'object') {
     jobState.statGains = {};
   }
@@ -301,33 +331,43 @@ async function processJobForCharacter(characterDoc, options = {}) {
     return { changed: false, job: null, attempts: 0 };
   }
   const now = options.now ? new Date(options.now) : new Date();
+  let jobChanged = false;
+  if (!jobState.isWorking) {
+    return { changed: false, job: jobDef, attempts: 0 };
+  }
   if (!jobState.startedAt) {
     jobState.startedAt = now;
+    jobChanged = true;
+  }
+  if (!jobState.workingSince) {
+    jobState.workingSince = now;
+    jobChanged = true;
   }
   if (!jobState.lastProcessedAt) {
     jobState.lastProcessedAt = jobState.startedAt;
+    jobChanged = true;
   }
-  const lastProcessed = jobState.lastProcessedAt ? new Date(jobState.lastProcessedAt) : now;
+  let lastProcessed = jobState.lastProcessedAt ? new Date(jobState.lastProcessedAt) : now;
   if (Number.isNaN(lastProcessed.getTime())) {
+    lastProcessed = now;
     jobState.lastProcessedAt = now;
+    jobChanged = true;
   }
   const interval = jobDef.craftIntervalSeconds > 0
     ? jobDef.craftIntervalSeconds
     : config.hourSeconds / config.craftsPerHour;
   if (!(interval > 0)) {
-    return { changed: false, job: jobDef, attempts: 0 };
+    return { changed: jobChanged, job: jobDef, attempts: 0 };
   }
-  let baseTime = jobState.lastProcessedAt ? new Date(jobState.lastProcessedAt) : null;
-  if (!baseTime || Number.isNaN(baseTime.getTime())) {
-    baseTime = jobState.startedAt ? new Date(jobState.startedAt) : null;
-  }
-  if (!baseTime || Number.isNaN(baseTime.getTime())) {
-    baseTime = now;
+  let baseTime = lastProcessed && !Number.isNaN(lastProcessed.getTime()) ? lastProcessed : null;
+  if (!baseTime) {
+    const startedAt = jobState.startedAt ? new Date(jobState.startedAt) : null;
+    baseTime = startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt : now;
   }
   const elapsedSeconds = Math.max(0, (now.getTime() - baseTime.getTime()) / 1000);
   const attempts = Math.floor(elapsedSeconds / interval);
   if (attempts <= 0) {
-    return { changed: false, job: jobDef, attempts: 0 };
+    return { changed: jobChanged, job: jobDef, attempts: 0 };
   }
   const equipmentMap = await getEquipmentMap();
   if (!characterDoc.materials || typeof characterDoc.materials !== 'object') {
@@ -337,7 +377,6 @@ async function processJobForCharacter(characterDoc, options = {}) {
     characterDoc.items = [];
   }
   const logLimit = config.logLimit;
-  let jobChanged = false;
   let materialsChanged = false;
   let itemsChanged = false;
   let attributesChanged = false;
@@ -420,6 +459,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
     jobChanged = true;
   }
   jobState.lastProcessedAt = new Date(baseTime.getTime() + attempts * interval * 1000);
+  jobChanged = true;
   if (typeof characterDoc.markModified === 'function') {
     if (materialsChanged) characterDoc.markModified('materials');
     if (itemsChanged) characterDoc.markModified('items');
@@ -495,12 +535,14 @@ function buildPublicJob(job, equipmentMap) {
 }
 
 function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config) {
+  const isWorking = !!jobState.isWorking;
   const lastProcessed = jobState.lastProcessedAt ? new Date(jobState.lastProcessedAt) : null;
   const startedAt = jobState.startedAt ? new Date(jobState.startedAt) : null;
+  const workingSince = jobState.workingSince ? new Date(jobState.workingSince) : null;
   const interval = jobDef.craftIntervalSeconds;
   let secondsUntilNext = null;
   let nextAttemptAt = null;
-  if (interval > 0) {
+  if (isWorking && interval > 0) {
     const anchor = lastProcessed && !Number.isNaN(lastProcessed.getTime())
       ? lastProcessed
       : startedAt && !Number.isNaN(startedAt.getTime())
@@ -563,6 +605,8 @@ function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config) {
     totalsByItem: itemTotals,
     nextAttemptAt: nextAttemptAt ? nextAttemptAt.toISOString() : null,
     secondsUntilNext,
+    isWorking,
+    workingSince: workingSince && !Number.isNaN(workingSince.getTime()) ? workingSince.toISOString() : null,
     log,
   };
 }
@@ -629,11 +673,12 @@ async function selectJob(playerId, characterId, jobId) {
   if (jobState.jobId === jobKey) {
     return buildStatusForDoc(characterDoc, config);
   }
-  const now = new Date();
   characterDoc.job = {
     jobId: jobKey,
-    startedAt: now,
-    lastProcessedAt: now,
+    startedAt: null,
+    lastProcessedAt: null,
+    workingSince: null,
+    isWorking: false,
     totalAttempts: 0,
     totalCrafted: 0,
     totalStatGain: 0,
@@ -648,9 +693,86 @@ async function selectJob(playerId, characterId, jobId) {
   return buildStatusForDoc(characterDoc, config);
 }
 
+function ensureJobIdleForDoc(characterDoc) {
+  if (!characterDoc) {
+    return;
+  }
+  const jobState = ensureJobState(characterDoc);
+  if (jobState.jobId && jobState.isWorking) {
+    throw new Error('character is currently working');
+  }
+}
+
+async function ensureJobIdle(characterId) {
+  const cid = Number(characterId);
+  if (!Number.isFinite(cid)) {
+    throw new Error('characterId required');
+  }
+  const characterDoc = await CharacterModel.findOne({ characterId: cid });
+  if (!characterDoc) {
+    throw new Error('character not found');
+  }
+  ensureJobIdleForDoc(characterDoc);
+}
+
+async function setJobWorkingState(playerId, characterId, shouldWork) {
+  const pid = Number(playerId);
+  const cid = Number(characterId);
+  if (!Number.isFinite(pid) || !Number.isFinite(cid)) {
+    throw new Error('playerId and characterId required');
+  }
+  const config = await loadJobConfig();
+  const now = new Date();
+  const characterDoc = await CharacterModel.findOne({ playerId: pid, characterId: cid });
+  if (!characterDoc) {
+    throw new Error('character not found');
+  }
+  const jobState = ensureJobState(characterDoc);
+  if (!jobState.jobId) {
+    throw new Error('profession not selected');
+  }
+  const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config, now });
+  let jobChanged = false;
+  if (shouldWork) {
+    if (!jobState.isWorking) {
+      jobState.isWorking = true;
+      jobState.workingSince = now;
+      if (!jobState.startedAt) {
+        jobState.startedAt = now;
+      }
+      jobState.lastProcessedAt = now;
+      jobChanged = true;
+    }
+  } else if (jobState.isWorking) {
+    jobState.isWorking = false;
+    jobState.workingSince = null;
+    jobState.lastProcessedAt = now;
+    jobChanged = true;
+  }
+  if (jobChanged && typeof characterDoc.markModified === 'function') {
+    characterDoc.markModified('job');
+  }
+  if (jobChanged || processedChanges) {
+    await characterDoc.save();
+  }
+  return buildStatusForDoc(characterDoc, config);
+}
+
+async function startJobWork(playerId, characterId) {
+  return setJobWorkingState(playerId, characterId, true);
+}
+
+async function stopJobWork(playerId, characterId) {
+  return setJobWorkingState(playerId, characterId, false);
+}
+
 module.exports = {
   getJobStatus,
   selectJob,
   processJobForCharacter,
   loadJobConfig,
+  startJobWork,
+  stopJobWork,
+  ensureJobIdle,
+  ensureJobIdleForDoc,
 };

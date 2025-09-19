@@ -145,13 +145,15 @@ function serializeCharacter(doc) {
 
 function serializeJobSummary(job) {
   if (!job || typeof job !== 'object') {
-    return { jobId: null, startedAt: null, lastProcessedAt: null };
+    return { jobId: null, startedAt: null, lastProcessedAt: null, isWorking: false, workingSince: null };
   }
   const jobId = typeof job.jobId === 'string' ? job.jobId : null;
   return {
     jobId,
     startedAt: normalizeDate(job.startedAt),
     lastProcessedAt: normalizeDate(job.lastProcessedAt),
+    workingSince: normalizeDate(job.workingSince),
+    isWorking: !!job.isWorking,
   };
 }
 

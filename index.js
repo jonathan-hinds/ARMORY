@@ -13,7 +13,7 @@ const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
 const { getChallengeStatus, runChallengeFight, startChallenge } = require("./systems/challengeGA");
-const { getJobStatus, selectJob } = require("./systems/jobService");
+const { getJobStatus, selectJob, startJobWork, stopJobWork, ensureJobIdle } = require("./systems/jobService");
 const {
   getAdventureStatus,
   startAdventure,
@@ -199,6 +199,39 @@ app.post("/characters/:characterId/job/select", async (req, res) => {
   }
 });
 
+app.post("/characters/:characterId/job/start", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    await ensureAdventureIdle(characterId);
+    const status = await startJobWork(pid, characterId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to start job" });
+  }
+});
+
+app.post("/characters/:characterId/job/stop", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const status = await stopJobWork(pid, characterId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to stop job" });
+  }
+});
+
 app.put("/characters/:characterId/equipment", async (req, res) => {
   const characterId = parseInt(req.params.characterId, 10);
   const { playerId, slot, itemId = null } = req.body || {};
@@ -231,6 +264,7 @@ app.get("/matchmaking/queue", async (req, res) => {
   };
   try {
     await ensureAdventureIdle(characterId);
+    await ensureJobIdle(characterId);
   } catch (err) {
     send({ type: "error", message: err.message || "character unavailable" });
     res.end();
@@ -270,6 +304,7 @@ app.post("/challenge/start", async (req, res) => {
   const force = !!(req.body && req.body.force);
   try {
     await ensureAdventureIdle(characterId);
+    await ensureJobIdle(characterId);
     const status = await startChallenge(characterId, { force });
     res.json(status);
   } catch (err) {
@@ -294,6 +329,7 @@ app.get("/challenge/fight", async (req, res) => {
   };
   try {
     await ensureAdventureIdle(characterId);
+    await ensureJobIdle(characterId);
   } catch (err) {
     send({ type: "error", message: err.message || "character unavailable" });
     res.end();
@@ -329,6 +365,7 @@ app.post("/adventure/start", async (req, res) => {
   }
   try {
     const days = req.body && req.body.days != null ? parseInt(req.body.days, 10) : undefined;
+    await ensureJobIdle(characterId);
     const status = await startAdventure(characterId, { days });
     res.json(status);
   } catch (err) {
