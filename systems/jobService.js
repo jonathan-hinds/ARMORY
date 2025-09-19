@@ -1,6 +1,6 @@
 const path = require('path');
 const CharacterModel = require('../models/Character');
-const { serializeCharacter, readMaterialCount } = require('../models/utils');
+const { serializeCharacter, readMaterialCount, ensureAttributesShape } = require('../models/utils');
 const { readJSON } = require('../store/jsonStore');
 const { getEquipmentMap } = require('./equipmentService');
 
@@ -288,6 +288,16 @@ function setMaterialCount(container, id, value) {
   }
 }
 
+function toPlainAttributes(attributes) {
+  if (!attributes || typeof attributes !== 'object') {
+    return {};
+  }
+  if (typeof attributes.toObject === 'function') {
+    return attributes.toObject({ depopulate: true });
+  }
+  return attributes;
+}
+
 function calculateMaterialRecoveryChance(characterDoc, jobDef, config) {
   if (!characterDoc || !jobDef || !config) {
     return { allowed: false, chance: null, share: 0, multiplier: 0 };
@@ -302,9 +312,7 @@ function calculateMaterialRecoveryChance(characterDoc, jobDef, config) {
   if (!attribute) {
     return { allowed: false, chance: null, share: 0, multiplier: 0 };
   }
-  const attributes = characterDoc.attributes && typeof characterDoc.attributes === 'object'
-    ? characterDoc.attributes
-    : {};
+  const attributes = ensureAttributesShape(toPlainAttributes(characterDoc.attributes));
   let totalAttributes = 0;
   Object.values(attributes).forEach(value => {
     const numeric = Number(value);
@@ -364,6 +372,10 @@ function recordJobEvent(jobState, event, logLimit) {
   const chanceValue = Number(event.generationChance);
   if (Number.isFinite(chanceValue) && chanceValue >= 0) {
     entry.generationChance = Math.max(0, Math.min(1, chanceValue));
+  }
+  const rollValue = Number(event.generationRoll);
+  if (Number.isFinite(rollValue) && rollValue >= 0) {
+    entry.generationRoll = Math.max(0, Math.min(1, rollValue));
   }
   if (event.generationAttempted != null) {
     entry.generationAttempted = !!event.generationAttempted;
@@ -514,6 +526,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
     let generationSucceeded = false;
     let generationShare = null;
     let generationMultiplier = null;
+    let generationRoll = null;
     if (!canCraft && missing.length) {
       const recovery = calculateMaterialRecoveryChance(characterDoc, jobDef, config);
       if (recovery.allowed) {
@@ -521,24 +534,27 @@ async function processJobForCharacter(characterDoc, options = {}) {
         generationChance = Number.isFinite(recovery.chance) ? recovery.chance : 0;
         generationShare = Number.isFinite(recovery.share) ? recovery.share : null;
         generationMultiplier = Number.isFinite(recovery.multiplier) ? recovery.multiplier : null;
-        if (generationChance > 0 && Math.random() < generationChance) {
-          generatedMaterials = [];
-          missing.forEach(entry => {
-            const deficit = entry.required - entry.available;
-            const amount = deficit > 0 ? deficit : 0;
-            if (!amount) {
-              return;
+        if (generationChance > 0) {
+          generationRoll = Math.random();
+          if (generationRoll < generationChance) {
+            generatedMaterials = [];
+            missing.forEach(entry => {
+              const deficit = entry.required - entry.available;
+              const amount = deficit > 0 ? deficit : 0;
+              if (!amount) {
+                return;
+              }
+              const current = readMaterialCount(characterDoc.materials, entry.materialId);
+              const total = current + amount;
+              setMaterialCount(characterDoc.materials, entry.materialId, total);
+              generatedMaterials.push({ materialId: entry.materialId, amount });
+            });
+            if (generatedMaterials.length) {
+              canCraft = true;
+              generationSucceeded = true;
+            } else {
+              generatedMaterials = null;
             }
-            const current = readMaterialCount(characterDoc.materials, entry.materialId);
-            const total = current + amount;
-            setMaterialCount(characterDoc.materials, entry.materialId, total);
-            generatedMaterials.push({ materialId: entry.materialId, amount });
-          });
-          if (generatedMaterials.length) {
-            canCraft = true;
-            generationSucceeded = true;
-          } else {
-            generatedMaterials = null;
           }
         }
       }
@@ -559,6 +575,9 @@ async function processJobForCharacter(characterDoc, options = {}) {
     }
     if (generationChance != null) {
       event.generationChance = generationChance;
+    }
+    if (generationRoll != null) {
+      event.generationRoll = generationRoll;
     }
     if (generationShare != null) {
       event.generationShare = generationShare;
@@ -677,6 +696,9 @@ function sanitizeLogEntry(entry, equipmentMap) {
     generationSucceeded: !!entry.generationSucceeded,
     generationChance: Number.isFinite(entry.generationChance)
       ? Math.max(0, Math.min(1, entry.generationChance))
+      : null,
+    generationRoll: Number.isFinite(entry.generationRoll)
+      ? Math.max(0, Math.min(1, entry.generationRoll))
       : null,
     generationShare: Number.isFinite(entry.generationShare)
       ? Math.max(0, Math.min(1, entry.generationShare))

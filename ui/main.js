@@ -1820,10 +1820,41 @@ function formatJobLogMessage(entry) {
   const itemName = entry.itemName
     || (entry.itemId ? titleCase(entry.itemId.replace(/^useable[_-]?/i, '').replace(/_/g, ' ')) : 'item');
   const chance = Number(entry.generationChance);
+  const roll = Number(entry.generationRoll);
   const share = Number(entry.generationShare);
-  const hasChance = Number.isFinite(chance) && chance > 0;
+  const hasChance = Number.isFinite(chance) && chance >= 0;
+  const hasRoll = Number.isFinite(roll) && roll >= 0;
   const hasShare = Number.isFinite(share) && share > 0;
   const attributeName = entry.generationAttribute ? statLabel(entry.generationAttribute) : 'attribute';
+  const recoveryContext = () => {
+    const parts = [];
+    if (hasChance) {
+      parts.push(`${formatPercent(chance)} chance`);
+    }
+    if (hasRoll) {
+      parts.push(`rolled ${formatPercent(roll)}`);
+    }
+    if (hasShare) {
+      parts.push(`from ${formatPercent(share)} ${attributeName} share`);
+    }
+    if (!parts.length) {
+      return '';
+    }
+    return ` (${parts.join(', ')})`;
+  };
+  const missingDeficits = Array.isArray(entry.missing)
+    ? entry.missing
+        .map(m => {
+          const required = Math.max(0, Math.round(Number(m.required) || 0));
+          const available = Math.max(0, Math.round(Number(m.available) || 0));
+          const deficit = required - available;
+          if (!m.materialId || deficit <= 0) {
+            return null;
+          }
+          return { materialId: m.materialId, amount: deficit };
+        })
+        .filter(Boolean)
+    : [];
   const describeGenerated = list =>
     list
       .map(m => {
@@ -1831,24 +1862,17 @@ function formatJobLogMessage(entry) {
         return `${describeMaterial(m.materialId)} ×${amount}`;
       })
       .join(', ');
+  const deficitsText = missingDeficits.length ? describeGenerated(missingDeficits) : '';
   if (entry.type === 'crafted') {
     const rarityText = entry.rarity ? `${entry.rarity} ` : '';
     let message = `Crafted ${rarityText}${itemName}.`;
     if (Array.isArray(entry.generatedMaterials) && entry.generatedMaterials.length) {
       const generatedText = describeGenerated(entry.generatedMaterials);
-      let recovery = ' Recovered missing materials';
-      if (hasChance) {
-        recovery += ` (${formatPercent(chance)} chance`;
-        if (hasShare) {
-          recovery += ` from ${formatPercent(share)} ${attributeName} share`;
-        }
-        recovery += ')';
-      } else if (hasShare) {
-        recovery += ` (${formatPercent(share)} ${attributeName} share)`;
-      }
-      recovery += `: ${generatedText}.`;
+      let recovery = ' Recovery roll succeeded';
+      recovery += recoveryContext();
+      recovery += ` Conjured ${generatedText}.`;
       message += recovery;
-    } else if (entry.generationAttempted && !hasChance && !hasShare) {
+    } else if (entry.generationAttempted && !hasChance && !hasShare && !hasRoll) {
       message += ' Recovery roll unavailable—insufficient attribute share.';
     }
     if (entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0) {
@@ -1866,21 +1890,17 @@ function formatJobLogMessage(entry) {
       .join(', ');
     let message = `Attempted to craft ${itemName} but lacked ${missingText}.`;
     if (entry.generationAttempted) {
-      if (hasChance) {
-        message += ` Recovery roll failed (${formatPercent(chance)} chance`;
-        if (hasShare) {
-          message += ` from ${formatPercent(share)} ${attributeName} share`;
-        }
-        message += ').';
-      } else if (hasShare) {
-        message += ` Recovery roll unavailable despite ${formatPercent(share)} ${attributeName} share.`;
+      if (deficitsText) {
+        message += ` Attempted to conjure ${deficitsText}${recoveryContext()} but the recovery failed.`;
+      } else if (hasChance || hasShare || hasRoll) {
+        message += ` Recovery roll failed${recoveryContext()}.`;
       } else {
         message += ' No recovery chance available—insufficient attribute share.';
       }
     }
     return message;
   }
-  if (entry.generationAttempted && !hasChance && !hasShare) {
+  if (entry.generationAttempted && !hasChance && !hasShare && !hasRoll) {
     return `Attempted to craft ${itemName} but it failed. No recovery chance available—insufficient attribute share.`;
   }
   return `Attempted to craft ${itemName} but it failed.`;
