@@ -92,6 +92,49 @@
       <div id="character" class="tab-pane active"></div>
       <div id="inventory" class="tab-pane">
         <div id="inventory-message" class="message hidden"></div>
+        <div class="inventory-controls">
+          <div class="inventory-controls-bar">
+            <button
+              id="inventory-filter-toggle"
+              class="inventory-filter-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="inventory-filter-panel"
+            >
+              Show Filters ▾
+            </button>
+            <div class="inventory-controls-actions">
+              <button id="inventory-filter-reset" class="filter-reset" type="button">Reset Filters</button>
+            </div>
+          </div>
+          <div id="inventory-filter-panel" class="inventory-filter-panel">
+            <div class="inventory-filter-groups">
+              <div class="filter-section" data-inventory-section="categories">
+                <h3>Categories</h3>
+                <div id="inventory-category-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section" data-inventory-section="slots">
+                <h3>Slots</h3>
+                <div id="inventory-slot-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section" data-inventory-section="weaponTypes">
+                <h3>Weapon Types</h3>
+                <div id="inventory-weapon-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section" data-inventory-section="scaling">
+                <h3>Scaling</h3>
+                <div id="inventory-scaling-filter" class="filter-options"></div>
+              </div>
+              <div class="filter-section" data-inventory-section="effects">
+                <h3>Effects</h3>
+                <div id="inventory-effect-filter" class="filter-options"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="inventory-results-header">
+          <div id="inventory-results-summary"></div>
+        </div>
         <div class="inventory-layout">
           <div class="inventory-column">
             <h3>Owned Items</h3>
