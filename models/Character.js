@@ -65,6 +65,8 @@ const jobSchema = new mongoose.Schema(
     jobId: { type: String, default: null },
     startedAt: { type: Date, default: null },
     lastProcessedAt: { type: Date, default: null },
+    isWorking: { type: Boolean, default: false },
+    workingSince: { type: Date, default: null },
     totalAttempts: { type: Number, default: 0 },
     totalCrafted: { type: Number, default: 0 },
     totalStatGain: { type: Number, default: 0 },
