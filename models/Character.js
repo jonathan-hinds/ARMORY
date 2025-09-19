@@ -33,6 +33,48 @@ const attributesSchema = new mongoose.Schema(
 
 const materialsSchema = new mongoose.Schema({}, { _id: false, strict: false });
 
+const flexibleNumberMapSchema = new mongoose.Schema({}, { _id: false, strict: false });
+
+const jobMissingSchema = new mongoose.Schema(
+  {
+    materialId: { type: String, required: true },
+    required: { type: Number, default: 0 },
+    available: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const jobLogEntrySchema = new mongoose.Schema(
+  {
+    timestamp: { type: Date, default: Date.now },
+    type: { type: String, enum: ['crafted', 'failed'], required: true },
+    itemId: { type: String, default: null },
+    itemName: { type: String, default: null },
+    rarity: { type: String, default: null },
+    stat: { type: String, default: null },
+    statAmount: { type: Number, default: 0 },
+    reason: { type: String, default: null },
+    missing: { type: [jobMissingSchema], default: undefined },
+    materials: { type: materialsSchema, default: () => ({}) },
+  },
+  { _id: false }
+);
+
+const jobSchema = new mongoose.Schema(
+  {
+    jobId: { type: String, default: null },
+    startedAt: { type: Date, default: null },
+    lastProcessedAt: { type: Date, default: null },
+    totalAttempts: { type: Number, default: 0 },
+    totalCrafted: { type: Number, default: 0 },
+    totalStatGain: { type: Number, default: 0 },
+    statGains: { type: flexibleNumberMapSchema, default: () => ({}) },
+    totalsByItem: { type: flexibleNumberMapSchema, default: () => ({}) },
+    log: { type: [jobLogEntrySchema], default: [] },
+  },
+  { _id: false }
+);
+
 const characterSchema = new mongoose.Schema(
   {
     characterId: { type: Number, unique: true, index: true, required: true },
@@ -48,6 +90,7 @@ const characterSchema = new mongoose.Schema(
     gold: { type: Number, default: 0 },
     items: { type: [String], default: [] },
     materials: { type: materialsSchema, default: () => ({}) },
+    job: { type: jobSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

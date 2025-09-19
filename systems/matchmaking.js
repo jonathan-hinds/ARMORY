@@ -4,12 +4,18 @@ const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
 const { xpForNextLevel } = require('./characterService');
+const { processJobForCharacter } = require('./jobService');
 
 const queue = [];
 
 async function loadCharacter(id) {
-  const characterDoc = await CharacterModel.findOne({ characterId: id }).lean();
-  return characterDoc ? serializeCharacter(characterDoc) : null;
+  const characterDoc = await CharacterModel.findOne({ characterId: id });
+  if (!characterDoc) return null;
+  const { changed } = await processJobForCharacter(characterDoc);
+  if (changed) {
+    await characterDoc.save();
+  }
+  return serializeCharacter(characterDoc);
 }
 
 async function queueMatch(characterId, send) {
@@ -40,6 +46,9 @@ async function queueMatch(characterId, send) {
           const characterDocs = await CharacterModel.find({
             characterId: { $in: participantIds },
           });
+          for (const doc of characterDocs) {
+            await processJobForCharacter(doc);
+          }
           const characterMap = new Map();
           characterDocs.forEach(doc => {
             characterMap.set(doc.characterId, doc);

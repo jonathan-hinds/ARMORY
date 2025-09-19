@@ -686,3 +686,366 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .opponent-preview.compact .rotation-chip { background:#000; color:#fff; border-color:#fff; }
 .opponent-preview.compact .stats-table th,
 .opponent-preview.compact .stats-table td { border-color:#fff; color:#fff; }
+
+/* Job / profession dialog */
+.job-dialog-overlay {
+  position:fixed;
+  inset:0;
+  background:rgba(0,0,0,0.65);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  z-index:1200;
+}
+.job-dialog {
+  background:#fff;
+  border:2px solid #000;
+  box-shadow:0 0 0 4px #000 inset;
+  width:100%;
+  max-width:960px;
+  max-height:90vh;
+  display:flex;
+  flex-direction:column;
+}
+.job-dialog-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:16px;
+  border-bottom:2px solid #000;
+  background:#000;
+  color:#fff;
+}
+.job-dialog-header h2 {
+  margin:0;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:18px;
+}
+.job-dialog-header button {
+  font-weight:bold;
+  text-transform:uppercase;
+  padding:6px 12px;
+  box-shadow:3px 3px 0 #000;
+}
+.job-dialog-content {
+  padding:16px;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  background:#f9f9f9;
+}
+.job-dialog-loading {
+  text-align:center;
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  padding:32px 0;
+}
+.job-dialog-intro {
+  margin:0;
+  font-size:13px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+}
+.job-card-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(260px,1fr));
+  gap:16px;
+}
+.job-card {
+  border:2px solid #000;
+  background:#fff;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  box-shadow:0 0 0 3px #000 inset;
+}
+.job-card h3 {
+  margin:0;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:18px;
+}
+.job-card h4 {
+  margin:0;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:14px;
+}
+.job-card button {
+  align-self:flex-start;
+  font-weight:bold;
+  text-transform:uppercase;
+  box-shadow:3px 3px 0 #000;
+}
+.job-attribute {
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+  color:#444;
+}
+.job-description {
+  margin:0;
+  font-size:13px;
+  line-height:1.4;
+  color:#222;
+}
+.job-meta-list {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.job-meta-list li {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border:1px solid #000;
+  background:#f4f4f4;
+  padding:6px 8px;
+}
+.job-meta-list .label {
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+}
+.job-meta-list .value {
+  font-family:'Courier New', monospace;
+  font-size:13px;
+}
+.job-empty-text {
+  border:1px dashed #999;
+  background:#fff;
+  padding:12px;
+  text-align:center;
+  font-size:13px;
+  font-style:italic;
+  color:#555;
+}
+.job-recipe-list {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.job-recipe {
+  border:1px solid #000;
+  background:#fff;
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.job-recipe-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:8px;
+}
+.job-recipe-name {
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:14px;
+}
+.job-recipe-rarity {
+  font-size:11px;
+  text-transform:uppercase;
+  color:#666;
+}
+.job-material-list {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.job-material {
+  border:1px solid #000;
+  background:#f6f6f6;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  padding:4px 8px;
+}
+.job-material.empty {
+  border-style:dashed;
+  background:#fff;
+  color:#777;
+  justify-content:center;
+  font-style:italic;
+}
+.job-material .name {
+  flex:1;
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+}
+.job-material .count {
+  font-family:'Courier New', monospace;
+  font-size:12px;
+}
+.job-material .owned-count {
+  font-size:11px;
+  color:#444;
+}
+.job-material .owned-count.insufficient {
+  color:#c0392b;
+  font-weight:bold;
+}
+.job-active-summary {
+  border:2px solid #000;
+  background:#fff;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  box-shadow:0 0 0 3px #000 inset;
+}
+.job-active-summary h3 {
+  margin:0;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:18px;
+}
+.job-active-subtitle {
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  color:#444;
+}
+.job-stats-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(180px,1fr));
+  gap:8px;
+}
+.job-stat {
+  border:1px solid #000;
+  background:#f4f4f4;
+  padding:8px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.job-stat .label {
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  color:#555;
+}
+.job-stat .value {
+  font-family:'Courier New', monospace;
+  font-size:14px;
+  font-weight:bold;
+}
+.job-output-section,
+.job-log-section,
+.job-recipe-section {
+  border:2px solid #000;
+  background:#fff;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  box-shadow:0 0 0 3px #000 inset;
+}
+.job-output-section h4,
+.job-log-section h4,
+.job-recipe-section h4 {
+  margin:0;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:16px;
+}
+.job-output-list {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.job-output-item {
+  border:1px solid #000;
+  background:#f7f7f7;
+  padding:6px 8px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:13px;
+}
+.job-output-item .name {
+  flex:1;
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+.job-output-item .count {
+  font-family:'Courier New', monospace;
+}
+.job-output-item .rarity {
+  font-size:11px;
+  text-transform:uppercase;
+  color:#555;
+}
+.job-log-list {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.job-log-list li {
+  border:1px solid #000;
+  padding:8px;
+  background:#fff;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.job-log-list li.log-crafted {
+  border-color:#9ccc65;
+  background:#eef9e6;
+}
+.job-log-list li.log-failed {
+  border-color:#f28b82;
+  background:#ffecec;
+}
+.job-log-list .message {
+  font-size:13px;
+  font-weight:bold;
+}
+.job-log-list .time {
+  font-size:11px;
+  color:#555;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+.job-recipe-section .job-recipe-list {
+  margin-top:0;
+}
+.job-attention {
+  background:#000;
+  color:#fff;
+  animation:job-attention-pulse 1.2s ease-in-out infinite;
+}
+.job-attention:hover,
+.job-attention:focus {
+  background:#1d1d1d;
+  color:#fff;
+}
+@keyframes job-attention-pulse {
+  0%, 100% { box-shadow:0 0 0 0 rgba(0,0,0,0.4); transform:translateY(0); }
+  50% { box-shadow:0 0 0 6px rgba(0,0,0,0.2); transform:translateY(-1px); }
+}

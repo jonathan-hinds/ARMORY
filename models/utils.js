@@ -2,6 +2,13 @@ const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
 const USEABLE_SLOTS = ['useable1', 'useable2'];
 const STATS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 
+function normalizeDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
 function toPlainObject(doc) {
   if (!doc) return null;
   const plain = doc.toObject ? doc.toObject({ depopulate: true }) : { ...doc };
@@ -116,6 +123,7 @@ function serializeCharacter(doc) {
     gold,
     items,
     materials,
+    job,
   } = plain;
   return {
     id: typeof characterId === 'number' ? characterId : null,
@@ -131,6 +139,19 @@ function serializeCharacter(doc) {
     gold: typeof gold === 'number' ? gold : 0,
     items: Array.isArray(items) ? [...items] : [],
     materials: ensureMaterialShape(materials),
+    job: serializeJobSummary(job),
+  };
+}
+
+function serializeJobSummary(job) {
+  if (!job || typeof job !== 'object') {
+    return { jobId: null, startedAt: null, lastProcessedAt: null };
+  }
+  const jobId = typeof job.jobId === 'string' ? job.jobId : null;
+  return {
+    jobId,
+    startedAt: normalizeDate(job.startedAt),
+    lastProcessedAt: normalizeDate(job.lastProcessedAt),
   };
 }
 
@@ -146,5 +167,6 @@ module.exports = {
   ensureAttributesShape,
   serializeCharacter,
   serializePlayer,
+  serializeJobSummary,
   toPlainObject,
 };
