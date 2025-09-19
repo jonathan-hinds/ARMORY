@@ -13,6 +13,7 @@ const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
 const { getChallengeStatus, runChallengeFight, startChallenge } = require("./systems/challengeGA");
+const { getJobStatus, selectJob } = require("./systems/jobService");
 const {
   getAdventureStatus,
   startAdventure,
@@ -150,6 +151,21 @@ app.get("/players/:playerId/inventory", async (req, res) => {
   }
 });
 
+app.get("/characters/:characterId/job", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const playerId = parseInt(req.query.playerId, 10);
+  if (!playerId || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const status = await getJobStatus(playerId, characterId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to load job status" });
+  }
+});
+
 app.post("/shop/purchase", async (req, res) => {
   const { playerId, itemId, characterId } = req.body || {};
   const pid = parseInt(playerId, 10);
@@ -164,6 +180,22 @@ app.post("/shop/purchase", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.post("/characters/:characterId/job/select", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, jobId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId || !jobId) {
+    return res.status(400).json({ error: "playerId, characterId and jobId required" });
+  }
+  try {
+    const status = await selectJob(pid, characterId, jobId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to select job" });
   }
 });
 

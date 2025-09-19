@@ -11,6 +11,7 @@ const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
 const { compute } = require('./derivedStats');
 const { xpForNextLevel } = require('./characterService');
+const { processJobForCharacter } = require('./jobService');
 
 const MIN_POPULATION_SIZE = 10;
 const POPULATION_STEP = 10;
@@ -510,6 +511,7 @@ async function buildChallengeContext(characterId) {
   if (!characterDoc) {
     throw new Error('character not found');
   }
+  await processJobForCharacter(characterDoc);
   if (!Array.isArray(characterDoc.rotation) || characterDoc.rotation.length < 3) {
     throw new Error('character rotation invalid');
   }

@@ -10,6 +10,7 @@ const {
 const { getEquipmentMap } = require('./equipmentService');
 const { getMaterialMap } = require('./materialService');
 const { compute } = require('./derivedStats');
+const { processJobForCharacter } = require('./jobService');
 
 function slotOrder(slot) {
   const order = [...EQUIPMENT_SLOTS, 'useable'];
@@ -21,15 +22,20 @@ async function getInventory(playerId, characterId) {
   if (!playerId || !characterId) {
     throw new Error('playerId and characterId required');
   }
-  const [characterDoc, equipmentMap, materialMap] = await Promise.all([
-    CharacterModel.findOne({ characterId, playerId }).lean(),
-    getEquipmentMap(),
-    getMaterialMap(),
-  ]);
+  const characterDoc = await CharacterModel.findOne({ characterId, playerId });
   if (!characterDoc) {
     throw new Error('character not found');
   }
 
+  const { changed } = await processJobForCharacter(characterDoc);
+  if (changed) {
+    await characterDoc.save();
+  }
+
+  const [equipmentMap, materialMap] = await Promise.all([
+    getEquipmentMap(),
+    getMaterialMap(),
+  ]);
   const character = serializeCharacter(characterDoc);
 
   const equipmentIds = ensureEquipmentShape(character.equipment || {});

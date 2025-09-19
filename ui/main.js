@@ -95,6 +95,8 @@ let materialIndex = null;
 let inventoryView = null;
 let inventoryPromise = null;
 let tabsInitialized = false;
+let jobStatusCache = null;
+let jobStatusPromise = null;
 
 let adventureStatus = null;
 let adventurePollTimer = null;
@@ -775,6 +777,9 @@ function clearMessage(el) {
 
 function applyInventoryData(data) {
   if (!data) return;
+  const previousCharacter = currentCharacter;
+  const nextCharacter = data && data.character ? data.character : null;
+  const jobStateChanged = shouldInvalidateJobStatus(previousCharacter, nextCharacter);
   inventoryView = data;
   if (!inventoryView.useables) {
     inventoryView.useables = { useable1: null, useable2: null };
@@ -798,6 +803,9 @@ function applyInventoryData(data) {
   }
   if (inventoryView && typeof data.gold === 'number') {
     inventoryView.gold = data.gold;
+  }
+  if (jobStateChanged) {
+    clearJobStatusCache();
   }
 }
 
@@ -901,6 +909,178 @@ function formatItemMeta(item) {
   }
   const typeText = item.type ? ` (${titleCase(item.type)})` : '';
   return `${rarity} • ${slotLabel(item.slot)}${typeText}`;
+}
+
+function clearJobStatusCache() {
+  jobStatusCache = null;
+  jobStatusPromise = null;
+}
+
+function normalizeJobSummary(job) {
+  if (!job || typeof job !== 'object') {
+    return { jobId: null, startedAt: null, lastProcessedAt: null };
+  }
+  const jobId = job.jobId != null ? String(job.jobId) : null;
+  const startedAt = job.startedAt != null ? String(job.startedAt) : null;
+  const lastProcessedAt = job.lastProcessedAt != null ? String(job.lastProcessedAt) : null;
+  return { jobId, startedAt, lastProcessedAt };
+}
+
+function shouldInvalidateJobStatus(previousCharacter, nextCharacter) {
+  if (!nextCharacter) return false;
+  if (!previousCharacter) return false;
+  if (previousCharacter.id !== nextCharacter.id) {
+    return true;
+  }
+  const prevSummary = normalizeJobSummary(previousCharacter.job);
+  const nextSummary = normalizeJobSummary(nextCharacter.job);
+  return (
+    prevSummary.jobId !== nextSummary.jobId
+    || prevSummary.startedAt !== nextSummary.startedAt
+    || prevSummary.lastProcessedAt !== nextSummary.lastProcessedAt
+  );
+}
+
+function getJobDisplayName(jobId) {
+  if (!jobId) return 'Unassigned';
+  if (jobStatusCache && Array.isArray(jobStatusCache.jobs)) {
+    const entry = jobStatusCache.jobs.find(job => job.id === jobId);
+    if (entry && entry.name) {
+      return entry.name;
+    }
+  }
+  return titleCase(jobId);
+}
+
+function formatPercent(value, digits = 1) {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0%';
+  }
+  const pct = value * 100;
+  if (pct >= 100) {
+    return '100%';
+  }
+  if (!Number.isFinite(digits) || digits <= 0) {
+    return `${Math.round(pct)}%`;
+  }
+  return `${pct.toFixed(digits)}%`;
+}
+
+function formatDurationShort(seconds) {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return 'Ready';
+  }
+  const totalSeconds = Math.max(1, Math.round(seconds));
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const remSeconds = totalSeconds % 60;
+  if (totalMinutes <= 0) {
+    return `${remSeconds}s`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) {
+    const parts = [`${hours}h`];
+    if (minutes > 0) parts.push(`${minutes}m`);
+    return parts.join(' ');
+  }
+  if (remSeconds > 0) {
+    return `${minutes}m ${remSeconds}s`;
+  }
+  return `${minutes}m`;
+}
+
+function describeMaterial(materialId) {
+  if (!materialId) return 'Unknown Material';
+  const material = getMaterialById(materialId);
+  if (material && material.name) {
+    return material.name;
+  }
+  return titleCase(materialId.replace(/^material[_-]?/i, '').replace(/_/g, ' '));
+}
+
+function getOwnedMaterialCount(materialId) {
+  if (!inventoryView || !inventoryView.ownedMaterials) {
+    return 0;
+  }
+  const value = inventoryView.ownedMaterials[materialId];
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function createMaterialList(materials = {}, { includeOwned = false } = {}) {
+  const list = document.createElement('ul');
+  list.className = 'job-material-list';
+  const entries = Object.entries(materials);
+  if (!entries.length) {
+    const li = document.createElement('li');
+    li.className = 'job-material empty';
+    li.textContent = 'No materials required';
+    list.appendChild(li);
+    return list;
+  }
+  entries.forEach(([materialId, qty]) => {
+    const count = Math.max(0, Math.round(Number(qty) || 0));
+    if (count <= 0) return;
+    const li = document.createElement('li');
+    li.className = 'job-material';
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = describeMaterial(materialId);
+    li.appendChild(name);
+    const amount = document.createElement('span');
+    amount.className = 'count';
+    amount.textContent = `×${count}`;
+    li.appendChild(amount);
+    if (includeOwned) {
+      const owned = getOwnedMaterialCount(materialId);
+      const ownedSpan = document.createElement('span');
+      ownedSpan.className = 'owned-count';
+      ownedSpan.textContent = `You have ${owned}`;
+      if (owned < count) {
+        ownedSpan.classList.add('insufficient');
+      }
+      li.appendChild(ownedSpan);
+    }
+    list.appendChild(li);
+  });
+  return list;
+}
+
+function createJobRecipeList(job, { includeOwned = false } = {}) {
+  const list = document.createElement('div');
+  list.className = 'job-recipe-list';
+  if (!job || !Array.isArray(job.items) || !job.items.length) {
+    const empty = document.createElement('div');
+    empty.className = 'job-empty-text';
+    empty.textContent = 'No recipes available.';
+    list.appendChild(empty);
+    return list;
+  }
+  job.items.forEach(jobItem => {
+    const card = document.createElement('div');
+    card.className = 'job-recipe';
+    const header = document.createElement('div');
+    header.className = 'job-recipe-header';
+    const item = getEquipmentById(jobItem.itemId);
+    const name = document.createElement('div');
+    name.className = 'job-recipe-name';
+    if (item && item.name) {
+      name.textContent = item.name;
+    } else {
+      name.textContent = titleCase((jobItem.itemId || 'Item').replace(/^useable[_-]?/i, '').replace(/_/g, ' '));
+    }
+    header.appendChild(name);
+    if (item && item.rarity) {
+      const rarity = document.createElement('span');
+      rarity.className = 'job-recipe-rarity';
+      rarity.textContent = item.rarity;
+      header.appendChild(rarity);
+    }
+    card.appendChild(header);
+    card.appendChild(createMaterialList(jobItem.materials || {}, { includeOwned }));
+    list.appendChild(card);
+  });
+  return list;
 }
 
 function setSetValues(targetSet, values) {
@@ -1222,6 +1402,416 @@ function getItemAverageDamage(item) {
 function getItemStatBonus(item) {
   const bonuses = item && item.attributeBonuses ? Object.values(item.attributeBonuses) : [];
   return bonuses.reduce((sum, value) => sum + (Number.isFinite(value) ? Number(value) : 0), 0);
+}
+
+async function loadJobStatus(force = false) {
+  if (!currentPlayer || !currentCharacter) {
+    return null;
+  }
+  if (!force && jobStatusCache) {
+    return jobStatusCache;
+  }
+  if (!jobStatusPromise) {
+    const url = `/characters/${currentCharacter.id}/job?playerId=${currentPlayer.id}`;
+    jobStatusPromise = fetch(url)
+      .then(async res => {
+        let payload = null;
+        try {
+          payload = await res.json();
+        } catch (err) {
+          payload = null;
+        }
+        if (!res.ok) {
+          const message = payload && payload.error ? payload.error : 'Failed to load job status';
+          throw new Error(message);
+        }
+        jobStatusCache = payload;
+        return payload;
+      })
+      .catch(err => {
+        jobStatusCache = null;
+        throw err;
+      })
+      .finally(() => {
+        jobStatusPromise = null;
+      });
+  }
+  return jobStatusPromise;
+}
+
+async function fetchJobStatusAndRefresh(force = false) {
+  const status = await loadJobStatus(force);
+  try {
+    await refreshInventory(true);
+  } catch (err) {
+    console.error('inventory refresh failed', err);
+  }
+  if (isTabActive('character')) {
+    renderCharacter();
+  }
+  return status;
+}
+
+function formatJobLogMessage(entry) {
+  if (!entry) return '';
+  const itemName = entry.itemName
+    || (entry.itemId ? titleCase(entry.itemId.replace(/^useable[_-]?/i, '').replace(/_/g, ' ')) : 'item');
+  if (entry.type === 'crafted') {
+    const rarityText = entry.rarity ? `${entry.rarity} ` : '';
+    let message = `Crafted ${rarityText}${itemName}.`;
+    if (entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0) {
+      message += ` Gained +${entry.statAmount} ${statLabel(entry.stat)}.`;
+    }
+    return message;
+  }
+  if (entry.reason === 'insufficient-materials' && Array.isArray(entry.missing) && entry.missing.length) {
+    const missingText = entry.missing
+      .map(m => {
+        const required = Math.max(0, Math.round(Number(m.required) || 0));
+        const available = Math.max(0, Math.round(Number(m.available) || 0));
+        return `${describeMaterial(m.materialId)} (${available}/${required})`;
+      })
+      .join(', ');
+    return `Attempted to craft ${itemName} but lacked ${missingText}.`;
+  }
+  return `Attempted to craft ${itemName} but it failed.`;
+}
+
+function renderJobSelectionContent(container, status) {
+  container.innerHTML = '';
+  const intro = document.createElement('p');
+  intro.className = 'job-dialog-intro';
+  intro.textContent = 'Choose a profession. This choice is permanent for this character.';
+  container.appendChild(intro);
+
+  if (!status || !Array.isArray(status.jobs) || !status.jobs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'job-empty-text';
+    empty.textContent = 'No professions are available at this time.';
+    container.appendChild(empty);
+    return;
+  }
+
+  const grid = document.createElement('div');
+  grid.className = 'job-card-grid';
+  const activeJobId = currentCharacter && currentCharacter.job ? currentCharacter.job.jobId : null;
+  status.jobs.forEach(job => {
+    const card = document.createElement('div');
+    card.className = 'job-card';
+
+    const title = document.createElement('h3');
+    title.textContent = job.name;
+    card.appendChild(title);
+
+    const focus = document.createElement('div');
+    focus.className = 'job-attribute';
+    const focusParts = [];
+    if (job.attribute) {
+      focusParts.push(`${statLabel(job.attribute)} Focus`);
+    }
+    if (job.category) {
+      focusParts.push(titleCase(job.category));
+    }
+    focus.textContent = focusParts.length ? focusParts.join(' • ') : 'Specialized Crafting';
+    card.appendChild(focus);
+
+    if (job.description) {
+      const desc = document.createElement('p');
+      desc.className = 'job-description';
+      desc.textContent = job.description;
+      card.appendChild(desc);
+    }
+
+    const details = document.createElement('ul');
+    details.className = 'job-meta-list';
+    const addDetail = (label, value) => {
+      const li = document.createElement('li');
+      const l = document.createElement('span');
+      l.className = 'label';
+      l.textContent = label;
+      const v = document.createElement('span');
+      v.className = 'value';
+      v.textContent = value;
+      li.appendChild(l);
+      li.appendChild(v);
+      details.appendChild(li);
+    };
+    const craftsPerHour = job.craftsPerHour || (status.config && status.config.craftsPerHour) || 0;
+    addDetail('Crafts / Hour', craftsPerHour);
+    const chance = job.statGainChance != null ? job.statGainChance : status.config?.statGainChance;
+    const amount = job.statGainAmount != null ? job.statGainAmount : status.config?.statGainAmount;
+    const statName = job.attribute ? statLabel(job.attribute) : 'Attribute';
+    addDetail('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
+    card.appendChild(details);
+
+    const recipeTitle = document.createElement('h4');
+    recipeTitle.textContent = 'Recipes';
+    card.appendChild(recipeTitle);
+    card.appendChild(createJobRecipeList(job));
+
+    const button = document.createElement('button');
+    if (activeJobId) {
+      button.disabled = true;
+      button.textContent = activeJobId === job.id ? 'Current Profession' : 'Unavailable';
+    } else {
+      button.textContent = 'Choose Profession';
+      button.addEventListener('click', () => handleSelectJob(job.id, container, button));
+    }
+    card.appendChild(button);
+
+    grid.appendChild(card);
+  });
+  container.appendChild(grid);
+}
+
+function renderJobActiveContent(container, status) {
+  container.innerHTML = '';
+  const active = status.activeJob;
+  const jobDef = status.jobs ? status.jobs.find(job => job.id === active.id) || active : active;
+  const statName = active.attribute ? statLabel(active.attribute) : 'Attribute';
+
+  const summary = document.createElement('div');
+  summary.className = 'job-active-summary';
+  const title = document.createElement('h3');
+  title.textContent = active.name;
+  summary.appendChild(title);
+  const subtitle = document.createElement('div');
+  subtitle.className = 'job-active-subtitle';
+  const subtitleParts = [];
+  if (statName) subtitleParts.push(`${statName} Focus`);
+  if (jobDef.category) subtitleParts.push(titleCase(jobDef.category));
+  subtitle.textContent = subtitleParts.join(' • ');
+  summary.appendChild(subtitle);
+  if (jobDef.description) {
+    const desc = document.createElement('p');
+    desc.className = 'job-description';
+    desc.textContent = jobDef.description;
+    summary.appendChild(desc);
+  }
+  container.appendChild(summary);
+
+  const statsGrid = document.createElement('div');
+  statsGrid.className = 'job-stats-grid';
+  const addStat = (label, value) => {
+    const stat = document.createElement('div');
+    stat.className = 'job-stat';
+    const l = document.createElement('div');
+    l.className = 'label';
+    l.textContent = label;
+    const v = document.createElement('div');
+    v.className = 'value';
+    v.textContent = value;
+    stat.appendChild(l);
+    stat.appendChild(v);
+    statsGrid.appendChild(stat);
+  };
+  const craftsPerHour = active.craftsPerHour || status.config?.craftsPerHour || 0;
+  addStat('Crafts / Hour', craftsPerHour);
+  addStat('Total Attempts', active.totalAttempts || 0);
+  addStat('Successful Crafts', active.totalCrafted || 0);
+  const successRate = active.totalAttempts ? `${Math.round((active.totalCrafted / active.totalAttempts) * 100)}%` : '0%';
+  addStat('Success Rate', successRate);
+  const chance = active.statGainChance != null ? active.statGainChance : status.config?.statGainChance;
+  const amount = active.statGainAmount != null ? active.statGainAmount : status.config?.statGainAmount;
+  addStat('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
+  addStat('Total Stat Gains', `${active.totalStatGain || 0} ${statName}`);
+  const nextText = active.secondsUntilNext == null ? 'Processing...' : formatDurationShort(active.secondsUntilNext);
+  addStat('Next Attempt', nextText);
+  if (active.nextAttemptAt) {
+    const nextDate = new Date(active.nextAttemptAt);
+    if (!Number.isNaN(nextDate.getTime())) {
+      addStat('Next Attempt At', nextDate.toLocaleString());
+    }
+  }
+  container.appendChild(statsGrid);
+
+  const totalsSection = document.createElement('div');
+  totalsSection.className = 'job-output-section';
+  const totalsTitle = document.createElement('h4');
+  totalsTitle.textContent = 'Production Summary';
+  totalsSection.appendChild(totalsTitle);
+  if (!active.totalsByItem || !active.totalsByItem.length) {
+    const empty = document.createElement('p');
+    empty.className = 'job-empty-text';
+    empty.textContent = 'No items crafted yet. Maintain a supply of materials to keep production running.';
+    totalsSection.appendChild(empty);
+  } else {
+    const list = document.createElement('ul');
+    list.className = 'job-output-list';
+    active.totalsByItem.forEach(entry => {
+      const item = document.createElement('li');
+      item.className = 'job-output-item';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = entry.name || titleCase(entry.itemId.replace(/^useable[_-]?/i, '').replace(/_/g, ' '));
+      item.appendChild(name);
+      const count = document.createElement('span');
+      count.className = 'count';
+      count.textContent = `×${entry.count}`;
+      item.appendChild(count);
+      if (entry.rarity) {
+        const rarity = document.createElement('span');
+        rarity.className = 'rarity';
+        rarity.textContent = entry.rarity;
+        item.appendChild(rarity);
+      }
+      list.appendChild(item);
+    });
+    totalsSection.appendChild(list);
+  }
+  container.appendChild(totalsSection);
+
+  const logSection = document.createElement('div');
+  logSection.className = 'job-log-section';
+  const logTitle = document.createElement('h4');
+  logTitle.textContent = 'Recent Activity';
+  logSection.appendChild(logTitle);
+  if (!active.log || !active.log.length) {
+    const emptyLog = document.createElement('p');
+    emptyLog.className = 'job-empty-text';
+    emptyLog.textContent = 'No activity recorded yet.';
+    logSection.appendChild(emptyLog);
+  } else {
+    const logList = document.createElement('ul');
+    logList.className = 'job-log-list';
+    active.log.forEach(entry => {
+      const li = document.createElement('li');
+      li.className = entry.type === 'crafted' ? 'log-crafted' : 'log-failed';
+      const message = document.createElement('div');
+      message.className = 'message';
+      message.textContent = formatJobLogMessage(entry);
+      li.appendChild(message);
+      if (entry.timestamp) {
+        const time = new Date(entry.timestamp);
+        if (!Number.isNaN(time.getTime())) {
+          const timeEl = document.createElement('div');
+          timeEl.className = 'time';
+          timeEl.textContent = time.toLocaleString();
+          li.appendChild(timeEl);
+        }
+      }
+      logList.appendChild(li);
+    });
+    logSection.appendChild(logList);
+  }
+  container.appendChild(logSection);
+
+  const recipeSection = document.createElement('div');
+  recipeSection.className = 'job-recipe-section';
+  const recipeTitle = document.createElement('h4');
+  recipeTitle.textContent = 'Available Recipes';
+  recipeSection.appendChild(recipeTitle);
+  recipeSection.appendChild(createJobRecipeList(jobDef, { includeOwned: true }));
+  container.appendChild(recipeSection);
+}
+
+function renderJobDialogContent(container, status) {
+  if (!container) return;
+  if (!status) {
+    container.innerHTML = '';
+    const error = document.createElement('div');
+    error.className = 'job-empty-text';
+    error.textContent = 'Unable to load profession details.';
+    container.appendChild(error);
+    return;
+  }
+  if (status.activeJob) {
+    renderJobActiveContent(container, status);
+  } else {
+    renderJobSelectionContent(container, status);
+  }
+}
+
+async function handleSelectJob(jobId, container, button) {
+  if (!currentPlayer || !currentCharacter) return;
+  if (button) button.disabled = true;
+  let responsePayload = null;
+  try {
+    const res = await fetch(`/characters/${currentCharacter.id}/job/select`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id, jobId }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error ? responsePayload.error : 'Failed to select job';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    try {
+      await refreshInventory(true);
+    } catch (err) {
+      console.error('inventory refresh failed', err);
+    }
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+  } catch (err) {
+    alert(err && err.message ? err.message : 'Failed to select job');
+    if (button) button.disabled = false;
+  }
+}
+
+async function showJobDialog() {
+  if (!currentPlayer || !currentCharacter) return;
+  await ensureCatalog();
+
+  let overlay = document.getElementById('job-dialog');
+  if (overlay) {
+    overlay.remove();
+  }
+  overlay = document.createElement('div');
+  overlay.id = 'job-dialog';
+  overlay.className = 'job-dialog-overlay';
+
+  const box = document.createElement('div');
+  box.className = 'job-dialog';
+  overlay.appendChild(box);
+
+  const header = document.createElement('div');
+  header.className = 'job-dialog-header';
+  const title = document.createElement('h2');
+  title.textContent = 'Professions';
+  header.appendChild(title);
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = 'Close';
+  closeBtn.addEventListener('click', () => {
+    overlay.remove();
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+  });
+  header.appendChild(closeBtn);
+  box.appendChild(header);
+
+  const content = document.createElement('div');
+  content.className = 'job-dialog-content';
+  const loading = document.createElement('div');
+  loading.className = 'job-dialog-loading';
+  loading.textContent = 'Loading...';
+  content.appendChild(loading);
+  box.appendChild(content);
+
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) {
+      closeBtn.click();
+    }
+  });
+
+  document.body.appendChild(overlay);
+
+  try {
+    const status = await fetchJobStatusAndRefresh(true);
+    renderJobDialogContent(content, status);
+  } catch (err) {
+    loading.textContent = err && err.message ? err.message : 'Failed to load job data.';
+    loading.classList.add('error');
+  }
 }
 
 function buildShopCategoryStructure(items) {
@@ -1652,6 +2242,7 @@ nameOk.addEventListener('click', async () => {
 });
 
 async function enterGame(character) {
+  clearJobStatusCache();
   currentCharacter = character;
   setRotationDamageType(character ? character.basicType : null);
   charSelectDiv.classList.add('hidden');
@@ -1676,6 +2267,7 @@ function exitToCharacterSelect() {
     updateAdventurePreviewView(previousId, latestStatus, { error: !!latestStatus.error });
   }
   currentCharacter = null;
+  clearJobStatusCache();
   inventoryView = null;
   rotation = [];
   rotationInitialized = false;
@@ -1869,7 +2461,11 @@ function saveRotation() {
     if (!res.ok) throw new Error('save failed');
     return res.json();
   }).then(char => {
+    const previousCharacter = currentCharacter;
     const nextCharacter = { ...char, rotation: rotation.slice() };
+    if (shouldInvalidateJobStatus(previousCharacter, nextCharacter)) {
+      clearJobStatusCache();
+    }
     currentCharacter = nextCharacter;
     const idx = characters.findIndex(c => c.id === char.id);
     if (idx >= 0) characters[idx] = nextCharacter;
@@ -1894,7 +2490,10 @@ function saveRotation() {
 
 function updateAfterBattleEnd(data) {
   if (!data) return;
+  const previousCharacter = currentCharacter;
+  let jobStateChanged = false;
   if (data.character) {
+    jobStateChanged = shouldInvalidateJobStatus(previousCharacter, data.character);
     currentCharacter = data.character;
     const idx = characters.findIndex(c => c.id === data.character.id);
     if (idx >= 0) {
@@ -1922,6 +2521,9 @@ function updateAfterBattleEnd(data) {
     .catch(() => {
       if (shouldRender.character) renderCharacter();
     });
+  if (jobStateChanged) {
+    clearJobStatusCache();
+  }
 }
 
 function launchCombatStream(
@@ -2246,7 +2848,10 @@ function applyAdventureUpdates(status) {
   if (!status) return;
   let inventoryDirty = false;
   let characterChanged = false;
+  const previousCharacter = currentCharacter;
+  let jobStateChanged = false;
   if (status.character && typeof status.character.id === 'number') {
+    jobStateChanged = shouldInvalidateJobStatus(previousCharacter, status.character);
     if (!currentCharacter || currentCharacter.id !== status.character.id) {
       characterChanged = true;
     } else if (
@@ -2309,6 +2914,9 @@ function applyAdventureUpdates(status) {
   }
   if ((goldChanged || characterChanged) && isTabActive('shop')) {
     renderShop();
+  }
+  if (jobStateChanged) {
+    clearJobStatusCache();
   }
   const previewCharacterId =
     status && typeof status.characterId === 'number'
@@ -3849,6 +4457,8 @@ async function renderCharacter() {
     { label: 'Gold', value: gold },
     { label: 'Basic Attack', value: derived.basicAttackEffectType === 'MagicDamage' ? 'Magic' : 'Physical' },
   ];
+  const professionName = getJobDisplayName(currentCharacter && currentCharacter.job ? currentCharacter.job.jobId : null);
+  metaEntries.push({ label: 'Profession', value: professionName });
   metaEntries.forEach(({ label, value }) => {
     const item = document.createElement('div');
     item.className = 'hero-meta-item';
@@ -3914,6 +4524,15 @@ async function renderCharacter() {
     status.textContent = xpNeeded > 0 ? `${Math.max(0, xpNeeded - xpCurrent)} XP needed` : 'Standing at the peak';
     heroActions.appendChild(status);
   }
+  const jobButton = document.createElement('button');
+  const hasJob = currentCharacter && currentCharacter.job && currentCharacter.job.jobId;
+  jobButton.textContent = hasJob ? 'Jobs' : 'Choose Job';
+  if (!hasJob) {
+    jobButton.classList.add('job-attention');
+  }
+  jobButton.addEventListener('click', showJobDialog);
+  jobButton.title = hasJob ? `Active profession: ${getJobDisplayName(currentCharacter.job.jobId)}` : 'Assign a profession to start crafting';
+  heroActions.appendChild(jobButton);
   const heroNote = document.createElement('div');
   heroNote.className = 'hero-note';
   heroNote.textContent = 'Tweak gear in the loadout and prepare your next rotation.';
@@ -4076,7 +4695,11 @@ function showLevelUpForm() {
         return res.json();
       })
       .then(char => {
+        const previousCharacter = currentCharacter;
         currentCharacter = char;
+        if (shouldInvalidateJobStatus(previousCharacter, char)) {
+          clearJobStatusCache();
+        }
         const idx = characters.findIndex(c => c.id === char.id);
         if (idx >= 0) characters[idx] = char;
         dialog.remove();

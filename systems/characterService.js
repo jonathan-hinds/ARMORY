@@ -1,5 +1,6 @@
 const CharacterModel = require('../models/Character');
 const { serializeCharacter, STATS } = require('../models/utils');
+const { processJobForCharacter } = require('./jobService');
 const { getAbilities } = require('./abilityService');
 
 function xpForNextLevel(level) {
@@ -28,6 +29,7 @@ async function updateRotation(characterId, rotation, basicType) {
   if (!characterDoc) {
     throw new Error('character not found');
   }
+  await processJobForCharacter(characterDoc);
   characterDoc.rotation = rotation;
   if (normalizedType) {
     characterDoc.basicType = normalizedType;
@@ -41,6 +43,7 @@ async function levelUp(characterId, allocations) {
   if (!characterDoc) {
     throw new Error('character not found');
   }
+  await processJobForCharacter(characterDoc);
   const needed = xpForNextLevel(characterDoc.level || 1);
   if ((characterDoc.xp || 0) < needed) {
     throw new Error('not enough xp');

@@ -6,6 +6,7 @@ const {
   serializeCharacter,
   serializePlayer,
 } = require('../models/utils');
+const { processJobForCharacter } = require('./jobService');
 
 async function getNextId(Model, field) {
   const latest = await Model.findOne().sort({ [field]: -1 }).select(field).lean();
@@ -65,8 +66,16 @@ async function loginPlayer(name) {
 }
 
 async function getPlayerCharacters(playerId) {
-  const characterDocs = await CharacterModel.find({ playerId }).lean();
-  return characterDocs.map(serializeCharacter);
+  const characterDocs = await CharacterModel.find({ playerId });
+  const characters = [];
+  for (const doc of characterDocs) {
+    const { changed } = await processJobForCharacter(doc);
+    if (changed) {
+      await doc.save();
+    }
+    characters.push(serializeCharacter(doc));
+  }
+  return characters;
 }
 
 async function createCharacter(playerId, name) {
