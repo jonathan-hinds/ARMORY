@@ -201,6 +201,25 @@ let shopTotalItems = 0;
 
 setSetValues(shopFilters.categories, SHOP_CATEGORY_DEFINITIONS.map(option => option.value));
 
+const inventoryFilters = {
+  categories: new Set(),
+  slots: new Set(),
+  weaponTypes: new Set(),
+  scaling: new Set(),
+  effects: new Set(),
+};
+let inventorySortOrder = 'name-asc';
+let inventoryControlsInitialized = false;
+let inventoryCatalogCache = [];
+let inventoryTotalItems = 0;
+
+resetInventoryFilters();
+
+const RARITY_PRIORITY = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'artifact', 'relic', 'ancient'];
+const rarityOrderMap = new Map();
+RARITY_PRIORITY.forEach((value, index) => rarityOrderMap.set(value, index));
+let rarityFallbackIndex = RARITY_PRIORITY.length;
+
 function displayDamageType(type) {
   if (!type) return 'Melee';
   if (type === 'magic') return 'Magic';
@@ -1200,7 +1219,7 @@ function buildScalingOptions(items) {
   return [...ordered, ...extras].map(stat => ({ value: stat, label: statLabel(stat) }));
 }
 
-function renderCheckboxGroup(containerId, options, valueSet) {
+function renderCheckboxGroup(containerId, options, valueSet, onChange) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = '';
@@ -1217,7 +1236,9 @@ function renderCheckboxGroup(containerId, options, valueSet) {
       } else {
         valueSet.delete(option.value);
       }
-      updateShopDisplay();
+      if (typeof onChange === 'function') {
+        onChange();
+      }
     });
     const text = document.createElement('span');
     text.textContent = option.label;
@@ -1236,6 +1257,15 @@ function resetShopFilters() {
   shopSortOrder = 'cost-asc';
 }
 
+function resetInventoryFilters() {
+  setSetValues(inventoryFilters.categories, SHOP_CATEGORY_DEFINITIONS.map(option => option.value));
+  inventoryFilters.slots.clear();
+  inventoryFilters.weaponTypes.clear();
+  inventoryFilters.scaling.clear();
+  inventoryFilters.effects.clear();
+  inventorySortOrder = 'name-asc';
+}
+
 function initializeShopControls(items) {
   const categoryOptions = SHOP_CATEGORY_DEFINITIONS;
   const slotOptions = buildSlotOptions(items);
@@ -1248,11 +1278,11 @@ function initializeShopControls(items) {
   pruneSetToOptions(shopFilters.scaling, scalingOptions);
   pruneSetToOptions(shopFilters.effects, SHOP_EFFECT_OPTIONS);
 
-  renderCheckboxGroup('shop-category-filter', categoryOptions, shopFilters.categories);
-  renderCheckboxGroup('shop-slot-filter', slotOptions, shopFilters.slots);
-  renderCheckboxGroup('shop-weapon-filter', weaponOptions, shopFilters.weaponTypes);
-  renderCheckboxGroup('shop-scaling-filter', scalingOptions, shopFilters.scaling);
-  renderCheckboxGroup('shop-effect-filter', SHOP_EFFECT_OPTIONS, shopFilters.effects);
+  renderCheckboxGroup('shop-category-filter', categoryOptions, shopFilters.categories, updateShopDisplay);
+  renderCheckboxGroup('shop-slot-filter', slotOptions, shopFilters.slots, updateShopDisplay);
+  renderCheckboxGroup('shop-weapon-filter', weaponOptions, shopFilters.weaponTypes, updateShopDisplay);
+  renderCheckboxGroup('shop-scaling-filter', scalingOptions, shopFilters.scaling, updateShopDisplay);
+  renderCheckboxGroup('shop-effect-filter', SHOP_EFFECT_OPTIONS, shopFilters.effects, updateShopDisplay);
 
   const sortSelect = document.getElementById('shop-sort');
   if (sortSelect) {
@@ -1277,6 +1307,50 @@ function initializeShopControls(items) {
   }
 
   shopControlsInitialized = true;
+}
+
+function initializeInventoryControls(entries) {
+  const items = entries.map(entry => entry.item).filter(Boolean);
+  const categoryOptions = SHOP_CATEGORY_DEFINITIONS;
+  const slotOptions = buildSlotOptions(items);
+  const weaponOptions = buildWeaponTypeOptions(items);
+  const scalingOptions = buildScalingOptions(items);
+
+  pruneSetToOptions(inventoryFilters.categories, categoryOptions);
+  pruneSetToOptions(inventoryFilters.slots, slotOptions);
+  pruneSetToOptions(inventoryFilters.weaponTypes, weaponOptions);
+  pruneSetToOptions(inventoryFilters.scaling, scalingOptions);
+  pruneSetToOptions(inventoryFilters.effects, SHOP_EFFECT_OPTIONS);
+
+  renderCheckboxGroup('inventory-category-filter', categoryOptions, inventoryFilters.categories, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-slot-filter', slotOptions, inventoryFilters.slots, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-weapon-filter', weaponOptions, inventoryFilters.weaponTypes, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-scaling-filter', scalingOptions, inventoryFilters.scaling, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-effect-filter', SHOP_EFFECT_OPTIONS, inventoryFilters.effects, updateInventoryDisplay);
+
+  const sortSelect = document.getElementById('inventory-sort');
+  if (sortSelect) {
+    sortSelect.value = inventorySortOrder;
+    if (!inventoryControlsInitialized) {
+      sortSelect.addEventListener('change', event => {
+        inventorySortOrder = event.target.value;
+        updateInventoryDisplay();
+      });
+    }
+  }
+
+  const resetButton = document.getElementById('inventory-reset');
+  if (resetButton && !inventoryControlsInitialized) {
+    resetButton.addEventListener('click', () => {
+      resetInventoryFilters();
+      initializeInventoryControls(inventoryCatalogCache);
+      const sortEl = document.getElementById('inventory-sort');
+      if (sortEl) sortEl.value = inventorySortOrder;
+      updateInventoryDisplay();
+    });
+  }
+
+  inventoryControlsInitialized = true;
 }
 
 function updateShopDisplay() {
@@ -1307,6 +1381,66 @@ function updateShopDisplay() {
   }
   if (summary) {
     summary.textContent = `${filtered.length} of ${shopTotalItems} items displayed`;
+  }
+}
+
+function updateInventoryDisplay() {
+  const grid = document.getElementById('inventory-grid');
+  const materialGrid = document.getElementById('material-grid');
+  const summaryEl = document.getElementById('inventory-results-summary');
+  const messageEl = document.getElementById('inventory-message');
+  if (!grid || !materialGrid) return;
+  grid.innerHTML = '';
+  materialGrid.innerHTML = '';
+  if (summaryEl) summaryEl.textContent = '';
+
+  if (!inventoryCatalogCache.length) {
+    const emptyItems = document.createElement('div');
+    emptyItems.className = 'shop-empty';
+    emptyItems.textContent = 'No items owned yet.';
+    grid.appendChild(emptyItems);
+
+    const emptyMaterials = document.createElement('div');
+    emptyMaterials.className = 'shop-empty';
+    emptyMaterials.textContent = 'No materials collected yet.';
+    materialGrid.appendChild(emptyMaterials);
+
+    if (summaryEl) {
+      summaryEl.textContent = '0 items owned';
+    }
+    return;
+  }
+
+  const filtered = applyInventoryFilters(inventoryCatalogCache);
+  const sorted = sortInventoryEntries(filtered);
+  const gearEntries = sorted.filter(entry => entry.item && !isMaterial(entry.item));
+  const materialEntries = sorted.filter(entry => entry.item && isMaterial(entry.item));
+
+  if (gearEntries.length) {
+    renderInventoryGroups(grid, gearEntries, messageEl);
+  } else {
+    const emptyGear = document.createElement('div');
+    emptyGear.className = 'shop-empty';
+    emptyGear.textContent = 'No gear matches the selected filters.';
+    grid.appendChild(emptyGear);
+  }
+
+  const totalMaterials = inventoryCatalogCache.filter(entry => entry.item && isMaterial(entry.item));
+  if (materialEntries.length) {
+    materialEntries.forEach(entry => {
+      materialGrid.appendChild(buildInventoryItemCard(entry, messageEl));
+    });
+  } else {
+    const emptyMaterials = document.createElement('div');
+    emptyMaterials.className = 'shop-empty';
+    emptyMaterials.textContent = totalMaterials.length
+      ? 'No materials match the selected filters.'
+      : 'No materials collected yet.';
+    materialGrid.appendChild(emptyMaterials);
+  }
+
+  if (summaryEl) {
+    summaryEl.textContent = `${filtered.length} of ${inventoryTotalItems} items displayed`;
   }
 }
 
@@ -1357,12 +1491,89 @@ function applyShopFilters(items) {
   });
 }
 
+function applyInventoryFilters(entries) {
+  if (!inventoryFilters.categories.size) {
+    return [];
+  }
+  return entries.filter(entry => {
+    const item = entry && entry.item ? entry.item : null;
+    if (!item) return false;
+    const categoryKey = getShopCategoryKey(item);
+    if (!inventoryFilters.categories.has(categoryKey)) {
+      return false;
+    }
+    if (inventoryFilters.slots.size && !inventoryFilters.slots.has(item.slot)) {
+      return false;
+    }
+    if (inventoryFilters.weaponTypes.size) {
+      const type = normalizeWeaponType(item.type);
+      if (!inventoryFilters.weaponTypes.has(type)) {
+        return false;
+      }
+    }
+    if (inventoryFilters.scaling.size) {
+      const statKeys = getItemStatKeys(item);
+      if (!statKeys.some(stat => inventoryFilters.scaling.has(stat))) {
+        return false;
+      }
+    }
+    if (inventoryFilters.effects.size) {
+      for (const effect of inventoryFilters.effects) {
+        if (effect === 'onHit' && !(Array.isArray(item.onHitEffects) && item.onHitEffects.length)) {
+          return false;
+        }
+        if (effect === 'useEffect' && !item.useEffect) {
+          return false;
+        }
+        if (effect === 'attributeBonus' && !formatAttributeBonuses(item.attributeBonuses)) {
+          return false;
+        }
+        if (effect === 'chanceBonus' && !formatChanceBonuses(item.chanceBonuses)) {
+          return false;
+        }
+        if (effect === 'resourceBonus' && !formatResourceBonuses(item.resourceBonuses)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+}
+
 function sortShopItems(items) {
   const comparator = getShopComparator();
   return items.slice().sort(comparator);
 }
 
+function sortInventoryEntries(entries) {
+  const comparator = getItemComparator(inventorySortOrder, 'name-asc');
+  return entries.slice().sort((a, b) => {
+    const itemA = a ? a.item : null;
+    const itemB = b ? b.item : null;
+    const result = comparator(itemA, itemB);
+    if (result !== 0) return result;
+    let countA = 0;
+    if (a && a.count != null) {
+      const value = Number(a.count);
+      if (Number.isFinite(value)) countA = value;
+    }
+    let countB = 0;
+    if (b && b.count != null) {
+      const value = Number(b.count);
+      if (Number.isFinite(value)) countB = value;
+    }
+    if (countA !== countB) {
+      return countB - countA;
+    }
+    return 0;
+  });
+}
+
 function getShopComparator() {
+  return getItemComparator(shopSortOrder, 'cost-asc');
+}
+
+function getItemComparator(sortOrder, defaultOrder = 'cost-asc') {
   const comparators = {
     'cost-asc': createMetricComparator(getItemCost, 'asc'),
     'cost-desc': createMetricComparator(getItemCost, 'desc'),
@@ -1370,8 +1581,12 @@ function getShopComparator() {
     'damage-desc': createMetricComparator(getItemAverageDamage, 'desc'),
     'stat-asc': createMetricComparator(getItemStatBonus, 'asc'),
     'stat-desc': createMetricComparator(getItemStatBonus, 'desc'),
+    'name-asc': (a, b) => compareByName(a, b, 'asc'),
+    'name-desc': (a, b) => compareByName(a, b, 'desc'),
+    'rarity-asc': (a, b) => compareByRarity(a, b, 'asc'),
+    'rarity-desc': (a, b) => compareByRarity(a, b, 'desc'),
   };
-  return comparators[shopSortOrder] || comparators['cost-asc'];
+  return comparators[sortOrder] || comparators[defaultOrder] || comparators['cost-asc'];
 }
 
 function createMetricComparator(metricFn, direction) {
@@ -1386,8 +1601,33 @@ function createMetricComparator(metricFn, direction) {
     if (costA !== costB) {
       return costA - costB;
     }
-    return (a.name || '').localeCompare(b.name || '');
+    return compareByName(a, b, 'asc');
   };
+}
+
+function compareByName(a, b, direction = 'asc') {
+  const nameA = a && typeof a.name === 'string' ? a.name : '';
+  const nameB = b && typeof b.name === 'string' ? b.name : '';
+  const result = nameA.localeCompare(nameB);
+  return direction === 'desc' ? -result : result;
+}
+
+function rarityRank(rarity) {
+  if (!rarity) return 0;
+  const normalized = String(rarity).toLowerCase();
+  if (!rarityOrderMap.has(normalized)) {
+    rarityOrderMap.set(normalized, rarityFallbackIndex++);
+  }
+  return rarityOrderMap.get(normalized) || 0;
+}
+
+function compareByRarity(a, b, direction = 'asc') {
+  const rankA = rarityRank(a && a.rarity);
+  const rankB = rarityRank(b && b.rarity);
+  if (rankA !== rankB) {
+    return direction === 'desc' ? rankB - rankA : rankA - rankB;
+  }
+  return compareByName(a, b, 'asc');
 }
 
 function getItemCost(item) {
@@ -2051,6 +2291,70 @@ function renderShopGroups(container, items, messageEl) {
   }
 }
 
+function buildInventoryCategoryStructure(entries) {
+  const structure = {};
+  entries.forEach(entry => {
+    const item = entry && entry.item ? entry.item : null;
+    if (!item || isMaterial(item)) return;
+    const categoryKey = getShopCategoryKey(item);
+    const subgroup = getShopSubgroupInfo(categoryKey, item);
+    if (!structure[categoryKey]) {
+      structure[categoryKey] = new Map();
+    }
+    const groupMap = structure[categoryKey];
+    if (!groupMap.has(subgroup.key)) {
+      groupMap.set(subgroup.key, { label: subgroup.label, items: [] });
+    }
+    groupMap.get(subgroup.key).items.push(entry);
+  });
+  return structure;
+}
+
+function renderInventoryGroups(container, entries, messageEl) {
+  const sorted = sortInventoryEntries(entries);
+  const structure = buildInventoryCategoryStructure(sorted);
+  SHOP_CATEGORY_DEFINITIONS.forEach(category => {
+    if (category.value === 'materials') return;
+    const groupMap = structure[category.value];
+    if (!groupMap || !groupMap.size) return;
+    const section = document.createElement('section');
+    section.className = 'inventory-category shop-category';
+    const totalCount = [...groupMap.values()].reduce((sum, subgroup) => sum + subgroup.items.length, 0);
+    const header = document.createElement('div');
+    header.className = 'shop-category-header';
+    header.textContent = `${category.label} (${totalCount})`;
+    section.appendChild(header);
+
+    const subgroups = [...groupMap.values()].sort((a, b) => a.label.localeCompare(b.label));
+    const showTitles = subgroups.length > 1;
+    subgroups.forEach(subgroup => {
+      const subSection = document.createElement('div');
+      subSection.className = 'shop-subsection';
+      if (showTitles) {
+        const title = document.createElement('div');
+        title.className = 'shop-subsection-title';
+        const name = document.createElement('span');
+        name.textContent = subgroup.label;
+        title.appendChild(name);
+        const count = document.createElement('span');
+        count.className = 'shop-subsection-count';
+        count.textContent = `${subgroup.items.length} item${subgroup.items.length === 1 ? '' : 's'}`;
+        title.appendChild(count);
+        subSection.appendChild(title);
+      }
+      const grid = document.createElement('div');
+      grid.className = 'shop-card-grid';
+      subgroup.items.forEach(entry => {
+        grid.appendChild(buildInventoryItemCard(entry, messageEl));
+      });
+      subSection.appendChild(grid);
+      section.appendChild(subSection);
+    });
+
+    container.appendChild(section);
+  });
+}
+
 function createTag(text) {
   const tag = document.createElement('div');
   tag.className = 'card-tag';
@@ -2117,6 +2421,155 @@ function buildShopItemCard(item, messageEl) {
   }
   button.addEventListener('click', () => purchaseItem(item, messageEl));
   footer.appendChild(button);
+
+  card.appendChild(footer);
+
+  attachTooltip(card, () => itemTooltip(item));
+  return card;
+}
+
+function buildInventoryItemCard(entry, messageEl) {
+  const item = entry && entry.item ? entry.item : null;
+  if (!item) {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'shop-item-card inventory-item-card';
+    placeholder.textContent = 'Unknown item';
+    return placeholder;
+  }
+
+  const card = document.createElement('div');
+  card.className = 'shop-item-card inventory-item-card';
+
+  const header = document.createElement('div');
+  header.className = 'card-header';
+  const name = document.createElement('div');
+  name.className = 'card-name';
+  name.textContent = item.name || 'Unknown Item';
+  header.appendChild(name);
+  const rarity = document.createElement('div');
+  rarity.className = 'card-rarity';
+  rarity.textContent = item.rarity || 'Common';
+  header.appendChild(rarity);
+  card.appendChild(header);
+
+  const tags = document.createElement('div');
+  tags.className = 'card-tags';
+  const slotTag = slotLabel(item.slot);
+  if (slotTag) tags.appendChild(createTag(slotTag));
+  if (item.slot === 'weapon') {
+    const typeTag = item.type ? titleCase(item.type) : '';
+    if (typeTag) tags.appendChild(createTag(typeTag));
+    if (item.damageType) tags.appendChild(createTag(`${titleCase(item.damageType)} Damage`));
+  } else if (isUseableItem(item)) {
+    const categoryTag = item.category ? titleCase(item.category) : '';
+    if (categoryTag) tags.appendChild(createTag(categoryTag));
+  } else if (isMaterial(item)) {
+    tags.appendChild(createTag('Crafting'));
+  } else if (item.type) {
+    tags.appendChild(createTag(titleCase(item.type)));
+  }
+  if (tags.childElementCount) {
+    card.appendChild(tags);
+  }
+
+  const metaLine = document.createElement('div');
+  metaLine.className = 'card-meta';
+  metaLine.textContent = formatItemMeta(item);
+  card.appendChild(metaLine);
+
+  if (isUseableItem(item) && item.useTrigger) {
+    const trigger = document.createElement('div');
+    trigger.className = 'card-meta';
+    trigger.textContent = describeUseTrigger(item.useTrigger);
+    card.appendChild(trigger);
+  }
+
+  if (isMaterial(item) && item.description) {
+    const desc = document.createElement('div');
+    desc.className = 'card-description';
+    desc.textContent = item.description;
+    card.appendChild(desc);
+  }
+
+  const status = document.createElement('div');
+  status.className = 'card-status';
+  let hasStatus = false;
+  if (isUseableItem(item)) {
+    const equippedSlots = getUseableSlotsForItem(item.id);
+    if (equippedSlots.length) {
+      status.textContent = `Equipped: ${equippedSlots.map(slotLabel).join(', ')}`;
+      hasStatus = true;
+    }
+  } else if (!isMaterial(item)) {
+    const equippedItem = getEquippedSlotItem(item.slot);
+    if (equippedItem && equippedItem.id === item.id) {
+      status.textContent = 'Equipped';
+      hasStatus = true;
+    }
+  }
+  if (hasStatus) {
+    card.appendChild(status);
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'card-footer';
+  const owned = document.createElement('div');
+  owned.className = 'card-owned';
+  const countValue = entry && entry.count != null ? Number(entry.count) : 0;
+  const safeCount = Number.isFinite(countValue) ? Math.max(0, Math.round(countValue)) : 0;
+  owned.textContent = `Owned: ${safeCount}`;
+  footer.appendChild(owned);
+
+  if (!isMaterial(item)) {
+    const actions = document.createElement('div');
+    actions.className = 'card-actions';
+    if (isUseableItem(item)) {
+      USEABLE_SLOTS.forEach(slotName => {
+        const button = document.createElement('button');
+        button.textContent = `Equip ${slotLabel(slotName)}`;
+        const slotItem = getEquippedSlotItem(slotName);
+        if (slotItem && slotItem.id === item.id) {
+          button.disabled = true;
+        }
+        button.addEventListener('click', () => equipItem(slotName, item.id, messageEl));
+        actions.appendChild(button);
+      });
+      const unequipButton = document.createElement('button');
+      unequipButton.textContent = 'Unequip';
+      const updateUnequipState = () => {
+        const equippedSlots = getUseableSlotsForItem(item.id);
+        unequipButton.disabled = !equippedSlots.length;
+      };
+      updateUnequipState();
+      unequipButton.addEventListener('click', () => {
+        const slots = getUseableSlotsForItem(item.id);
+        if (slots.length) {
+          unequipSlot(slots[0], messageEl);
+        }
+      });
+      actions.appendChild(unequipButton);
+    } else {
+      const equipButton = document.createElement('button');
+      equipButton.textContent = `Equip ${slotLabel(item.slot)}`;
+      const equippedItem = getEquippedSlotItem(item.slot);
+      if (equippedItem && equippedItem.id === item.id) {
+        equipButton.disabled = true;
+      }
+      equipButton.addEventListener('click', () => equipItem(item.slot, item.id, messageEl));
+      actions.appendChild(equipButton);
+
+      const unequipButton = document.createElement('button');
+      unequipButton.textContent = 'Unequip';
+      if (!equippedItem || equippedItem.id !== item.id) {
+        unequipButton.disabled = !equippedItem;
+      }
+      unequipButton.addEventListener('click', () => unequipSlot(item.slot, messageEl));
+      actions.appendChild(unequipButton);
+    }
+    if (actions.childElementCount) {
+      footer.appendChild(actions);
+    }
+  }
 
   card.appendChild(footer);
 
@@ -4163,113 +4616,66 @@ async function renderInventory() {
   const materialGrid = document.getElementById('material-grid');
   const slots = document.getElementById('equipment-slots');
   const summary = document.getElementById('loadout-summary');
+  const goldEl = document.getElementById('inventory-gold');
+  const resultsSummary = document.getElementById('inventory-results-summary');
   if (!grid || !materialGrid || !slots || !summary) return;
-  grid.textContent = 'Loading...';
-  materialGrid.textContent = 'Loading...';
+  grid.innerHTML = '';
+  materialGrid.innerHTML = '';
+  if (resultsSummary) resultsSummary.textContent = '';
+  const loading = document.createElement('div');
+  loading.className = 'shop-empty';
+  loading.textContent = 'Loading...';
+  grid.appendChild(loading);
+  const materialLoading = document.createElement('div');
+  materialLoading.className = 'shop-empty';
+  materialLoading.textContent = 'Loading...';
+  materialGrid.appendChild(materialLoading);
   slots.innerHTML = '';
   summary.innerHTML = '';
   try {
     await ensureInventory();
   } catch (err) {
-    grid.textContent = 'Failed to load inventory.';
-    materialGrid.textContent = '';
+    grid.innerHTML = '';
+    materialGrid.innerHTML = '';
+    const error = document.createElement('div');
+    error.className = 'shop-empty';
+    error.textContent = 'Failed to load inventory.';
+    grid.appendChild(error);
+    inventoryCatalogCache = [];
+    inventoryTotalItems = 0;
+    if (resultsSummary) resultsSummary.textContent = '';
     showMessage(message, err.message || 'Failed to load inventory', true);
     return;
   }
   clearMessage(message);
   grid.innerHTML = '';
   materialGrid.innerHTML = '';
-  const inventoryItems = Array.isArray(inventoryView.inventory) ? inventoryView.inventory : [];
-  if (!inventoryItems.length) {
-    const empty = document.createElement('div');
-    empty.textContent = 'No gear owned yet.';
-    grid.appendChild(empty);
-  } else {
-    inventoryItems.forEach(({ item, count }) => {
-      const card = document.createElement('div');
-      card.className = 'item-card';
-      const name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = item.name;
-      card.appendChild(name);
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = formatItemMeta(item);
-      card.appendChild(meta);
-      const countDiv = document.createElement('div');
-      countDiv.className = 'owned';
-      countDiv.textContent = `Count: ${count}`;
-      card.appendChild(countDiv);
-      if (isUseableItem(item)) {
-        const equippedSlots = getUseableSlotsForItem(item.id);
-        if (equippedSlots.length) {
-          const equippedTag = document.createElement('div');
-          equippedTag.className = 'meta';
-          equippedTag.textContent = `Equipped: ${equippedSlots.map(slotLabel).join(', ')}`;
-          card.appendChild(equippedTag);
-        }
-        USEABLE_SLOTS.forEach(slotName => {
-          const btn = document.createElement('button');
-          btn.textContent = `Equip ${slotLabel(slotName)}`;
-          const slotItem = getEquippedSlotItem(slotName);
-          if (slotItem && slotItem.id === item.id) {
-            btn.disabled = true;
-          }
-          btn.addEventListener('click', () => equipItem(slotName, item.id, message));
-          card.appendChild(btn);
-        });
-      } else {
-        const equippedItem = getEquippedSlotItem(item.slot);
-        if (equippedItem && equippedItem.id === item.id) {
-          const equippedTag = document.createElement('div');
-          equippedTag.className = 'meta';
-          equippedTag.textContent = 'Equipped';
-          card.appendChild(equippedTag);
-        }
-        const button = document.createElement('button');
-        button.textContent = `Equip ${slotLabel(item.slot)}`;
-        if (equippedItem && equippedItem.id === item.id) {
-          button.disabled = true;
-        }
-        button.addEventListener('click', () => equipItem(item.slot, item.id, message));
-        card.appendChild(button);
-      }
-      attachTooltip(card, () => itemTooltip(item));
-      grid.appendChild(card);
-    });
-  }
+  if (resultsSummary) resultsSummary.textContent = '';
 
+  const inventoryItems = Array.isArray(inventoryView.inventory) ? inventoryView.inventory : [];
   const materialItems = Array.isArray(inventoryView.materials) ? inventoryView.materials : [];
-  if (!materialItems.length) {
-    const emptyMaterial = document.createElement('div');
-    emptyMaterial.textContent = 'No materials collected yet.';
-    materialGrid.appendChild(emptyMaterial);
-  } else {
-    materialItems.forEach(({ material, count }) => {
-      if (!material) return;
-      const card = document.createElement('div');
-      card.className = 'material-card';
-      const name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = material.name;
-      card.appendChild(name);
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = formatItemMeta(material);
-      card.appendChild(meta);
-      const countDiv = document.createElement('div');
-      countDiv.className = 'owned';
-      countDiv.textContent = `Count: ${count}`;
-      card.appendChild(countDiv);
-      if (material.description) {
-        const desc = document.createElement('div');
-        desc.className = 'meta description';
-        desc.textContent = material.description;
-        card.appendChild(desc);
-      }
-      attachTooltip(card, () => itemTooltip(material));
-      materialGrid.appendChild(card);
-    });
+
+  const gearEntries = inventoryItems
+    .filter(entry => entry && entry.item)
+    .map(entry => ({ item: entry.item, count: entry.count || 0 }));
+  const materialEntries = materialItems
+    .filter(entry => entry && entry.material)
+    .map(entry => ({ item: entry.material, count: entry.count || 0 }));
+
+  inventoryCatalogCache = [...gearEntries, ...materialEntries];
+  inventoryTotalItems = inventoryCatalogCache.length;
+
+  initializeInventoryControls(inventoryCatalogCache);
+  updateInventoryDisplay();
+
+  if (goldEl) {
+    let goldValue = 0;
+    if (inventoryView && typeof inventoryView.gold === 'number') {
+      goldValue = inventoryView.gold;
+    } else if (currentCharacter && typeof currentCharacter.gold === 'number') {
+      goldValue = currentCharacter.gold;
+    }
+    goldEl.textContent = `Gold: ${Math.round(goldValue)}`;
   }
 
   slots.innerHTML = '';
