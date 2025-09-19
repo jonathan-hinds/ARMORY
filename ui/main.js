@@ -103,6 +103,10 @@ let adventurePollInFlight = false;
 let adventureElements = null;
 let adventureSelectedDays = null;
 
+const adventurePreviewCache = new Map();
+const adventurePreviewViews = new Map();
+const ADVENTURE_PREVIEW_TTL = 30000;
+
 function xpForNextLevel(level) {
   return level * 100;
 }
@@ -484,6 +488,108 @@ function formatClockTime(timestamp) {
   } catch (err) {
     return '';
   }
+}
+
+function cacheAdventurePreview(characterId, data, { error = false } = {}) {
+  if (characterId == null) return;
+  adventurePreviewCache.set(characterId, {
+    data,
+    timestamp: Date.now(),
+    error: !!error,
+  });
+}
+
+function getAdventurePreviewEntry(characterId) {
+  if (characterId == null) return null;
+  return adventurePreviewCache.get(characterId) || null;
+}
+
+function loadAdventurePreview(characterId, { force = false } = {}) {
+  if (!characterId) {
+    return Promise.resolve({ status: null, error: true });
+  }
+  const now = Date.now();
+  const entry = adventurePreviewCache.get(characterId);
+  if (!force && entry && entry.data && entry.timestamp && now - entry.timestamp < ADVENTURE_PREVIEW_TTL) {
+    return Promise.resolve({ status: entry.data, error: !!entry.error });
+  }
+  if (!force && entry && entry.promise) {
+    return entry.promise;
+  }
+  const promise = fetch(`/adventure/status?characterId=${characterId}`)
+    .then(res => {
+      if (!res.ok) {
+        throw new Error('failed to load adventure status');
+      }
+      return res.json();
+    })
+    .then(data => {
+      const error = !!(data && data.error);
+      cacheAdventurePreview(characterId, data, { error });
+      return { status: data, error };
+    })
+    .catch(err => {
+      console.error('adventure status preview failed', err);
+      cacheAdventurePreview(characterId, null, { error: true });
+      return { status: null, error: true };
+    });
+  const nextEntry = Object.assign({}, entry || {}, { promise });
+  adventurePreviewCache.set(characterId, nextEntry);
+  return promise;
+}
+
+function applyAdventurePreview(view, status, { error = false, loading = false } = {}) {
+  if (!view) return;
+  const { fill, statusEl, timeEl, container } = view;
+  const classes = ['adventure-active', 'adventure-complete', 'adventure-defeat', 'adventure-error', 'adventure-loading'];
+  classes.forEach(cls => container.classList.remove(cls));
+  let ratio = 0;
+  let statusText = 'Ready for adventure';
+  let timeText = 'Time Remaining: Idle';
+  if (loading) {
+    statusText = 'Loading adventure...';
+    timeText = '';
+    container.classList.add('adventure-loading');
+  } else if (error) {
+    statusText = 'Adventure status unavailable';
+    timeText = 'Time Remaining: Unknown';
+    container.classList.add('adventure-error');
+  } else if (status && status.active) {
+    const total = Number(status.totalDurationMs) || 0;
+    const remaining = Number(status.remainingMs) || 0;
+    const elapsed = Math.max(0, total - remaining);
+    ratio = total > 0 ? Math.min(1, Math.max(0, elapsed / total)) : 0;
+    statusText = `On Adventure • Day ${status.currentDay || 1} of ${status.totalDays || 1}`;
+    timeText = `Time Remaining: ${formatDuration(Math.max(0, remaining))}`;
+    container.classList.add('adventure-active');
+  } else if (status && status.outcome === 'defeat') {
+    ratio = 1;
+    statusText = 'Adventure Ended • Defeat';
+    timeText = 'Time Remaining: 0s';
+    container.classList.add('adventure-defeat');
+  } else if (status && (status.outcome === 'complete' || status.completedAt)) {
+    ratio = 1;
+    statusText = 'Adventure Complete';
+    timeText = 'Time Remaining: 0s';
+    container.classList.add('adventure-complete');
+  } else if (status && status.startedAt) {
+    const total = Number(status.totalDurationMs) || 0;
+    const remaining = Number(status.remainingMs) || 0;
+    const elapsed = Math.max(0, total - remaining);
+    ratio = total > 0 ? Math.min(1, Math.max(0, elapsed / total)) : 0;
+    statusText = 'Adventure Pending';
+    timeText = 'Time Remaining: 0s';
+  }
+  fill.style.width = `${Math.round(ratio * 100)}%`;
+  statusEl.textContent = statusText;
+  timeEl.textContent = timeText;
+}
+
+function updateAdventurePreviewView(characterId, status, options = {}) {
+  if (characterId == null) return;
+  const view = adventurePreviewViews.get(characterId);
+  if (!view) return;
+  applyAdventurePreview(view, status, options);
 }
 
 function itemTooltip(item) {
@@ -1324,6 +1430,7 @@ function renderCharacters() {
   if (!list) return;
   list.innerHTML = '';
   list.classList.toggle('empty', characters.length === 0);
+  adventurePreviewViews.clear();
   if (!characters.length) {
     const empty = document.createElement('div');
     empty.className = 'character-empty-card';
@@ -1386,6 +1493,64 @@ function renderCharacters() {
         xpHint.textContent = `${remaining} XP to next level`;
       }
       xpSection.appendChild(xpHint);
+    }
+
+    const adventureSection = document.createElement('div');
+    adventureSection.className = 'character-adventure';
+    card.appendChild(adventureSection);
+
+    const adventureTitle = document.createElement('div');
+    adventureTitle.className = 'adventure-title';
+    adventureTitle.textContent = 'Adventure';
+    adventureSection.appendChild(adventureTitle);
+
+    const adventureBar = document.createElement('div');
+    adventureBar.className = 'adventure-progress-bar';
+    const adventureFill = document.createElement('div');
+    adventureFill.className = 'adventure-progress-fill';
+    adventureBar.appendChild(adventureFill);
+    adventureSection.appendChild(adventureBar);
+
+    const adventureStatusText = document.createElement('div');
+    adventureStatusText.className = 'adventure-status-text';
+    adventureSection.appendChild(adventureStatusText);
+
+    const adventureTimeText = document.createElement('div');
+    adventureTimeText.className = 'adventure-time-remaining';
+    adventureSection.appendChild(adventureTimeText);
+
+    const view = {
+      fill: adventureFill,
+      statusEl: adventureStatusText,
+      timeEl: adventureTimeText,
+      container: adventureSection,
+    };
+    adventurePreviewViews.set(c.id, view);
+
+    const cached = getAdventurePreviewEntry(c.id);
+    const now = Date.now();
+    if (cached && cached.data) {
+      applyAdventurePreview(view, cached.data, { error: !!cached.error });
+      if (!cached.timestamp || now - cached.timestamp > ADVENTURE_PREVIEW_TTL) {
+        loadAdventurePreview(c.id).then(result => {
+          const payload = result || {};
+          updateAdventurePreviewView(c.id, payload.status, { error: !!payload.error });
+        });
+      }
+    } else if (cached && cached.error) {
+      applyAdventurePreview(view, null, { error: true });
+      if (!cached.timestamp || now - cached.timestamp > ADVENTURE_PREVIEW_TTL) {
+        loadAdventurePreview(c.id).then(result => {
+          const payload = result || {};
+          updateAdventurePreviewView(c.id, payload.status, { error: !!payload.error });
+        });
+      }
+    } else {
+      applyAdventurePreview(view, null, { loading: true });
+      loadAdventurePreview(c.id).then(result => {
+        const payload = result || {};
+        updateAdventurePreviewView(c.id, payload.status, { error: !!payload.error });
+      });
     }
 
     const stats = c.attributes || {};
@@ -1502,30 +1667,71 @@ async function enterGame(character) {
   initTabs();
 }
 
+function exitToCharacterSelect() {
+  const previousId = currentCharacter ? currentCharacter.id : null;
+  const latestStatus = adventureStatus;
+  stopAdventurePolling();
+  if (previousId != null && latestStatus) {
+    cacheAdventurePreview(previousId, latestStatus, { error: !!latestStatus.error });
+    updateAdventurePreviewView(previousId, latestStatus, { error: !!latestStatus.error });
+  }
+  currentCharacter = null;
+  inventoryView = null;
+  rotation = [];
+  rotationInitialized = false;
+  adventureElements = null;
+  adventureStatus = null;
+  const battleArea = document.getElementById('battle-area');
+  if (battleArea) {
+    battleArea.innerHTML = '';
+  }
+  gameDiv.classList.add('hidden');
+  charSelectDiv.classList.remove('hidden');
+  renderCharacters();
+}
+
+function showTab(target) {
+  if (!target) return false;
+  let found = false;
+  document.querySelectorAll('.tab-pane').forEach(pane => {
+    const isActive = pane.id === target;
+    if (isActive) found = true;
+    pane.classList.toggle('active', isActive);
+  });
+  if (!found) {
+    return false;
+  }
+  document.querySelectorAll('#tabs button').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-tab') === target);
+  });
+  if (target === 'rotation') {
+    initRotation();
+  } else if (target === 'character') {
+    renderCharacter();
+  } else if (target === 'shop') {
+    renderShop();
+  } else if (target === 'inventory') {
+    renderInventory();
+  }
+  return true;
+}
+
 function initTabs() {
   const buttons = document.querySelectorAll('#tabs button');
   if (!tabsInitialized) {
     buttons.forEach(btn => {
       btn.addEventListener('click', () => {
         const target = btn.getAttribute('data-tab');
-        document.querySelectorAll('.tab-pane').forEach(pane => {
-          pane.classList.toggle('active', pane.id === target);
-        });
-        if (target === 'rotation') {
-          initRotation();
-        } else if (target === 'character') {
-          renderCharacter();
-        } else if (target === 'shop') {
-          renderShop();
-        } else if (target === 'inventory') {
-          renderInventory();
-        }
+        showTab(target);
       });
     });
     tabsInitialized = true;
   }
-  if (buttons.length) {
-    buttons[0].click();
+  if (!showTab('character') && buttons.length) {
+    const fallback = buttons[0].getAttribute('data-tab');
+    if (fallback) {
+      showTab(fallback);
+    }
   }
 }
 
@@ -2103,6 +2309,16 @@ function applyAdventureUpdates(status) {
   }
   if ((goldChanged || characterChanged) && isTabActive('shop')) {
     renderShop();
+  }
+  const previewCharacterId =
+    status && typeof status.characterId === 'number'
+      ? status.characterId
+      : status && status.character && typeof status.character.id === 'number'
+      ? status.character.id
+      : null;
+  if (previewCharacterId != null) {
+    cacheAdventurePreview(previewCharacterId, status, { error: !!status.error });
+    updateAdventurePreviewView(previewCharacterId, status, { error: !!status.error });
   }
 }
 
@@ -3702,6 +3918,11 @@ async function renderCharacter() {
   heroNote.className = 'hero-note';
   heroNote.textContent = 'Tweak gear in the loadout and prepare your next rotation.';
   heroActions.appendChild(heroNote);
+
+  const swapButton = document.createElement('button');
+  swapButton.textContent = 'Swap Character';
+  swapButton.addEventListener('click', exitToCharacterSelect);
+  heroActions.appendChild(swapButton);
 
   const grid = document.createElement('div');
   grid.className = 'character-grid';
