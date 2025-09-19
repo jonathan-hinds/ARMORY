@@ -91,81 +91,19 @@
       </div>
       <div id="character" class="tab-pane active"></div>
       <div id="inventory" class="tab-pane">
-        <div id="inventory-header">
-          <div id="inventory-gold">Gold: 0</div>
-          <div id="inventory-message" class="message hidden"></div>
-        </div>
+        <div id="inventory-message" class="message hidden"></div>
         <div class="inventory-layout">
-          <aside id="inventory-controls">
-            <div class="filter-section">
-              <h3>Categories</h3>
-              <div id="inventory-category-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Slots</h3>
-              <div id="inventory-slot-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Weapon Types</h3>
-              <div id="inventory-weapon-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Scaling</h3>
-              <div id="inventory-scaling-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Effects</h3>
-              <div id="inventory-effect-filter" class="filter-options"></div>
-            </div>
-            <div class="filter-section">
-              <h3>Sort Order</h3>
-              <select id="inventory-sort">
-                <option value="name-asc">Name • A to Z</option>
-                <option value="name-desc">Name • Z to A</option>
-                <option value="rarity-desc">Rarity • High to Low</option>
-                <option value="rarity-asc">Rarity • Low to High</option>
-                <option value="cost-asc">Cost • Low to High</option>
-                <option value="cost-desc">Cost • High to Low</option>
-                <option value="damage-desc">Damage • High to Low</option>
-                <option value="damage-asc">Damage • Low to High</option>
-                <option value="stat-desc">Stat Bonus • High to Low</option>
-                <option value="stat-asc">Stat Bonus • Low to High</option>
-              </select>
-            </div>
-            <button id="inventory-reset" class="filter-reset">Reset Filters</button>
-          </aside>
-          <div class="inventory-results">
-            <div class="inventory-results-header">
-              <div id="inventory-results-summary"></div>
-            </div>
-            <div class="inventory-panels">
-              <section class="inventory-section">
-                <div class="inventory-section-header">Owned Items</div>
-                <div class="inventory-section-body">
-                  <div id="inventory-grid" class="inventory-category-list"></div>
-                </div>
-              </section>
-              <aside class="inventory-side-panel">
-                <section class="inventory-section">
-                  <div class="inventory-section-header">Equipped Gear</div>
-                  <div class="inventory-section-body">
-                    <div id="equipment-slots" class="equipment-slots"></div>
-                  </div>
-                </section>
-                <section class="inventory-section">
-                  <div class="inventory-section-header">Loadout Summary</div>
-                  <div class="inventory-section-body">
-                    <div id="loadout-summary" class="loadout-summary"></div>
-                  </div>
-                </section>
-                <section class="inventory-section">
-                  <div class="inventory-section-header">Materials</div>
-                  <div class="inventory-section-body">
-                    <div id="material-grid" class="inventory-card-grid"></div>
-                  </div>
-                </section>
-              </aside>
-            </div>
+          <div class="inventory-column">
+            <h3>Owned Items</h3>
+            <div id="inventory-grid" class="item-grid"></div>
+            <h3>Materials</h3>
+            <div id="material-grid" class="material-grid"></div>
+          </div>
+          <div class="inventory-column equipment-panel">
+            <h3>Equipped</h3>
+            <div id="equipment-slots" class="equipment-slots"></div>
+            <h3>Loadout Summary</h3>
+            <div id="loadout-summary" class="loadout-summary"></div>
           </div>
         </div>
       </div>
