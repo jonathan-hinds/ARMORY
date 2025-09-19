@@ -13,6 +13,8 @@ const DEFAULT_CONFIG = {
   statGainChance: 0.05,
   statGainAmount: 1,
   logLimit: 30,
+  materialRecoveryEnabled: true,
+  materialRecoveryChanceMultiplier: 1,
   rarityWeights: {
     Common: 6,
     Uncommon: 3,
@@ -119,6 +121,14 @@ function normalizeJob(entry, baseConfig) {
     ? Math.round(statGainAmountValue)
     : baseConfig.statGainAmount;
   const rarityWeights = normalizeRarityWeights(entry.rarityWeights, baseConfig.rarityWeights);
+  const materialRecoveryEnabled = entry.materialRecoveryEnabled != null
+    ? !!entry.materialRecoveryEnabled
+    : baseConfig.materialRecoveryEnabled;
+  const materialRecoveryChanceMultiplierValue = Number(entry.materialRecoveryChanceMultiplier);
+  const materialRecoveryChanceMultiplier = Number.isFinite(materialRecoveryChanceMultiplierValue)
+    && materialRecoveryChanceMultiplierValue >= 0
+    ? materialRecoveryChanceMultiplierValue
+    : baseConfig.materialRecoveryChanceMultiplier;
   const itemsRaw = Array.isArray(entry.items) ? entry.items : [];
   const items = itemsRaw.map(normalizeJobItem).filter(Boolean);
   if (!items.length) {
@@ -135,6 +145,8 @@ function normalizeJob(entry, baseConfig) {
     category,
     items,
     rarityWeights,
+    materialRecoveryEnabled,
+    materialRecoveryChanceMultiplier,
     craftsPerHour: effectiveCraftsPerHour,
     statGainChance,
     statGainAmount,
@@ -164,8 +176,25 @@ function normalizeConfig(raw) {
   const logLimit = Number.isFinite(logLimitValue) && logLimitValue >= 5
     ? Math.round(logLimitValue)
     : DEFAULT_CONFIG.logLimit;
+  const materialRecoveryEnabled = source.materialRecoveryEnabled != null
+    ? !!source.materialRecoveryEnabled
+    : DEFAULT_CONFIG.materialRecoveryEnabled;
+  const materialRecoveryChanceMultiplierValue = Number(source.materialRecoveryChanceMultiplier);
+  const materialRecoveryChanceMultiplier = Number.isFinite(materialRecoveryChanceMultiplierValue)
+    && materialRecoveryChanceMultiplierValue >= 0
+    ? materialRecoveryChanceMultiplierValue
+    : DEFAULT_CONFIG.materialRecoveryChanceMultiplier;
   const rarityWeights = normalizeRarityWeights(source.rarityWeights, DEFAULT_CONFIG.rarityWeights);
-  const base = { hourSeconds, craftsPerHour, statGainChance, statGainAmount, logLimit, rarityWeights };
+  const base = {
+    hourSeconds,
+    craftsPerHour,
+    statGainChance,
+    statGainAmount,
+    logLimit,
+    materialRecoveryEnabled,
+    materialRecoveryChanceMultiplier,
+    rarityWeights,
+  };
   const jobsRaw = Array.isArray(source.jobs) ? source.jobs : [];
   const seen = new Set();
   const jobs = [];
@@ -259,6 +288,58 @@ function setMaterialCount(container, id, value) {
   }
 }
 
+function calculateMaterialRecoveryChance(characterDoc, jobDef, config) {
+  if (!characterDoc || !jobDef || !config) {
+    return { allowed: false, chance: null, share: 0, multiplier: 0 };
+  }
+  const enabled = jobDef.materialRecoveryEnabled != null
+    ? !!jobDef.materialRecoveryEnabled
+    : !!config.materialRecoveryEnabled;
+  if (!enabled) {
+    return { allowed: false, chance: null, share: 0, multiplier: 0 };
+  }
+  const attribute = jobDef.attribute;
+  if (!attribute) {
+    return { allowed: false, chance: null, share: 0, multiplier: 0 };
+  }
+  const attributes = characterDoc.attributes && typeof characterDoc.attributes === 'object'
+    ? characterDoc.attributes
+    : {};
+  let totalAttributes = 0;
+  Object.values(attributes).forEach(value => {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      totalAttributes += numeric;
+    }
+  });
+  const multiplierSource = jobDef.materialRecoveryChanceMultiplier != null
+    ? jobDef.materialRecoveryChanceMultiplier
+    : config.materialRecoveryChanceMultiplier;
+  const multiplierNumeric = Number(multiplierSource);
+  const multiplier = Number.isFinite(multiplierNumeric) && multiplierNumeric >= 0
+    ? multiplierNumeric
+    : 0;
+  const statValueRaw = attributes[attribute];
+  const statValueNumeric = Number(statValueRaw);
+  const statValue = Number.isFinite(statValueNumeric) && statValueNumeric > 0 ? statValueNumeric : 0;
+  const share = totalAttributes > 0 ? statValue / totalAttributes : 0;
+  if (!(totalAttributes > 0) || !(statValue > 0)) {
+    return {
+      allowed: true,
+      chance: 0,
+      share,
+      multiplier,
+    };
+  }
+  const chance = Math.max(0, Math.min(1, share * multiplier));
+  return {
+    allowed: true,
+    chance,
+    share,
+    multiplier,
+  };
+}
+
 function recordJobEvent(jobState, event, logLimit) {
   const entry = {
     ...event,
@@ -271,7 +352,27 @@ function recordJobEvent(jobState, event, logLimit) {
           available: sanitizePositiveInteger(m.available),
         })).filter(m => m.materialId)
       : undefined,
+    generatedMaterials: Array.isArray(event.generatedMaterials)
+      ? event.generatedMaterials
+          .map(m => ({
+            materialId: typeof m.materialId === 'string' ? m.materialId : null,
+            amount: sanitizePositiveInteger(m.amount),
+          }))
+          .filter(m => m.materialId && m.amount > 0)
+      : undefined,
   };
+  const chanceValue = Number(event.generationChance);
+  if (Number.isFinite(chanceValue) && chanceValue >= 0) {
+    entry.generationChance = Math.max(0, Math.min(1, chanceValue));
+  }
+  if (event.generationAttempted != null) {
+    entry.generationAttempted = !!event.generationAttempted;
+  } else if (entry.generationChance != null) {
+    entry.generationAttempted = true;
+  }
+  if (event.generationSucceeded != null) {
+    entry.generationSucceeded = !!event.generationSucceeded;
+  }
   jobState.log.push(entry);
   if (jobState.log.length > logLimit) {
     jobState.log.splice(0, jobState.log.length - logLimit);
@@ -330,6 +431,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
   if (!jobDef) {
     return { changed: false, job: null, attempts: 0 };
   }
+  const jobAttribute = jobDef.attribute && jobDef.attribute.trim ? jobDef.attribute.trim() : null;
   const now = options.now ? new Date(options.now) : new Date();
   let jobChanged = false;
   if (!jobState.isWorking) {
@@ -406,6 +508,41 @@ async function processJobForCharacter(characterDoc, options = {}) {
         missing.push({ materialId, required, available });
       }
     });
+    let generatedMaterials = null;
+    let generationChance = null;
+    let generationAttempted = false;
+    let generationSucceeded = false;
+    let generationShare = null;
+    let generationMultiplier = null;
+    if (!canCraft && missing.length) {
+      const recovery = calculateMaterialRecoveryChance(characterDoc, jobDef, config);
+      if (recovery.allowed) {
+        generationAttempted = true;
+        generationChance = Number.isFinite(recovery.chance) ? recovery.chance : 0;
+        generationShare = Number.isFinite(recovery.share) ? recovery.share : null;
+        generationMultiplier = Number.isFinite(recovery.multiplier) ? recovery.multiplier : null;
+        if (generationChance > 0 && Math.random() < generationChance) {
+          generatedMaterials = [];
+          missing.forEach(entry => {
+            const deficit = entry.required - entry.available;
+            const amount = deficit > 0 ? deficit : 0;
+            if (!amount) {
+              return;
+            }
+            const current = readMaterialCount(characterDoc.materials, entry.materialId);
+            const total = current + amount;
+            setMaterialCount(characterDoc.materials, entry.materialId, total);
+            generatedMaterials.push({ materialId: entry.materialId, amount });
+          });
+          if (generatedMaterials.length) {
+            canCraft = true;
+            generationSucceeded = true;
+          } else {
+            generatedMaterials = null;
+          }
+        }
+      }
+    }
     const event = {
       timestamp: attemptTime,
       type: canCraft ? 'crafted' : 'failed',
@@ -414,12 +551,34 @@ async function processJobForCharacter(characterDoc, options = {}) {
       rarity: item ? item.rarity || null : null,
       materials: recipe,
     };
+    if (generationAttempted) {
+      event.generationAttempted = true;
+      if (jobAttribute) {
+        event.generationAttribute = jobAttribute;
+      }
+    }
+    if (generationChance != null) {
+      event.generationChance = generationChance;
+    }
+    if (generationShare != null) {
+      event.generationShare = generationShare;
+    }
+    if (generationMultiplier != null) {
+      event.generationMultiplier = generationMultiplier;
+    }
     if (!canCraft) {
       event.reason = 'insufficient-materials';
       event.missing = missing;
+      if (generationAttempted) {
+        event.generationSucceeded = false;
+      }
       recordJobEvent(jobState, event, logLimit);
       jobChanged = true;
       continue;
+    }
+    if (generatedMaterials) {
+      event.generationSucceeded = true;
+      event.generatedMaterials = generatedMaterials;
     }
     Object.entries(recipe).forEach(([materialId, qty]) => {
       const required = sanitizePositiveInteger(qty);
@@ -439,7 +598,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
     const gainChance = jobDef.statGainChance != null ? jobDef.statGainChance : config.statGainChance;
     const gainAmount = jobDef.statGainAmount != null ? jobDef.statGainAmount : config.statGainAmount;
     if (gainAmount > 0 && gainChance > 0 && Math.random() < gainChance) {
-      const stat = jobDef.attribute && jobDef.attribute.trim ? jobDef.attribute.trim() : null;
+      const stat = jobAttribute;
       if (stat) {
         if (!characterDoc.attributes || typeof characterDoc.attributes !== 'object') {
           characterDoc.attributes = {};
@@ -506,6 +665,26 @@ function sanitizeLogEntry(entry, equipmentMap) {
           available: Number.isFinite(m.available) ? m.available : 0,
         })).filter(m => m.materialId)
       : [],
+    generatedMaterials: Array.isArray(entry.generatedMaterials)
+      ? entry.generatedMaterials
+          .map(m => ({
+            materialId: typeof m.materialId === 'string' ? m.materialId : null,
+            amount: Number.isFinite(m.amount) ? m.amount : 0,
+          }))
+          .filter(m => m.materialId && m.amount > 0)
+      : [],
+    generationAttempted: !!entry.generationAttempted,
+    generationSucceeded: !!entry.generationSucceeded,
+    generationChance: Number.isFinite(entry.generationChance)
+      ? Math.max(0, Math.min(1, entry.generationChance))
+      : null,
+    generationShare: Number.isFinite(entry.generationShare)
+      ? Math.max(0, Math.min(1, entry.generationShare))
+      : null,
+    generationMultiplier: Number.isFinite(entry.generationMultiplier) && entry.generationMultiplier >= 0
+      ? entry.generationMultiplier
+      : null,
+    generationAttribute: entry.generationAttribute || null,
   };
 }
 
@@ -530,6 +709,8 @@ function buildPublicJob(job, equipmentMap) {
     craftsPerHour: job.craftsPerHour,
     statGainChance: job.statGainChance,
     statGainAmount: job.statGainAmount,
+    materialRecoveryEnabled: job.materialRecoveryEnabled,
+    materialRecoveryChanceMultiplier: job.materialRecoveryChanceMultiplier,
     items,
   };
 }
@@ -597,6 +778,8 @@ function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config) {
     craftIntervalSeconds: jobDef.craftIntervalSeconds,
     statGainChance: jobDef.statGainChance,
     statGainAmount: jobDef.statGainAmount,
+    materialRecoveryEnabled: jobDef.materialRecoveryEnabled,
+    materialRecoveryChanceMultiplier: jobDef.materialRecoveryChanceMultiplier,
     totalAttempts,
     totalCrafted,
     totalFailed: Math.max(0, totalAttempts - totalCrafted),
@@ -628,6 +811,8 @@ async function buildStatusForDoc(characterDoc, config) {
       statGainChance: config.statGainChance,
       statGainAmount: config.statGainAmount,
       logLimit: config.logLimit,
+      materialRecoveryEnabled: config.materialRecoveryEnabled,
+      materialRecoveryChanceMultiplier: config.materialRecoveryChanceMultiplier,
     },
   };
 }

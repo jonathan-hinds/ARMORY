@@ -4,6 +4,8 @@
   "statGainChance": 0.05,
   "statGainAmount": 1,
   "logLimit": 30,
+  "materialRecoveryEnabled": true,
+  "materialRecoveryChanceMultiplier": 1,
   "rarityWeights": {
     "Common": 6,
     "Uncommon": 3,
