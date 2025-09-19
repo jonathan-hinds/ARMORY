@@ -39,6 +39,7 @@ const SLOT_LABELS = {
   useable: 'Useable Item',
   useable1: 'Useable Slot 1',
   useable2: 'Useable Slot 2',
+  material: 'Material',
 };
 const STAT_KEYS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 const RESOURCE_LABELS = { health: 'HP', mana: 'MP', stamina: 'Stamina' };
@@ -89,6 +90,8 @@ function computeHitChanceLocal(attributes) {
 let equipmentCatalog = null;
 let catalogPromise = null;
 let equipmentIndex = null;
+let materialsCatalog = [];
+let materialIndex = null;
 let inventoryView = null;
 let inventoryPromise = null;
 let tabsInitialized = false;
@@ -145,6 +148,10 @@ function isUseableItem(item) {
   return item && item.slot === 'useable';
 }
 
+function isMaterial(item) {
+  return item && (item.kind === 'material' || item.slot === 'material');
+}
+
 function statLabel(stat) {
   if (!stat) return '';
   return stat.charAt(0).toUpperCase() + stat.slice(1);
@@ -163,6 +170,7 @@ const SHOP_CATEGORY_DEFINITIONS = [
   { value: 'weapons', label: 'Weapons' },
   { value: 'armor', label: 'Armor' },
   { value: 'useables', label: 'Useable Items' },
+  { value: 'materials', label: 'Materials' },
 ];
 const SHOP_EFFECT_OPTIONS = [
   { value: 'onHit', label: 'On Hit Effects' },
@@ -171,7 +179,7 @@ const SHOP_EFFECT_OPTIONS = [
   { value: 'chanceBonus', label: 'Chance Bonuses' },
   { value: 'resourceBonus', label: 'Resource Bonuses' },
 ];
-const SHOP_SLOT_ORDER = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands', 'useable'];
+const SHOP_SLOT_ORDER = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands', 'useable', 'material'];
 
 const shopFilters = {
   categories: new Set(),
@@ -492,6 +500,17 @@ function itemTooltip(item) {
   };
   add('Name', item.name);
   add('Rarity', item.rarity || 'Common');
+  if (isMaterial(item)) {
+    add('Category', 'Material');
+    if (item.cost != null) add('Cost', `${item.cost} Gold`);
+    if (item.description) {
+      add('Description', item.description);
+    } else {
+      add('Description', 'A crafting component.');
+    }
+    add('Usage', 'Will be used in future crafting systems.');
+    return container;
+  }
   if (isUseableItem(item)) {
     add('Slot', slotLabel(item.slot));
     if (item.category) add('Category', titleCase(item.category));
@@ -654,6 +673,9 @@ function applyInventoryData(data) {
   if (!inventoryView.useables) {
     inventoryView.useables = { useable1: null, useable2: null };
   }
+  if (!Array.isArray(inventoryView.materials)) {
+    inventoryView.materials = [];
+  }
   if (data.character) {
     currentCharacter = data.character;
     const idx = characters.findIndex(c => c.id === data.character.id);
@@ -661,6 +683,9 @@ function applyInventoryData(data) {
       characters[idx] = data.character;
     }
     setRotationDamageType(data.character.basicType);
+    if (currentCharacter) {
+      currentCharacter.materials = data.character.materials || {};
+    }
   }
   if (currentCharacter && typeof data.gold === 'number') {
     currentCharacter.gold = data.gold;
@@ -680,12 +705,16 @@ async function ensureCatalog() {
       }
       const data = await res.json();
       equipmentCatalog = data;
+      materialsCatalog = Array.isArray(data.materials) ? data.materials : [];
       equipmentIndex = buildEquipmentIndex(data);
+      materialIndex = buildMaterialIndex(materialsCatalog);
       return data;
     })()
       .catch(err => {
         equipmentCatalog = null;
-        equipmentIndex = null;
+      equipmentIndex = null;
+      materialsCatalog = [];
+      materialIndex = null;
         throw err;
       })
       .finally(() => {
@@ -709,6 +738,16 @@ function buildEquipmentIndex(catalog = equipmentCatalog) {
   return index;
 }
 
+function buildMaterialIndex(materials = materialsCatalog) {
+  const index = {};
+  materials.forEach(material => {
+    if (material && material.id != null) {
+      index[material.id] = material;
+    }
+  });
+  return index;
+}
+
 function getEquipmentById(id) {
   if (id == null) return null;
   if (!equipmentCatalog) return null;
@@ -718,14 +757,24 @@ function getEquipmentById(id) {
   return equipmentIndex[id] || null;
 }
 
+function getMaterialById(id) {
+  if (id == null) return null;
+  if (!materialsCatalog) return null;
+  if (!materialIndex) {
+    materialIndex = buildMaterialIndex();
+  }
+  return materialIndex[id] || null;
+}
+
 function getCatalogItems() {
   if (!equipmentCatalog) return [];
   const weapons = Array.isArray(equipmentCatalog.weapons) ? equipmentCatalog.weapons : [];
   const armor = Array.isArray(equipmentCatalog.armor) ? equipmentCatalog.armor : [];
   const useables = Array.isArray(equipmentCatalog.useables) ? equipmentCatalog.useables : [];
-  return [...weapons, ...armor, ...useables].slice().sort((a, b) => {
-    const priorityA = isUseableItem(a) ? 1 : 0;
-    const priorityB = isUseableItem(b) ? 1 : 0;
+  const materials = Array.isArray(equipmentCatalog.materials) ? equipmentCatalog.materials : [];
+  return [...weapons, ...armor, ...useables, ...materials].slice().sort((a, b) => {
+    const priorityA = isMaterial(a) ? 2 : isUseableItem(a) ? 1 : 0;
+    const priorityB = isMaterial(b) ? 2 : isUseableItem(b) ? 1 : 0;
     if (priorityA !== priorityB) return priorityA - priorityB;
     const costA = typeof a.cost === 'number' ? a.cost : 0;
     const costB = typeof b.cost === 'number' ? b.cost : 0;
@@ -737,6 +786,9 @@ function getCatalogItems() {
 function formatItemMeta(item) {
   if (!item) return '';
   const rarity = item.rarity || 'Common';
+  if (isMaterial(item)) {
+    return `${rarity} • Material`;
+  }
   if (isUseableItem(item)) {
     const category = item.category ? titleCase(item.category) : 'Useable Item';
     return `${rarity} • Useable Item (${category})`;
@@ -760,6 +812,7 @@ function normalizeWeaponType(type) {
 
 function getShopCategoryKey(item) {
   if (!item) return 'armor';
+  if (isMaterial(item)) return 'materials';
   if (isUseableItem(item)) return 'useables';
   if (item.slot === 'weapon') return 'weapons';
   return 'armor';
@@ -783,6 +836,13 @@ function getShopSubgroupInfo(categoryKey, item) {
     return {
       key: category,
       label: category ? titleCase(category) : 'General',
+    };
+  }
+  if (categoryKey === 'materials') {
+    const rarity = item && item.rarity ? String(item.rarity) : 'Common';
+    return {
+      key: rarity,
+      label: `${titleCase(rarity)} Materials`,
     };
   }
   const slot = item.slot || 'misc';
@@ -1162,11 +1222,20 @@ function buildShopItemCard(item, messageEl) {
   } else if (isUseableItem(item)) {
     const categoryTag = item.category ? titleCase(item.category) : '';
     if (categoryTag) tags.appendChild(createTag(categoryTag));
+  } else if (isMaterial(item)) {
+    tags.appendChild(createTag('Crafting'));
   } else if (item.type) {
     tags.appendChild(createTag(titleCase(item.type)));
   }
   if (tags.childElementCount) {
     card.appendChild(tags);
+  }
+
+  if (isMaterial(item) && item.description) {
+    const body = document.createElement('div');
+    body.className = 'card-description';
+    body.textContent = item.description;
+    card.appendChild(body);
   }
 
   const footer = document.createElement('div');
@@ -1944,6 +2013,29 @@ function inventoryItemsEqual(a, b) {
   return counts.size === 0;
 }
 
+function materialsEqual(a, b) {
+  const entriesA = a && typeof a === 'object' ? Object.entries(a) : [];
+  const entriesB = b && typeof b === 'object' ? Object.entries(b) : [];
+  if (entriesA.length !== entriesB.length) {
+    return false;
+  }
+  const map = new Map();
+  entriesA.forEach(([id, count]) => {
+    const key = id != null ? String(id) : '__null__';
+    const value = Number(count) || 0;
+    map.set(key, value);
+  });
+  for (const [id, count] of entriesB) {
+    const key = id != null ? String(id) : '__null__';
+    const value = Number(count) || 0;
+    if (!map.has(key) || map.get(key) !== value) {
+      return false;
+    }
+    map.delete(key);
+  }
+  return map.size === 0;
+}
+
 function applyAdventureUpdates(status) {
   if (!status) return;
   let inventoryDirty = false;
@@ -1964,6 +2056,9 @@ function applyAdventureUpdates(status) {
       if (!inventoryItemsEqual(currentCharacter.items, nextItems)) {
         inventoryDirty = true;
       }
+      if (!materialsEqual(currentCharacter.materials, status.character.materials || {})) {
+        inventoryDirty = true;
+      }
     }
     currentCharacter = status.character;
     const idx = characters.findIndex(c => c.id === status.character.id);
@@ -1981,11 +2076,15 @@ function applyAdventureUpdates(status) {
     if (!inventoryItemsEqual(currentCharacter.items, nextItems)) {
       inventoryDirty = true;
     }
+    if (!materialsEqual(currentCharacter.materials, status.character.materials || {})) {
+      inventoryDirty = true;
+    }
     if (typeof status.character.gold === 'number' && (currentCharacter.gold || 0) !== status.character.gold) {
       goldChanged = true;
     }
     currentCharacter.gold = status.character.gold;
     currentCharacter.items = nextItems;
+    currentCharacter.materials = status.character.materials || {};
     if (inventoryView && inventoryView.character && inventoryView.character.id === status.character.id) {
       inventoryView.gold = status.character.gold;
     }
@@ -2203,6 +2302,40 @@ function createAdventureItemCard(item) {
   return card;
 }
 
+function createAdventureMaterialCard(material) {
+  if (!material) return null;
+  const card = document.createElement('div');
+  card.className = 'event-card item-card';
+  card.tabIndex = 0;
+  card.setAttribute('role', 'button');
+  if (material.rarity) {
+    card.dataset.rarity = String(material.rarity).toLowerCase();
+  }
+  const title = document.createElement('div');
+  title.className = 'card-title';
+  title.textContent = 'Material Found';
+  card.appendChild(title);
+  const body = document.createElement('div');
+  body.className = 'card-body';
+  const rarityText = material.rarity ? titleCase(material.rarity) : '';
+  const nameText = material.name || 'Unknown material';
+  const quantity = Number.isFinite(material.quantity) ? material.quantity : 1;
+  const quantityText = quantity > 1 ? ` ×${quantity}` : '';
+  body.textContent = rarityText ? `${rarityText} • ${nameText}${quantityText}` : `${nameText}${quantityText}`;
+  card.appendChild(body);
+  const materialDetails = material.id != null ? getMaterialById(material.id) : null;
+  if (materialDetails) {
+    attachTooltip(card, () => itemTooltip(materialDetails));
+  } else {
+    attachTooltip(card, () => buildTooltipFromPairs([
+      ['Material', nameText],
+      ['Rarity', rarityText || 'Unknown'],
+      ['Quantity', quantity],
+    ]));
+  }
+  return card;
+}
+
 function createAdventureOpponentCard(event) {
   if (!event || !event.opponent) return null;
   const card = document.createElement('div');
@@ -2283,6 +2416,10 @@ function buildAdventureEventCards(event) {
   if (event.item) {
     const itemCard = createAdventureItemCard(event.item);
     if (itemCard) cards.push(itemCard);
+  }
+  if (event.material) {
+    const materialCard = createAdventureMaterialCard(event.material);
+    if (materialCard) cards.push(materialCard);
   }
   if (event.opponent) {
     const opponentCard = createAdventureOpponentCard(event);
@@ -2382,6 +2519,21 @@ function renderAdventureHistory(historyEntries) {
       });
       itemsLine.textContent = `Items: ${names.join(', ')}`;
       item.appendChild(itemsLine);
+    }
+    const materials = Array.isArray(rewards.materials)
+      ? rewards.materials.filter(mat => mat && (mat.name || mat.rarity))
+      : [];
+    if (materials.length) {
+      const materialsLine = document.createElement('div');
+      materialsLine.className = 'history-items';
+      const names = materials.map(mat => {
+        const rarity = mat.rarity ? `${mat.rarity} ` : '';
+        const qty = Number.isFinite(mat.quantity) && mat.quantity > 1 ? ` ×${mat.quantity}` : '';
+        if (mat.name) return `${rarity}${mat.name}${qty}`.trim();
+        return `${rarity}material${qty}`.trim();
+      });
+      materialsLine.textContent = `Materials: ${names.join(', ')}`;
+      item.appendChild(materialsLine);
     }
 
     list.appendChild(item);
@@ -2549,6 +2701,13 @@ function renderAdventureStatus(status, { refreshEvents = true } = {}) {
         if (event.type === 'item' && event.item) {
           const rarity = event.item.rarity ? `${event.item.rarity} • ` : '';
           metaParts.push(`${rarity}${event.item.name}`);
+        }
+        if (event.type === 'material' && event.material) {
+          const rarity = event.material.rarity ? `${event.material.rarity} • ` : '';
+          const quantity = Number.isFinite(event.material.quantity) && event.material.quantity > 1
+            ? ` ×${event.material.quantity}`
+            : '';
+          metaParts.push(`${rarity}${event.material.name}${quantity}`);
         }
         if (event.rewards) {
           if (event.rewards.xp) metaParts.push(`+${event.rewards.xp} XP`);
@@ -3010,21 +3169,25 @@ async function purchaseItem(item, messageEl) {
 async function renderInventory() {
   const message = document.getElementById('inventory-message');
   const grid = document.getElementById('inventory-grid');
+  const materialGrid = document.getElementById('material-grid');
   const slots = document.getElementById('equipment-slots');
   const summary = document.getElementById('loadout-summary');
-  if (!grid || !slots || !summary) return;
+  if (!grid || !materialGrid || !slots || !summary) return;
   grid.textContent = 'Loading...';
+  materialGrid.textContent = 'Loading...';
   slots.innerHTML = '';
   summary.innerHTML = '';
   try {
     await ensureInventory();
   } catch (err) {
     grid.textContent = 'Failed to load inventory.';
+    materialGrid.textContent = '';
     showMessage(message, err.message || 'Failed to load inventory', true);
     return;
   }
   clearMessage(message);
   grid.innerHTML = '';
+  materialGrid.innerHTML = '';
   const inventoryItems = Array.isArray(inventoryView.inventory) ? inventoryView.inventory : [];
   if (!inventoryItems.length) {
     const empty = document.createElement('div');
@@ -3082,6 +3245,39 @@ async function renderInventory() {
       }
       attachTooltip(card, () => itemTooltip(item));
       grid.appendChild(card);
+    });
+  }
+
+  const materialItems = Array.isArray(inventoryView.materials) ? inventoryView.materials : [];
+  if (!materialItems.length) {
+    const emptyMaterial = document.createElement('div');
+    emptyMaterial.textContent = 'No materials collected yet.';
+    materialGrid.appendChild(emptyMaterial);
+  } else {
+    materialItems.forEach(({ material, count }) => {
+      if (!material) return;
+      const card = document.createElement('div');
+      card.className = 'material-card';
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = material.name;
+      card.appendChild(name);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = formatItemMeta(material);
+      card.appendChild(meta);
+      const countDiv = document.createElement('div');
+      countDiv.className = 'owned';
+      countDiv.textContent = `Count: ${count}`;
+      card.appendChild(countDiv);
+      if (material.description) {
+        const desc = document.createElement('div');
+        desc.className = 'meta description';
+        desc.textContent = material.description;
+        card.appendChild(desc);
+      }
+      attachTooltip(card, () => itemTooltip(material));
+      materialGrid.appendChild(card);
     });
   }
 

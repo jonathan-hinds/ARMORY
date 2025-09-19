@@ -26,6 +26,21 @@ function ensureUseableShape(useables = {}) {
   return shaped;
 }
 
+function ensureMaterialShape(materials = {}) {
+  if (!materials || typeof materials !== 'object') {
+    return {};
+  }
+  const shaped = {};
+  Object.entries(materials).forEach(([id, value]) => {
+    if (id == null) return;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      shaped[id] = numeric;
+    }
+  });
+  return shaped;
+}
+
 function ensureAttributesShape(attributes = {}) {
   const shaped = {};
   STATS.forEach(stat => {
@@ -62,6 +77,7 @@ function serializeCharacter(doc) {
     useables,
     gold,
     items,
+    materials,
   } = plain;
   return {
     id: typeof characterId === 'number' ? characterId : null,
@@ -76,6 +92,7 @@ function serializeCharacter(doc) {
     useables: ensureUseableShape(useables),
     gold: typeof gold === 'number' ? gold : 0,
     items: Array.isArray(items) ? [...items] : [],
+    materials: ensureMaterialShape(materials),
   };
 }
 
@@ -85,6 +102,7 @@ module.exports = {
   STATS,
   ensureEquipmentShape,
   ensureUseableShape,
+  ensureMaterialShape,
   ensureAttributesShape,
   serializeCharacter,
   serializePlayer,

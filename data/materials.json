@@ -1,0 +1,67 @@
+{
+  "materials": [
+    {
+      "id": "material_rune_shard",
+      "name": "Rune Shard",
+      "rarity": "Common",
+      "cost": 25,
+      "description": "A fragment of an ancient rune stone that hums with faint energy.",
+      "kind": "material",
+      "slot": "material"
+    },
+    {
+      "id": "material_rune_dust",
+      "name": "Rune Dust",
+      "rarity": "Common",
+      "cost": 20,
+      "description": "Residual dust swept from shattered runes, useful for enchanting inks.",
+      "kind": "material",
+      "slot": "material"
+    },
+    {
+      "id": "material_heart_stone",
+      "name": "Heart Stone",
+      "rarity": "Common",
+      "cost": 32,
+      "description": "A warm stone said to steady the pulse of whoever carries it.",
+      "kind": "material",
+      "slot": "material"
+    },
+    {
+      "id": "material_runic_sigil",
+      "name": "Runic Sigil",
+      "rarity": "Uncommon",
+      "cost": 55,
+      "description": "An intact sigil that can anchor complicated spellwork.",
+      "kind": "material",
+      "slot": "material"
+    },
+    {
+      "id": "material_iron_silk",
+      "name": "Iron Silk",
+      "rarity": "Uncommon",
+      "cost": 60,
+      "description": "Threads spun from metallic spiders, light yet unyielding.",
+      "kind": "material",
+      "slot": "material"
+    },
+    {
+      "id": "material_metallic_feather",
+      "name": "Metallic Feather",
+      "rarity": "Rare",
+      "cost": 115,
+      "description": "A feather of a steelwing hawk that never dulls.",
+      "kind": "material",
+      "slot": "material"
+    },
+    {
+      "id": "material_troll_skull",
+      "name": "Troll Skull",
+      "rarity": "Epic",
+      "cost": 210,
+      "description": "A troll's skull etched with battle scars, brimming with regenerative essence.",
+      "kind": "material",
+      "slot": "material"
+    }
+  ]
+}

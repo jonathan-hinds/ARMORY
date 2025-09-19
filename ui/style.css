@@ -493,6 +493,12 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .item-card .cost { font-weight:bold; }
 .item-card .owned { font-size:12px; }
 .item-card button { margin-top:auto; }
+.material-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:8px; }
+.material-card { border:1px solid #000; padding:8px; display:flex; flex-direction:column; gap:6px; background:#fff; min-height:130px; }
+.material-card .name { font-weight:bold; text-transform:uppercase; }
+.material-card .meta { font-size:12px; }
+.material-card .meta.description { font-style:italic; color:#333; }
+.material-card .owned { font-size:12px; }
 
 .shop-layout { display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap; }
 #shop-controls { flex:0 0 260px; border:2px solid #000; background:#fff; padding:16px; display:flex; flex-direction:column; gap:16px; box-shadow:6px 6px 0 #000; }
@@ -524,6 +530,7 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .shop-item-card .card-rarity { border:2px solid #000; padding:2px 6px; font-size:11px; }
 .shop-item-card .card-tags { display:flex; flex-wrap:wrap; gap:4px; font-size:10px; text-transform:uppercase; letter-spacing:1px; }
 .shop-item-card .card-tag { border:1px solid #000; padding:2px 6px; }
+.shop-item-card .card-description { font-size:12px; color:#333; }
 .shop-item-card .card-footer { margin-top:auto; display:flex; justify-content:space-between; align-items:center; gap:8px; font-weight:bold; text-transform:uppercase; letter-spacing:1px; }
 .shop-item-card .card-cost { font-size:12px; }
 .shop-item-card button { font-weight:bold; text-transform:uppercase; box-shadow:3px 3px 0 #000; padding:6px 10px; }
