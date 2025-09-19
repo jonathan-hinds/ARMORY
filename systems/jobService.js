@@ -63,6 +63,23 @@ function normalizeMaterials(materials) {
   return result;
 }
 
+function normalizeAttributeMap(attributes) {
+  const result = {};
+  if (!attributes || typeof attributes !== 'object') {
+    return result;
+  }
+  Object.entries(attributes).forEach(([key, value]) => {
+    if (!key) {
+      return;
+    }
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      result[key] = numeric;
+    }
+  });
+  return result;
+}
+
 function normalizeRarityWeights(source, fallback = {}) {
   const result = { ...fallback };
   if (!source || typeof source !== 'object') {
@@ -302,16 +319,8 @@ function calculateMaterialRecoveryChance(characterDoc, jobDef, config) {
   if (!attribute) {
     return { allowed: false, chance: null, share: 0, multiplier: 0 };
   }
-  const attributes = characterDoc.attributes && typeof characterDoc.attributes === 'object'
-    ? characterDoc.attributes
-    : {};
-  let totalAttributes = 0;
-  Object.values(attributes).forEach(value => {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric > 0) {
-      totalAttributes += numeric;
-    }
-  });
+  const attributes = normalizeAttributeMap(characterDoc.attributes);
+  const totalAttributes = Object.values(attributes).reduce((sum, value) => sum + value, 0);
   const multiplierSource = jobDef.materialRecoveryChanceMultiplier != null
     ? jobDef.materialRecoveryChanceMultiplier
     : config.materialRecoveryChanceMultiplier;
@@ -319,10 +328,9 @@ function calculateMaterialRecoveryChance(characterDoc, jobDef, config) {
   const multiplier = Number.isFinite(multiplierNumeric) && multiplierNumeric >= 0
     ? multiplierNumeric
     : 0;
-  const statValueRaw = attributes[attribute];
-  const statValueNumeric = Number(statValueRaw);
-  const statValue = Number.isFinite(statValueNumeric) && statValueNumeric > 0 ? statValueNumeric : 0;
-  const share = totalAttributes > 0 ? statValue / totalAttributes : 0;
+  const statValue = Number.isFinite(attributes[attribute]) ? attributes[attribute] : 0;
+  const rawShare = totalAttributes > 0 ? statValue / totalAttributes : 0;
+  const share = Math.max(0, Math.min(1, rawShare));
   if (!(totalAttributes > 0) || !(statValue > 0)) {
     return {
       allowed: true,
@@ -364,6 +372,25 @@ function recordJobEvent(jobState, event, logLimit) {
   const chanceValue = Number(event.generationChance);
   if (Number.isFinite(chanceValue) && chanceValue >= 0) {
     entry.generationChance = Math.max(0, Math.min(1, chanceValue));
+  }
+  const rollValue = Number(event.generationRoll);
+  if (Number.isFinite(rollValue) && rollValue >= 0) {
+    entry.generationRoll = Math.max(0, Math.min(1, rollValue));
+  }
+  if (event.generationShare != null) {
+    const shareValue = Number(event.generationShare);
+    if (Number.isFinite(shareValue) && shareValue >= 0) {
+      entry.generationShare = Math.max(0, Math.min(1, shareValue));
+    }
+  }
+  if (event.generationMultiplier != null) {
+    const multiplierValue = Number(event.generationMultiplier);
+    if (Number.isFinite(multiplierValue) && multiplierValue >= 0) {
+      entry.generationMultiplier = multiplierValue;
+    }
+  }
+  if (event.generationAttribute != null) {
+    entry.generationAttribute = event.generationAttribute;
   }
   if (event.generationAttempted != null) {
     entry.generationAttempted = !!event.generationAttempted;
@@ -512,16 +539,24 @@ async function processJobForCharacter(characterDoc, options = {}) {
     let generationChance = null;
     let generationAttempted = false;
     let generationSucceeded = false;
+    let generationRoll = null;
     let generationShare = null;
     let generationMultiplier = null;
     if (!canCraft && missing.length) {
       const recovery = calculateMaterialRecoveryChance(characterDoc, jobDef, config);
       if (recovery.allowed) {
         generationAttempted = true;
-        generationChance = Number.isFinite(recovery.chance) ? recovery.chance : 0;
-        generationShare = Number.isFinite(recovery.share) ? recovery.share : null;
-        generationMultiplier = Number.isFinite(recovery.multiplier) ? recovery.multiplier : null;
-        if (generationChance > 0 && Math.random() < generationChance) {
+        const chanceValue = Number(recovery.chance);
+        generationChance = Number.isFinite(chanceValue) ? Math.max(0, Math.min(1, chanceValue)) : 0;
+        const shareValue = Number(recovery.share);
+        generationShare = Number.isFinite(shareValue) ? Math.max(0, Math.min(1, shareValue)) : null;
+        const multiplierValue = Number(recovery.multiplier);
+        generationMultiplier = Number.isFinite(multiplierValue) && multiplierValue >= 0
+          ? multiplierValue
+          : null;
+        const roll = Math.random();
+        generationRoll = roll;
+        if (generationChance > 0 && roll < generationChance) {
           generatedMaterials = [];
           missing.forEach(entry => {
             const deficit = entry.required - entry.available;
@@ -565,6 +600,9 @@ async function processJobForCharacter(characterDoc, options = {}) {
     }
     if (generationMultiplier != null) {
       event.generationMultiplier = generationMultiplier;
+    }
+    if (generationRoll != null) {
+      event.generationRoll = generationRoll;
     }
     if (!canCraft) {
       event.reason = 'insufficient-materials';
@@ -683,6 +721,9 @@ function sanitizeLogEntry(entry, equipmentMap) {
       : null,
     generationMultiplier: Number.isFinite(entry.generationMultiplier) && entry.generationMultiplier >= 0
       ? entry.generationMultiplier
+      : null,
+    generationRoll: Number.isFinite(entry.generationRoll)
+      ? Math.max(0, Math.min(1, entry.generationRoll))
       : null,
     generationAttribute: entry.generationAttribute || null,
   };

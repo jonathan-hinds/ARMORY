@@ -1819,11 +1819,21 @@ function formatJobLogMessage(entry) {
   if (!entry) return '';
   const itemName = entry.itemName
     || (entry.itemId ? titleCase(entry.itemId.replace(/^useable[_-]?/i, '').replace(/_/g, ' ')) : 'item');
-  const chance = Number(entry.generationChance);
-  const share = Number(entry.generationShare);
-  const hasChance = Number.isFinite(chance) && chance > 0;
-  const hasShare = Number.isFinite(share) && share > 0;
+  const chanceRaw = Number(entry.generationChance);
+  const shareRaw = Number(entry.generationShare);
+  const rollRaw = Number(entry.generationRoll);
+  const multiplierRaw = Number(entry.generationMultiplier);
+  const attempted = !!entry.generationAttempted;
+  const hasChance = entry.generationChance != null && Number.isFinite(chanceRaw) && chanceRaw >= 0;
+  const hasShare = entry.generationShare != null && Number.isFinite(shareRaw) && shareRaw >= 0;
+  const hasRoll = entry.generationRoll != null && Number.isFinite(rollRaw) && rollRaw >= 0;
+  const hasMultiplier = entry.generationMultiplier != null && Number.isFinite(multiplierRaw) && multiplierRaw >= 0;
   const attributeName = entry.generationAttribute ? statLabel(entry.generationAttribute) : 'attribute';
+  const clamp01 = value => Math.max(0, Math.min(1, value));
+  const chance = hasChance ? clamp01(chanceRaw) : null;
+  const share = hasShare ? clamp01(shareRaw) : null;
+  const roll = hasRoll ? clamp01(rollRaw) : null;
+  const multiplier = hasMultiplier ? Math.max(0, multiplierRaw) : null;
   const describeGenerated = list =>
     list
       .map(m => {
@@ -1831,25 +1841,65 @@ function formatJobLogMessage(entry) {
         return `${describeMaterial(m.materialId)} ×${amount}`;
       })
       .join(', ');
+  const formatMultiplierValue = value => {
+    if (!Number.isFinite(value)) {
+      return null;
+    }
+    if (value === 0) {
+      return '0';
+    }
+    if (Math.abs(value - Math.round(value)) < 0.0001) {
+      return String(Math.round(value));
+    }
+    if (value >= 10) {
+      return value.toFixed(1);
+    }
+    return value.toFixed(2);
+  };
+  const describeCreationRoll = outcome => {
+    if (!attempted) {
+      return '';
+    }
+    if (!hasChance && !hasShare && !hasRoll && !hasMultiplier) {
+      return 'Creation roll unavailable—insufficient attribute share.';
+    }
+    const detailParts = [];
+    if (hasChance) {
+      let chancePart = `${formatPercent(chance, 1)} chance`;
+      if (hasRoll) {
+        chancePart += `; rolled ${formatPercent(roll, 2)}`;
+      }
+      detailParts.push(chancePart);
+    } else if (hasRoll) {
+      detailParts.push(`rolled ${formatPercent(roll, 2)}`);
+    }
+    if (hasShare) {
+      let sharePart = `${formatPercent(share, 1)} ${attributeName} share`;
+      if (hasMultiplier) {
+        sharePart += ` ×${formatMultiplierValue(multiplier)} multiplier`;
+      }
+      detailParts.push(sharePart);
+    } else if (hasMultiplier) {
+      detailParts.push(`×${formatMultiplierValue(multiplier)} multiplier`);
+    }
+    const details = detailParts.length ? ` (${detailParts.join('; ')})` : '';
+    return `Creation roll ${outcome}${details}.`;
+  };
   if (entry.type === 'crafted') {
     const rarityText = entry.rarity ? `${entry.rarity} ` : '';
     let message = `Crafted ${rarityText}${itemName}.`;
     if (Array.isArray(entry.generatedMaterials) && entry.generatedMaterials.length) {
       const generatedText = describeGenerated(entry.generatedMaterials);
-      let creation = ' Created missing materials';
-      if (hasChance) {
-        creation += ` (${formatPercent(chance)} chance`;
-        if (hasShare) {
-          creation += ` from ${formatPercent(share)} ${attributeName} share`;
-        }
-        creation += ')';
-      } else if (hasShare) {
-        creation += ` (${formatPercent(share)} ${attributeName} share)`;
+      const creationSummary = describeCreationRoll('succeeded');
+      if (creationSummary) {
+        message += ` ${creationSummary}`;
       }
-      creation += `: ${generatedText}.`;
-      message += creation;
-    } else if (entry.generationAttempted && !hasChance && !hasShare) {
-      message += ' Creation roll unavailable—insufficient attribute share.';
+      message += ` Generated missing materials: ${generatedText}.`;
+    } else if (attempted) {
+      const creationSummary = describeCreationRoll(entry.generationSucceeded ? 'succeeded' : 'failed');
+      if (creationSummary) {
+        message += ` ${creationSummary}`;
+      }
     }
     if (entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0) {
       message += ` Gained +${entry.statAmount} ${statLabel(entry.stat)}.`;
@@ -1865,23 +1915,19 @@ function formatJobLogMessage(entry) {
       })
       .join(', ');
     let message = `Attempted to craft ${itemName} but lacked ${missingText}.`;
-    if (entry.generationAttempted) {
-      if (hasChance) {
-        message += ` Creation roll failed (${formatPercent(chance)} chance`;
-        if (hasShare) {
-          message += ` from ${formatPercent(share)} ${attributeName} share`;
-        }
-        message += ').';
-      } else if (hasShare) {
-        message += ` Creation roll unavailable despite ${formatPercent(share)} ${attributeName} share.`;
-      } else {
-        message += ' No material creation chance available—insufficient attribute share.';
+    if (attempted) {
+      const creationSummary = describeCreationRoll('failed');
+      if (creationSummary) {
+        message += ` ${creationSummary}`;
       }
     }
     return message;
   }
-  if (entry.generationAttempted && !hasChance && !hasShare) {
-    return `Attempted to craft ${itemName} but it failed. No material creation chance available—insufficient attribute share.`;
+  if (attempted) {
+    const creationSummary = describeCreationRoll(entry.generationSucceeded ? 'succeeded' : 'failed');
+    if (creationSummary) {
+      return `Attempted to craft ${itemName} but it failed. ${creationSummary}`;
+    }
   }
   return `Attempted to craft ${itemName} but it failed.`;
 }
