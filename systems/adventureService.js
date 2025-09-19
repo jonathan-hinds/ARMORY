@@ -3,6 +3,8 @@ const AdventureStateModel = require('../models/AdventureState');
 const {
   serializeCharacter,
   STATS,
+  readMaterialCount,
+  writeMaterialCount,
 } = require('../models/utils');
 const { readJSON } = require('../store/jsonStore');
 const {
@@ -759,8 +761,8 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
       if (!bundle.characterDoc.materials || typeof bundle.characterDoc.materials !== 'object') {
         bundle.characterDoc.materials = {};
       }
-      const current = Number(bundle.characterDoc.materials[material.id]) || 0;
-      bundle.characterDoc.materials[material.id] = current + 1;
+      const current = readMaterialCount(bundle.characterDoc.materials, material.id);
+      writeMaterialCount(bundle.characterDoc.materials, material.id, current + 1);
       characterDirty = true;
       if (typeof bundle.characterDoc.markModified === 'function') {
         bundle.characterDoc.markModified('materials');
