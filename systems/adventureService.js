@@ -15,6 +15,7 @@ const {
   buildOpponentPreview,
 } = require('./challengeGA');
 const { runCombat } = require('./combatEngine');
+const { getMaterialMap } = require('./materialService');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const ADVENTURE_CONFIG_FILE = path.join(DATA_DIR, 'adventureConfig.json');
@@ -71,7 +72,7 @@ function normalizeEvent(entry) {
   };
   if (type === 'gold' || type === 'xp') {
     normalized.amount = normalizeAmount(entry.amount);
-  } else if (type === 'item') {
+  } else if (type === 'item' || type === 'material') {
     const weights = entry.rarityWeights && typeof entry.rarityWeights === 'object' ? entry.rarityWeights : {};
     normalized.rarityWeights = Object.entries(weights).reduce((acc, [rarity, value]) => {
       const num = Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -231,6 +232,7 @@ function appendEvent(state, event, config) {
     amount: event.amount != null ? event.amount : null,
     rarity: event.rarity || null,
     item: event.item || null,
+    material: event.material || null,
     result: event.result || null,
     rewards: event.rewards || null,
     opponent: event.opponent || null,
@@ -374,6 +376,14 @@ function sanitizeEvent(event) {
       rarity: event.item.rarity || sanitized.rarity,
     };
   }
+  if (event.material) {
+    sanitized.material = {
+      id: event.material.id != null ? event.material.id : null,
+      name: event.material.name,
+      rarity: event.material.rarity || sanitized.rarity,
+      quantity: Number.isFinite(event.material.quantity) ? event.material.quantity : 1,
+    };
+  }
   if (event.opponent) {
     const opponent = {
       name: event.opponent.name || null,
@@ -438,6 +448,17 @@ function buildRarityIndex(equipmentMap) {
   return byRarity;
 }
 
+function buildMaterialRarityIndex(materialMap) {
+  const byRarity = new Map();
+  Array.from(materialMap.values()).forEach(material => {
+    if (!material) return;
+    const rarity = material.rarity || 'Common';
+    if (!byRarity.has(rarity)) byRarity.set(rarity, []);
+    byRarity.get(rarity).push(material);
+  });
+  return byRarity;
+}
+
 function pickItemReward(eventDef, bundle) {
   const rarityWeights = eventDef.rarityWeights || {};
   const byRarity = bundle.itemsByRarity;
@@ -470,6 +491,40 @@ function pickItemReward(eventDef, bundle) {
   }
   const item = items[Math.floor(Math.random() * items.length)];
   return { item, rarity: item.rarity || chosen.rarity || 'Common' };
+}
+
+function pickMaterialReward(eventDef, bundle) {
+  const rarityWeights = eventDef.rarityWeights || {};
+  const byRarity = bundle.materialsByRarity || new Map();
+  const entries = Object.entries(rarityWeights)
+    .map(([rarity, weight]) => {
+      const materials = byRarity.get(rarity) || [];
+      return { rarity, weight: Number.isFinite(weight) ? Math.max(0, weight) : 0, materials };
+    })
+    .filter(entry => entry.weight > 0 && entry.materials.length);
+  let pool = entries;
+  if (!pool.length) {
+    pool = Array.from(byRarity.entries()).map(([rarity, materials]) => ({ rarity, weight: materials.length, materials }));
+  }
+  if (!pool.length) {
+    return { material: null, rarity: null };
+  }
+  const totalWeight = pool.reduce((acc, entry) => acc + entry.weight, 0);
+  let roll = Math.random() * totalWeight;
+  let chosen = pool[pool.length - 1];
+  for (const entry of pool) {
+    roll -= entry.weight;
+    if (roll <= 0) {
+      chosen = entry;
+      break;
+    }
+  }
+  const materials = chosen.materials.length ? chosen.materials : pool.flatMap(p => p.materials);
+  if (!materials.length) {
+    return { material: null, rarity: null };
+  }
+  const material = materials[Math.floor(Math.random() * materials.length)];
+  return { material, rarity: material.rarity || chosen.rarity || 'Common' };
 }
 
 function refreshBundle(bundle) {
@@ -519,11 +574,12 @@ function buildFailureEvent(state, timestamp, details = {}) {
 }
 
 function collectAdventureSummary(state) {
-  const summary = { xp: 0, gold: 0, items: [] };
+  const summary = { xp: 0, gold: 0, items: [], materials: [] };
   if (!state || !Array.isArray(state.events)) {
     return summary;
   }
   const seenItems = new Set();
+  const materialTotals = new Map();
   state.events.forEach(event => {
     if (!event) return;
     if (event.type === 'xp' && Number.isFinite(event.amount)) {
@@ -551,7 +607,21 @@ function collectAdventureSummary(state) {
         });
       }
     }
+    if (event.material) {
+      const id = event.material.id != null ? String(event.material.id) : null;
+      const key = id || `${event.material.name || 'material'}-${event.material.rarity || ''}`;
+      const entry = materialTotals.get(key) || {
+        id: event.material.id != null ? event.material.id : null,
+        name: event.material.name || null,
+        rarity: event.material.rarity || event.rarity || null,
+        quantity: 0,
+      };
+      const quantity = Number.isFinite(event.material.quantity) ? event.material.quantity : 1;
+      entry.quantity += quantity;
+      materialTotals.set(key, entry);
+    }
   });
+  summary.materials = Array.from(materialTotals.values());
   return summary;
 }
 
@@ -611,6 +681,16 @@ function sanitizeHistoryEntry(entry) {
         }))
         .filter(item => item.name || item.rarity || item.id != null)
     : [];
+  const materials = Array.isArray(rewards.materials)
+    ? rewards.materials
+        .map(material => ({
+          id: material && material.id != null ? material.id : null,
+          name: material && material.name ? material.name : null,
+          rarity: material && material.rarity ? material.rarity : null,
+          quantity: Number.isFinite(material && material.quantity) ? material.quantity : 1,
+        }))
+        .filter(material => material.name || material.rarity || material.id != null)
+    : [];
   return {
     id: entry.id,
     startedAt: entry.startedAt || null,
@@ -623,6 +703,7 @@ function sanitizeHistoryEntry(entry) {
       xp: Number.isFinite(rewards.xp) ? rewards.xp : 0,
       gold: Number.isFinite(rewards.gold) ? rewards.gold : 0,
       items,
+      materials,
     },
     defeatedBy: entry.defeatedBy
       ? {
@@ -671,6 +752,26 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
         || `Recovered a ${rarity} item: ${item.name}.`;
     } else {
       event.message = 'The search turned up nothing of value.';
+    }
+  } else if (eventDef.type === 'material') {
+    const { material, rarity } = pickMaterialReward(eventDef, bundle);
+    if (material) {
+      if (!bundle.characterDoc.materials || typeof bundle.characterDoc.materials !== 'object') {
+        bundle.characterDoc.materials = {};
+      }
+      const current = Number(bundle.characterDoc.materials[material.id]) || 0;
+      bundle.characterDoc.materials[material.id] = current + 1;
+      characterDirty = true;
+      if (typeof bundle.characterDoc.markModified === 'function') {
+        bundle.characterDoc.markModified('materials');
+      }
+      event.material = { id: material.id, name: material.name, rarity, quantity: 1 };
+      event.rarity = rarity;
+      event.message =
+        formatMessage(eventDef.message, { material: material.name, rarity })
+          || `Discovered a ${rarity} material: ${material.name}.`;
+    } else {
+      event.message = 'The expedition turned up only broken scraps.';
     }
   } else if (eventDef.type === 'combat') {
     const round = state.ga && state.ga.round ? state.ga.round : 1;
@@ -929,8 +1030,13 @@ function buildAdventurePayload(state, config, characterDoc, extra = {}) {
 
 async function loadBundle(characterId, options = {}) {
   try {
-    const bundle = await buildChallengeContext(characterId);
+    const [bundle, materialMap] = await Promise.all([
+      buildChallengeContext(characterId),
+      getMaterialMap(),
+    ]);
     bundle.itemsByRarity = buildRarityIndex(bundle.equipmentMap);
+    bundle.materialMap = materialMap;
+    bundle.materialsByRarity = buildMaterialRarityIndex(materialMap);
     refreshBundle(bundle);
     return { bundle, error: null };
   } catch (err) {

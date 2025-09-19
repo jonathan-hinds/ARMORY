@@ -1,6 +1,7 @@
 const path = require('path');
 const { readJSON } = require('../store/jsonStore');
 const Item = require('../domain/item');
+const { getMaterialCatalog } = require('./materialService');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const EQUIPMENT_FILE = path.join(DATA_DIR, 'equipment.json');
@@ -46,11 +47,12 @@ async function loadCatalog() {
 }
 
 async function getEquipmentCatalog() {
-  const catalog = await loadCatalog();
+  const [catalog, materials] = await Promise.all([loadCatalog(), getMaterialCatalog()]);
   return {
     weapons: catalog.weapons,
     armor: catalog.armor,
     useables: catalog.useables,
+    materials,
   };
 }
 

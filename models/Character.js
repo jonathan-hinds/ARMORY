@@ -31,6 +31,8 @@ const attributesSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const materialsSchema = new mongoose.Schema({}, { _id: false, strict: false });
+
 const characterSchema = new mongoose.Schema(
   {
     characterId: { type: Number, unique: true, index: true, required: true },
@@ -45,6 +47,7 @@ const characterSchema = new mongoose.Schema(
     useables: { type: useableSchema, default: () => ({}) },
     gold: { type: Number, default: 0 },
     items: { type: [String], default: [] },
+    materials: { type: materialsSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

@@ -5,8 +5,10 @@ const {
   serializeCharacter,
   EQUIPMENT_SLOTS,
   USEABLE_SLOTS,
+  ensureMaterialShape,
 } = require('../models/utils');
 const { getEquipmentMap } = require('./equipmentService');
+const { getMaterialMap } = require('./materialService');
 const { compute } = require('./derivedStats');
 
 function slotOrder(slot) {
@@ -19,9 +21,10 @@ async function getInventory(playerId, characterId) {
   if (!playerId || !characterId) {
     throw new Error('playerId and characterId required');
   }
-  const [characterDoc, equipmentMap] = await Promise.all([
+  const [characterDoc, equipmentMap, materialMap] = await Promise.all([
     CharacterModel.findOne({ characterId, playerId }).lean(),
     getEquipmentMap(),
+    getMaterialMap(),
   ]);
   if (!characterDoc) {
     throw new Error('character not found');
@@ -78,8 +81,43 @@ async function getInventory(playerId, characterId) {
     ownedCounts[id] = count;
   });
 
+  const materialCounts = ensureMaterialShape(character.materials || {});
+  const materials = [];
+  Object.entries(materialCounts).forEach(([id, count]) => {
+    if (!count) return;
+    const material = materialMap.get(id);
+    if (!material) return;
+    const plain = JSON.parse(JSON.stringify(material));
+    materials.push({ material: plain, count });
+  });
+
+  const rarityRank = ['Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
+  materials.sort((a, b) => {
+    const rarityA = a.material.rarity || 'Common';
+    const rarityB = b.material.rarity || 'Common';
+    const indexA = rarityRank.indexOf(rarityA);
+    const indexB = rarityRank.indexOf(rarityB);
+    if (indexA !== indexB) {
+      return (indexA === -1 ? rarityRank.length : indexA) - (indexB === -1 ? rarityRank.length : indexB);
+    }
+    const costA = typeof a.material.cost === 'number' ? a.material.cost : 0;
+    const costB = typeof b.material.cost === 'number' ? b.material.cost : 0;
+    if (costA !== costB) return costA - costB;
+    return a.material.name.localeCompare(b.material.name);
+  });
+
+  const ownedMaterialCounts = {};
+  Object.entries(materialCounts).forEach(([id, count]) => {
+    ownedMaterialCounts[id] = count;
+  });
+
   const sanitizedCharacter = JSON.parse(
-    JSON.stringify({ ...character, equipment: equipmentIds, useables: useableIds })
+    JSON.stringify({
+      ...character,
+      equipment: equipmentIds,
+      useables: useableIds,
+      materials: materialCounts,
+    })
   );
 
   return {
@@ -90,6 +128,8 @@ async function getInventory(playerId, characterId) {
     derived,
     inventory,
     ownedCounts,
+    materials,
+    ownedMaterials: ownedMaterialCounts,
   };
 }
 

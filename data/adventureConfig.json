@@ -48,6 +48,18 @@
       "message": "Recovered a {rarity} item: {item}."
     },
     {
+      "id": "material-cache",
+      "type": "material",
+      "weight": 2.4,
+      "rarityWeights": {
+        "Common": 0.58,
+        "Uncommon": 0.28,
+        "Rare": 0.11,
+        "Epic": 0.03
+      },
+      "message": "Discovered a {rarity} material: {material}."
+    },
+    {
       "id": "combat",
       "type": "combat",
       "weight": 2.8,
