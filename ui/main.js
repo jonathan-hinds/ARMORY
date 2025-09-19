@@ -199,7 +199,25 @@ let shopControlsInitialized = false;
 let shopCatalogCache = [];
 let shopTotalItems = 0;
 
+const inventoryFilters = {
+  categories: new Set(),
+  slots: new Set(),
+  weaponTypes: new Set(),
+  scaling: new Set(),
+  effects: new Set(),
+};
+const inventoryFilterOptionValues = {
+  categories: SHOP_CATEGORY_DEFINITIONS.map(option => option.value),
+  slots: [],
+  weaponTypes: [],
+  scaling: [],
+  effects: [],
+};
+let inventoryFiltersInitialized = false;
+let inventoryItemsCache = [];
+
 setSetValues(shopFilters.categories, SHOP_CATEGORY_DEFINITIONS.map(option => option.value));
+setSetValues(inventoryFilters.categories, SHOP_CATEGORY_DEFINITIONS.map(option => option.value));
 
 function displayDamageType(type) {
   if (!type) return 'Melee';
@@ -1200,10 +1218,34 @@ function buildScalingOptions(items) {
   return [...ordered, ...extras].map(stat => ({ value: stat, label: statLabel(stat) }));
 }
 
-function renderCheckboxGroup(containerId, options, valueSet) {
+function buildEffectOptionsForItems(items) {
+  const available = new Set();
+  items.forEach(item => {
+    if (!item) return;
+    if (Array.isArray(item.onHitEffects) && item.onHitEffects.length) {
+      available.add('onHit');
+    }
+    if (item.useEffect) {
+      available.add('useEffect');
+    }
+    if (formatAttributeBonuses(item.attributeBonuses)) {
+      available.add('attributeBonus');
+    }
+    if (formatChanceBonuses(item.chanceBonuses)) {
+      available.add('chanceBonus');
+    }
+    if (formatResourceBonuses(item.resourceBonuses)) {
+      available.add('resourceBonus');
+    }
+  });
+  return SHOP_EFFECT_OPTIONS.filter(option => available.has(option.value));
+}
+
+function renderCheckboxGroup(containerId, options, valueSet, onChange) {
   const container = document.getElementById(containerId);
   if (!container) return;
   container.innerHTML = '';
+  const handleChange = typeof onChange === 'function' ? onChange : updateShopDisplay;
   options.forEach(option => {
     const label = document.createElement('label');
     label.className = 'filter-option';
@@ -1217,7 +1259,7 @@ function renderCheckboxGroup(containerId, options, valueSet) {
       } else {
         valueSet.delete(option.value);
       }
-      updateShopDisplay();
+      handleChange();
     });
     const text = document.createElement('span');
     text.textContent = option.label;
@@ -1308,6 +1350,322 @@ function updateShopDisplay() {
   if (summary) {
     summary.textContent = `${filtered.length} of ${shopTotalItems} items displayed`;
   }
+}
+
+
+function updateInventoryFilterToggleLabel(button, isOpen) {
+  if (!button) return;
+  button.textContent = isOpen ? 'Hide Filters ▴' : 'Show Filters ▾';
+}
+
+function toggleInventoryFilterSection(sectionKey, visible) {
+  const section = document.querySelector(`[data-inventory-section='${sectionKey}']`);
+  if (!section) return;
+  if (visible) {
+    section.classList.remove('hidden');
+  } else {
+    section.classList.add('hidden');
+  }
+}
+
+function initializeInventoryControls(items) {
+  const categoryOptions = SHOP_CATEGORY_DEFINITIONS;
+  const slotOptions = buildSlotOptions(items);
+  const weaponOptions = buildWeaponTypeOptions(items);
+  const scalingOptions = buildScalingOptions(items);
+  const effectOptions = buildEffectOptionsForItems(items);
+
+  inventoryFilterOptionValues.categories = categoryOptions.map(option => option.value);
+  inventoryFilterOptionValues.slots = slotOptions.map(option => option.value);
+  inventoryFilterOptionValues.weaponTypes = weaponOptions.map(option => option.value);
+  inventoryFilterOptionValues.scaling = scalingOptions.map(option => option.value);
+  inventoryFilterOptionValues.effects = effectOptions.map(option => option.value);
+
+  pruneSetToOptions(inventoryFilters.categories, categoryOptions);
+  pruneSetToOptions(inventoryFilters.slots, slotOptions);
+  pruneSetToOptions(inventoryFilters.weaponTypes, weaponOptions);
+  pruneSetToOptions(inventoryFilters.scaling, scalingOptions);
+  pruneSetToOptions(inventoryFilters.effects, effectOptions);
+
+  renderCheckboxGroup('inventory-category-filter', categoryOptions, inventoryFilters.categories, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-slot-filter', slotOptions, inventoryFilters.slots, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-weapon-filter', weaponOptions, inventoryFilters.weaponTypes, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-scaling-filter', scalingOptions, inventoryFilters.scaling, updateInventoryDisplay);
+  renderCheckboxGroup('inventory-effect-filter', effectOptions, inventoryFilters.effects, updateInventoryDisplay);
+
+  toggleInventoryFilterSection('slots', slotOptions.length > 0);
+  toggleInventoryFilterSection('weaponTypes', weaponOptions.length > 0);
+  toggleInventoryFilterSection('scaling', scalingOptions.length > 0);
+  toggleInventoryFilterSection('effects', effectOptions.length > 0);
+}
+
+function resetInventoryFilters() {
+  const defaultCategories = inventoryFilterOptionValues.categories.length
+    ? inventoryFilterOptionValues.categories
+    : SHOP_CATEGORY_DEFINITIONS.map(option => option.value);
+  setSetValues(inventoryFilters.categories, defaultCategories);
+  inventoryFilters.slots.clear();
+  inventoryFilters.weaponTypes.clear();
+  inventoryFilters.scaling.clear();
+  inventoryFilters.effects.clear();
+}
+
+function ensureInventoryFilterControls() {
+  if (inventoryFiltersInitialized) return;
+  const toggle = document.getElementById('inventory-filter-toggle');
+  const panel = document.getElementById('inventory-filter-panel');
+  if (toggle && panel) {
+    updateInventoryFilterToggleLabel(toggle, panel.classList.contains('open'));
+    toggle.addEventListener('click', () => {
+      const isOpen = panel.classList.toggle('open');
+      toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      updateInventoryFilterToggleLabel(toggle, isOpen);
+    });
+  }
+  const resetButton = document.getElementById('inventory-filter-reset');
+  if (resetButton) {
+    resetButton.addEventListener('click', () => {
+      resetInventoryFilters();
+      initializeInventoryControls(inventoryItemsCache.map(entry => entry.item));
+      updateInventoryDisplay();
+    });
+  }
+  inventoryFiltersInitialized = true;
+}
+
+function applyInventoryFilters(entries) {
+  return entries.filter(({ item }) => {
+    if (!item) return false;
+    if (!inventoryFilters.categories.size) {
+      return false;
+    }
+    const categoryKey = getShopCategoryKey(item);
+    if (!inventoryFilters.categories.has(categoryKey)) {
+      return false;
+    }
+    if (inventoryFilters.slots.size && !inventoryFilters.slots.has(item.slot)) {
+      return false;
+    }
+    if (inventoryFilters.weaponTypes.size) {
+      const type = normalizeWeaponType(item.type);
+      if (!inventoryFilters.weaponTypes.has(type)) {
+        return false;
+      }
+    }
+    if (inventoryFilters.scaling.size) {
+      const statKeys = getItemStatKeys(item);
+      if (!statKeys.some(stat => inventoryFilters.scaling.has(stat))) {
+        return false;
+      }
+    }
+    if (inventoryFilters.effects.size) {
+      for (const effect of inventoryFilters.effects) {
+        if (effect === 'onHit' && !(Array.isArray(item.onHitEffects) && item.onHitEffects.length)) {
+          return false;
+        }
+        if (effect === 'useEffect' && !item.useEffect) {
+          return false;
+        }
+        if (effect === 'attributeBonus' && !formatAttributeBonuses(item.attributeBonuses)) {
+          return false;
+        }
+        if (effect === 'chanceBonus' && !formatChanceBonuses(item.chanceBonuses)) {
+          return false;
+        }
+        if (effect === 'resourceBonus' && !formatResourceBonuses(item.resourceBonuses)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+}
+
+function updateInventoryDisplay() {
+  const grid = document.getElementById('inventory-grid');
+  if (!grid) return;
+  const summary = document.getElementById('inventory-results-summary');
+  const messageEl = document.getElementById('inventory-message');
+  grid.innerHTML = '';
+  const total = inventoryItemsCache.length;
+  if (!total) {
+    const empty = document.createElement('div');
+    empty.className = 'shop-empty';
+    empty.textContent = 'No gear owned yet.';
+    grid.appendChild(empty);
+    if (summary) summary.textContent = '0 items owned';
+    return;
+  }
+  const filteredEntries = applyInventoryFilters(inventoryItemsCache);
+  const filteredCount = filteredEntries.length;
+  if (filteredCount) {
+    filteredEntries.forEach(entry => {
+      const card = createInventoryItemCard(entry, messageEl);
+      if (card) {
+        grid.appendChild(card);
+      }
+    });
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'shop-empty';
+    empty.textContent = inventoryFilters.categories.size
+      ? 'No items match the selected filters.'
+      : 'Select a category to view items.';
+    grid.appendChild(empty);
+  }
+  if (summary) {
+    summary.textContent = `${filteredCount} of ${total} items shown`;
+  }
+}
+
+function createInventoryItemCard(entry, messageEl) {
+  if (!entry || !entry.item) return null;
+  const { item, count } = entry;
+  const card = document.createElement('div');
+  card.className = 'shop-item-card inventory-item-card';
+
+  const header = document.createElement('div');
+  header.className = 'card-header';
+  const name = document.createElement('div');
+  name.className = 'card-name';
+  name.textContent = item.name || 'Unknown Item';
+  header.appendChild(name);
+  const rarity = document.createElement('div');
+  rarity.className = 'card-rarity';
+  rarity.textContent = item.rarity || 'Common';
+  header.appendChild(rarity);
+  card.appendChild(header);
+
+  const tags = document.createElement('div');
+  tags.className = 'card-tags';
+  if (item.slot) {
+    const slotTag = document.createElement('span');
+    slotTag.className = 'card-tag';
+    slotTag.textContent = slotLabel(item.slot) || titleCase(item.slot);
+    tags.appendChild(slotTag);
+  }
+  if (isUseableItem(item) && item.category) {
+    const categoryTag = document.createElement('span');
+    categoryTag.className = 'card-tag';
+    categoryTag.textContent = titleCase(item.category);
+    tags.appendChild(categoryTag);
+  }
+  if (item.type && !isUseableItem(item)) {
+    const typeTag = document.createElement('span');
+    typeTag.className = 'card-tag';
+    typeTag.textContent = titleCase(item.type);
+    tags.appendChild(typeTag);
+  }
+  if (tags.childElementCount) {
+    card.appendChild(tags);
+  }
+
+  const meta = document.createElement('div');
+  meta.className = 'card-description inventory-card-meta';
+  meta.textContent = formatItemMeta(item);
+  card.appendChild(meta);
+
+  const footer = document.createElement('div');
+  footer.className = 'card-footer inventory-card-footer';
+  const countLabel = document.createElement('div');
+  countLabel.className = 'card-cost inventory-card-count';
+  countLabel.textContent = `Owned ×${count}`;
+  footer.appendChild(countLabel);
+
+  const actions = document.createElement('div');
+  actions.className = 'inventory-card-actions';
+
+  if (isUseableItem(item)) {
+    const equippedSlots = getUseableSlotsForItem(item.id);
+    if (equippedSlots.length) {
+      const status = document.createElement('div');
+      status.className = 'inventory-card-status';
+      status.textContent = `Equipped: ${equippedSlots.map(slotLabel).join(', ')}`;
+      card.appendChild(status);
+      card.classList.add('equipped');
+    }
+    USEABLE_SLOTS.forEach(slotName => {
+      const btn = document.createElement('button');
+      btn.textContent = `Equip ${slotLabel(slotName)}`;
+      const slotItem = getEquippedSlotItem(slotName);
+      if (slotItem && slotItem.id === item.id) {
+        btn.disabled = true;
+      }
+      btn.addEventListener('click', () => equipItem(slotName, item.id, messageEl));
+      actions.appendChild(btn);
+    });
+  } else {
+    const equippedItem = getEquippedSlotItem(item.slot);
+    if (equippedItem && equippedItem.id === item.id) {
+      const status = document.createElement('div');
+      status.className = 'inventory-card-status';
+      status.textContent = 'Equipped';
+      card.appendChild(status);
+      card.classList.add('equipped');
+    }
+    const equipButton = document.createElement('button');
+    equipButton.textContent = `Equip ${slotLabel(item.slot)}`;
+    if (equippedItem && equippedItem.id === item.id) {
+      equipButton.disabled = true;
+    }
+    equipButton.addEventListener('click', () => equipItem(item.slot, item.id, messageEl));
+    actions.appendChild(equipButton);
+  }
+
+  footer.appendChild(actions);
+  card.appendChild(footer);
+
+  attachTooltip(card, () => itemTooltip(item));
+  return card;
+}
+
+function createInventoryMaterialCard(material, count) {
+  if (!material) return null;
+  const card = document.createElement('div');
+  card.className = 'shop-item-card inventory-material-card';
+
+  const header = document.createElement('div');
+  header.className = 'card-header';
+  const name = document.createElement('div');
+  name.className = 'card-name';
+  name.textContent = material.name || 'Material';
+  header.appendChild(name);
+  const rarity = document.createElement('div');
+  rarity.className = 'card-rarity';
+  rarity.textContent = material.rarity || 'Common';
+  header.appendChild(rarity);
+  card.appendChild(header);
+
+  const tags = document.createElement('div');
+  tags.className = 'card-tags';
+  const tag = document.createElement('span');
+  tag.className = 'card-tag';
+  tag.textContent = 'Material';
+  tags.appendChild(tag);
+  card.appendChild(tags);
+
+  const meta = document.createElement('div');
+  meta.className = 'card-description inventory-card-meta';
+  meta.textContent = formatItemMeta(material);
+  card.appendChild(meta);
+
+  if (material.description) {
+    const description = document.createElement('div');
+    description.className = 'card-description inventory-card-description';
+    description.textContent = material.description;
+    card.appendChild(description);
+  }
+
+  const footer = document.createElement('div');
+  footer.className = 'card-footer inventory-card-footer';
+  const countLabel = document.createElement('div');
+  countLabel.className = 'card-cost inventory-card-count';
+  countLabel.textContent = `Owned ×${count}`;
+  footer.appendChild(countLabel);
+  card.appendChild(footer);
+
+  attachTooltip(card, () => itemTooltip(material));
+  return card;
 }
 
 function applyShopFilters(items) {
@@ -1478,20 +1836,20 @@ function formatJobLogMessage(entry) {
     let message = `Crafted ${rarityText}${itemName}.`;
     if (Array.isArray(entry.generatedMaterials) && entry.generatedMaterials.length) {
       const generatedText = describeGenerated(entry.generatedMaterials);
-      let recovery = ' Recovered missing materials';
+      let creation = ' Created missing materials';
       if (hasChance) {
-        recovery += ` (${formatPercent(chance)} chance`;
+        creation += ` (${formatPercent(chance)} chance`;
         if (hasShare) {
-          recovery += ` from ${formatPercent(share)} ${attributeName} share`;
+          creation += ` from ${formatPercent(share)} ${attributeName} share`;
         }
-        recovery += ')';
+        creation += ')';
       } else if (hasShare) {
-        recovery += ` (${formatPercent(share)} ${attributeName} share)`;
+        creation += ` (${formatPercent(share)} ${attributeName} share)`;
       }
-      recovery += `: ${generatedText}.`;
-      message += recovery;
+      creation += `: ${generatedText}.`;
+      message += creation;
     } else if (entry.generationAttempted && !hasChance && !hasShare) {
-      message += ' Recovery roll unavailable—insufficient attribute share.';
+      message += ' Creation roll unavailable—insufficient attribute share.';
     }
     if (entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0) {
       message += ` Gained +${entry.statAmount} ${statLabel(entry.stat)}.`;
@@ -1509,23 +1867,88 @@ function formatJobLogMessage(entry) {
     let message = `Attempted to craft ${itemName} but lacked ${missingText}.`;
     if (entry.generationAttempted) {
       if (hasChance) {
-        message += ` Recovery roll failed (${formatPercent(chance)} chance`;
+        message += ` Creation roll failed (${formatPercent(chance)} chance`;
         if (hasShare) {
           message += ` from ${formatPercent(share)} ${attributeName} share`;
         }
         message += ').';
       } else if (hasShare) {
-        message += ` Recovery roll unavailable despite ${formatPercent(share)} ${attributeName} share.`;
+        message += ` Creation roll unavailable despite ${formatPercent(share)} ${attributeName} share.`;
       } else {
-        message += ' No recovery chance available—insufficient attribute share.';
+        message += ' No material creation chance available—insufficient attribute share.';
       }
     }
     return message;
   }
   if (entry.generationAttempted && !hasChance && !hasShare) {
-    return `Attempted to craft ${itemName} but it failed. No recovery chance available—insufficient attribute share.`;
+    return `Attempted to craft ${itemName} but it failed. No material creation chance available—insufficient attribute share.`;
   }
   return `Attempted to craft ${itemName} but it failed.`;
+}
+
+function getJobAttributeSource(status) {
+  if (status && status.character && status.character.attributes && typeof status.character.attributes === 'object') {
+    return status.character.attributes;
+  }
+  if (currentCharacter && currentCharacter.attributes && typeof currentCharacter.attributes === 'object') {
+    return currentCharacter.attributes;
+  }
+  return null;
+}
+
+function calculateResourceCreationInfo(source, status) {
+  if (!source) {
+    return { available: false, statName: 'Attribute', chance: 0, share: 0, multiplier: 0 };
+  }
+  const config = status && status.config ? status.config : null;
+  const enabled = source.materialRecoveryEnabled != null
+    ? !!source.materialRecoveryEnabled
+    : !!(config && config.materialRecoveryEnabled);
+  const attributeKey = typeof source.attribute === 'string' ? source.attribute.toLowerCase() : null;
+  const statName = attributeKey ? statLabel(attributeKey) : 'Attribute';
+  if (!enabled || !attributeKey) {
+    return { available: false, statName, chance: 0, share: 0, multiplier: 0 };
+  }
+  const attributes = getJobAttributeSource(status);
+  let totalAttributes = 0;
+  let statValue = 0;
+  if (attributes && typeof attributes === 'object') {
+    Object.entries(attributes).forEach(([key, value]) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        if (typeof key === 'string' && key.toLowerCase() === attributeKey) {
+          statValue = 0;
+        }
+        return;
+      }
+      totalAttributes += numeric;
+      if (typeof key === 'string' && key.toLowerCase() === attributeKey) {
+        statValue = numeric;
+      }
+    });
+  }
+  const multiplierSource = source.materialRecoveryChanceMultiplier != null
+    ? source.materialRecoveryChanceMultiplier
+    : config && config.materialRecoveryChanceMultiplier;
+  const multiplierNumeric = Number(multiplierSource);
+  const multiplier = Number.isFinite(multiplierNumeric) && multiplierNumeric >= 0 ? multiplierNumeric : 0;
+  const share = totalAttributes > 0 && statValue > 0 ? statValue / totalAttributes : 0;
+  const chance = Math.max(0, Math.min(1, share * multiplier));
+  return { available: true, statName, chance, share, multiplier };
+}
+
+function formatResourceCreationText(info) {
+  if (!info || !info.available) {
+    return 'Unavailable';
+  }
+  const digits = info.chance >= 0.1 ? 1 : 2;
+  const chanceText = formatPercent(info.chance, digits);
+  const shareDigits = info.share >= 0.1 ? 1 : 2;
+  const shareText = formatPercent(info.share, shareDigits);
+  const statName = info.statName || 'Attribute';
+  const multiplierDigits = info.multiplier >= 1 ? 0 : 1;
+  const multiplierText = formatPercent(info.multiplier, multiplierDigits);
+  return `${chanceText} chance to create missing materials and add them to your inventory (based on ${shareText} ${statName} share × ${multiplierText} job bonus)`;
 }
 
 function renderJobSelectionContent(container, status) {
@@ -1598,21 +2021,8 @@ function renderJobSelectionContent(container, status) {
     const amount = job.statGainAmount != null ? job.statGainAmount : status.config?.statGainAmount;
     const statName = job.attribute ? statLabel(job.attribute) : 'Attribute';
     addDetail('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
-    const recoveryEnabled = job.materialRecoveryEnabled != null
-      ? job.materialRecoveryEnabled
-      : status.config?.materialRecoveryEnabled;
-    if (recoveryEnabled) {
-      const multiplier = job.materialRecoveryChanceMultiplier != null
-        ? job.materialRecoveryChanceMultiplier
-        : status.config?.materialRecoveryChanceMultiplier ?? 0;
-      const percentText = formatPercent(Math.max(0, multiplier), multiplier >= 1 ? 0 : 1);
-      addDetail(
-        'Recovery Chance',
-        `Missing ingredient recovery equals ${percentText} of your ${statName} share.`
-      );
-    } else {
-      addDetail('Recovery Chance', 'Unavailable');
-    }
+    const creationInfo = calculateResourceCreationInfo(job, status);
+    addDetail('Resource Creation Chance', formatResourceCreationText(creationInfo));
     card.appendChild(details);
 
     const recipeTitle = document.createElement('h4');
@@ -1726,18 +2136,8 @@ function renderJobActiveContent(container, status) {
   const chance = active.statGainChance != null ? active.statGainChance : status.config?.statGainChance;
   const amount = active.statGainAmount != null ? active.statGainAmount : status.config?.statGainAmount;
   addStat('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
-  const recoveryEnabled = active.materialRecoveryEnabled != null
-    ? active.materialRecoveryEnabled
-    : status.config?.materialRecoveryEnabled;
-  if (recoveryEnabled) {
-    const multiplier = active.materialRecoveryChanceMultiplier != null
-      ? active.materialRecoveryChanceMultiplier
-      : status.config?.materialRecoveryChanceMultiplier ?? 0;
-    const percentText = formatPercent(Math.max(0, multiplier), multiplier >= 1 ? 0 : 1);
-    addStat('Recovery Chance', `${percentText} of your ${statName} share when materials are missing`);
-  } else {
-    addStat('Recovery Chance', 'Unavailable');
-  }
+  const creationInfo = calculateResourceCreationInfo(active, status);
+  addStat('Resource Creation Chance', formatResourceCreationText(creationInfo));
   addStat('Total Stat Gains', `${active.totalStatGain || 0} ${statName}`);
   const nextText = isWorking
     ? active.secondsUntilNext == null
@@ -4162,113 +4562,44 @@ async function renderInventory() {
   const grid = document.getElementById('inventory-grid');
   const materialGrid = document.getElementById('material-grid');
   const slots = document.getElementById('equipment-slots');
-  const summary = document.getElementById('loadout-summary');
-  if (!grid || !materialGrid || !slots || !summary) return;
+  const loadoutSummary = document.getElementById('loadout-summary');
+  const resultsSummary = document.getElementById('inventory-results-summary');
+  if (!grid || !materialGrid || !slots || !loadoutSummary) return;
   grid.textContent = 'Loading...';
   materialGrid.textContent = 'Loading...';
   slots.innerHTML = '';
-  summary.innerHTML = '';
+  loadoutSummary.innerHTML = '';
+  if (resultsSummary) resultsSummary.textContent = 'Loading inventory...';
   try {
     await ensureInventory();
   } catch (err) {
     grid.textContent = 'Failed to load inventory.';
     materialGrid.textContent = '';
     showMessage(message, err.message || 'Failed to load inventory', true);
+    if (resultsSummary) resultsSummary.textContent = '';
     return;
   }
   clearMessage(message);
   grid.innerHTML = '';
   materialGrid.innerHTML = '';
   const inventoryItems = Array.isArray(inventoryView.inventory) ? inventoryView.inventory : [];
-  if (!inventoryItems.length) {
-    const empty = document.createElement('div');
-    empty.textContent = 'No gear owned yet.';
-    grid.appendChild(empty);
-  } else {
-    inventoryItems.forEach(({ item, count }) => {
-      const card = document.createElement('div');
-      card.className = 'item-card';
-      const name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = item.name;
-      card.appendChild(name);
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = formatItemMeta(item);
-      card.appendChild(meta);
-      const countDiv = document.createElement('div');
-      countDiv.className = 'owned';
-      countDiv.textContent = `Count: ${count}`;
-      card.appendChild(countDiv);
-      if (isUseableItem(item)) {
-        const equippedSlots = getUseableSlotsForItem(item.id);
-        if (equippedSlots.length) {
-          const equippedTag = document.createElement('div');
-          equippedTag.className = 'meta';
-          equippedTag.textContent = `Equipped: ${equippedSlots.map(slotLabel).join(', ')}`;
-          card.appendChild(equippedTag);
-        }
-        USEABLE_SLOTS.forEach(slotName => {
-          const btn = document.createElement('button');
-          btn.textContent = `Equip ${slotLabel(slotName)}`;
-          const slotItem = getEquippedSlotItem(slotName);
-          if (slotItem && slotItem.id === item.id) {
-            btn.disabled = true;
-          }
-          btn.addEventListener('click', () => equipItem(slotName, item.id, message));
-          card.appendChild(btn);
-        });
-      } else {
-        const equippedItem = getEquippedSlotItem(item.slot);
-        if (equippedItem && equippedItem.id === item.id) {
-          const equippedTag = document.createElement('div');
-          equippedTag.className = 'meta';
-          equippedTag.textContent = 'Equipped';
-          card.appendChild(equippedTag);
-        }
-        const button = document.createElement('button');
-        button.textContent = `Equip ${slotLabel(item.slot)}`;
-        if (equippedItem && equippedItem.id === item.id) {
-          button.disabled = true;
-        }
-        button.addEventListener('click', () => equipItem(item.slot, item.id, message));
-        card.appendChild(button);
-      }
-      attachTooltip(card, () => itemTooltip(item));
-      grid.appendChild(card);
-    });
-  }
+  inventoryItemsCache = inventoryItems.filter(entry => entry && entry.item);
+  initializeInventoryControls(inventoryItemsCache.map(entry => entry.item));
+  ensureInventoryFilterControls();
+  updateInventoryDisplay();
 
   const materialItems = Array.isArray(inventoryView.materials) ? inventoryView.materials : [];
   if (!materialItems.length) {
     const emptyMaterial = document.createElement('div');
+    emptyMaterial.className = 'shop-empty';
     emptyMaterial.textContent = 'No materials collected yet.';
     materialGrid.appendChild(emptyMaterial);
   } else {
     materialItems.forEach(({ material, count }) => {
-      if (!material) return;
-      const card = document.createElement('div');
-      card.className = 'material-card';
-      const name = document.createElement('div');
-      name.className = 'name';
-      name.textContent = material.name;
-      card.appendChild(name);
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = formatItemMeta(material);
-      card.appendChild(meta);
-      const countDiv = document.createElement('div');
-      countDiv.className = 'owned';
-      countDiv.textContent = `Count: ${count}`;
-      card.appendChild(countDiv);
-      if (material.description) {
-        const desc = document.createElement('div');
-        desc.className = 'meta description';
-        desc.textContent = material.description;
-        card.appendChild(desc);
+      const card = createInventoryMaterialCard(material, count);
+      if (card) {
+        materialGrid.appendChild(card);
       }
-      attachTooltip(card, () => itemTooltip(material));
-      materialGrid.appendChild(card);
     });
   }
 
@@ -4287,6 +4618,7 @@ async function renderInventory() {
     slotDiv.appendChild(label);
     const equipped = getEquippedSlotItem(slot);
     if (equipped) {
+      slotDiv.classList.add('filled');
       const itemName = document.createElement('div');
       itemName.className = 'item-name';
       itemName.textContent = equipped.name;
@@ -4325,6 +4657,7 @@ async function renderInventory() {
     slotDiv.appendChild(label);
     const equipped = getEquippedSlotItem(slot);
     if (equipped) {
+      slotDiv.classList.add('filled');
       const itemName = document.createElement('div');
       itemName.className = 'item-name';
       itemName.textContent = equipped.name;
@@ -4352,7 +4685,8 @@ async function renderInventory() {
     slots.appendChild(slotDiv);
   });
 
-  populateLoadoutSummary(summary, inventoryView.derived);
+  loadoutSummary.innerHTML = '';
+  populateLoadoutSummary(loadoutSummary, inventoryView.derived);
 }
 
 async function equipItem(slot, itemId, messageEl) {
