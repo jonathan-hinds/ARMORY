@@ -1836,20 +1836,20 @@ function formatJobLogMessage(entry) {
     let message = `Crafted ${rarityText}${itemName}.`;
     if (Array.isArray(entry.generatedMaterials) && entry.generatedMaterials.length) {
       const generatedText = describeGenerated(entry.generatedMaterials);
-      let recovery = ' Recovered missing materials';
+      let creation = ' Created missing materials';
       if (hasChance) {
-        recovery += ` (${formatPercent(chance)} chance`;
+        creation += ` (${formatPercent(chance)} chance`;
         if (hasShare) {
-          recovery += ` from ${formatPercent(share)} ${attributeName} share`;
+          creation += ` from ${formatPercent(share)} ${attributeName} share`;
         }
-        recovery += ')';
+        creation += ')';
       } else if (hasShare) {
-        recovery += ` (${formatPercent(share)} ${attributeName} share)`;
+        creation += ` (${formatPercent(share)} ${attributeName} share)`;
       }
-      recovery += `: ${generatedText}.`;
-      message += recovery;
+      creation += `: ${generatedText}.`;
+      message += creation;
     } else if (entry.generationAttempted && !hasChance && !hasShare) {
-      message += ' Recovery roll unavailable—insufficient attribute share.';
+      message += ' Creation roll unavailable—insufficient attribute share.';
     }
     if (entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0) {
       message += ` Gained +${entry.statAmount} ${statLabel(entry.stat)}.`;
@@ -1867,23 +1867,88 @@ function formatJobLogMessage(entry) {
     let message = `Attempted to craft ${itemName} but lacked ${missingText}.`;
     if (entry.generationAttempted) {
       if (hasChance) {
-        message += ` Recovery roll failed (${formatPercent(chance)} chance`;
+        message += ` Creation roll failed (${formatPercent(chance)} chance`;
         if (hasShare) {
           message += ` from ${formatPercent(share)} ${attributeName} share`;
         }
         message += ').';
       } else if (hasShare) {
-        message += ` Recovery roll unavailable despite ${formatPercent(share)} ${attributeName} share.`;
+        message += ` Creation roll unavailable despite ${formatPercent(share)} ${attributeName} share.`;
       } else {
-        message += ' No recovery chance available—insufficient attribute share.';
+        message += ' No material creation chance available—insufficient attribute share.';
       }
     }
     return message;
   }
   if (entry.generationAttempted && !hasChance && !hasShare) {
-    return `Attempted to craft ${itemName} but it failed. No recovery chance available—insufficient attribute share.`;
+    return `Attempted to craft ${itemName} but it failed. No material creation chance available—insufficient attribute share.`;
   }
   return `Attempted to craft ${itemName} but it failed.`;
+}
+
+function getJobAttributeSource(status) {
+  if (status && status.character && status.character.attributes && typeof status.character.attributes === 'object') {
+    return status.character.attributes;
+  }
+  if (currentCharacter && currentCharacter.attributes && typeof currentCharacter.attributes === 'object') {
+    return currentCharacter.attributes;
+  }
+  return null;
+}
+
+function calculateResourceCreationInfo(source, status) {
+  if (!source) {
+    return { available: false, statName: 'Attribute', chance: 0, share: 0, multiplier: 0 };
+  }
+  const config = status && status.config ? status.config : null;
+  const enabled = source.materialRecoveryEnabled != null
+    ? !!source.materialRecoveryEnabled
+    : !!(config && config.materialRecoveryEnabled);
+  const attributeKey = typeof source.attribute === 'string' ? source.attribute.toLowerCase() : null;
+  const statName = attributeKey ? statLabel(attributeKey) : 'Attribute';
+  if (!enabled || !attributeKey) {
+    return { available: false, statName, chance: 0, share: 0, multiplier: 0 };
+  }
+  const attributes = getJobAttributeSource(status);
+  let totalAttributes = 0;
+  let statValue = 0;
+  if (attributes && typeof attributes === 'object') {
+    Object.entries(attributes).forEach(([key, value]) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric) || numeric <= 0) {
+        if (typeof key === 'string' && key.toLowerCase() === attributeKey) {
+          statValue = 0;
+        }
+        return;
+      }
+      totalAttributes += numeric;
+      if (typeof key === 'string' && key.toLowerCase() === attributeKey) {
+        statValue = numeric;
+      }
+    });
+  }
+  const multiplierSource = source.materialRecoveryChanceMultiplier != null
+    ? source.materialRecoveryChanceMultiplier
+    : config && config.materialRecoveryChanceMultiplier;
+  const multiplierNumeric = Number(multiplierSource);
+  const multiplier = Number.isFinite(multiplierNumeric) && multiplierNumeric >= 0 ? multiplierNumeric : 0;
+  const share = totalAttributes > 0 && statValue > 0 ? statValue / totalAttributes : 0;
+  const chance = Math.max(0, Math.min(1, share * multiplier));
+  return { available: true, statName, chance, share, multiplier };
+}
+
+function formatResourceCreationText(info) {
+  if (!info || !info.available) {
+    return 'Unavailable';
+  }
+  const digits = info.chance >= 0.1 ? 1 : 2;
+  const chanceText = formatPercent(info.chance, digits);
+  const shareDigits = info.share >= 0.1 ? 1 : 2;
+  const shareText = formatPercent(info.share, shareDigits);
+  const statName = info.statName || 'Attribute';
+  const multiplierDigits = info.multiplier >= 1 ? 0 : 1;
+  const multiplierText = formatPercent(info.multiplier, multiplierDigits);
+  return `${chanceText} chance to create missing materials and add them to your inventory (based on ${shareText} ${statName} share × ${multiplierText} job bonus)`;
 }
 
 function renderJobSelectionContent(container, status) {
@@ -1956,21 +2021,8 @@ function renderJobSelectionContent(container, status) {
     const amount = job.statGainAmount != null ? job.statGainAmount : status.config?.statGainAmount;
     const statName = job.attribute ? statLabel(job.attribute) : 'Attribute';
     addDetail('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
-    const recoveryEnabled = job.materialRecoveryEnabled != null
-      ? job.materialRecoveryEnabled
-      : status.config?.materialRecoveryEnabled;
-    if (recoveryEnabled) {
-      const multiplier = job.materialRecoveryChanceMultiplier != null
-        ? job.materialRecoveryChanceMultiplier
-        : status.config?.materialRecoveryChanceMultiplier ?? 0;
-      const percentText = formatPercent(Math.max(0, multiplier), multiplier >= 1 ? 0 : 1);
-      addDetail(
-        'Recovery Chance',
-        `Missing ingredient recovery equals ${percentText} of your ${statName} share.`
-      );
-    } else {
-      addDetail('Recovery Chance', 'Unavailable');
-    }
+    const creationInfo = calculateResourceCreationInfo(job, status);
+    addDetail('Resource Creation Chance', formatResourceCreationText(creationInfo));
     card.appendChild(details);
 
     const recipeTitle = document.createElement('h4');
@@ -2084,18 +2136,8 @@ function renderJobActiveContent(container, status) {
   const chance = active.statGainChance != null ? active.statGainChance : status.config?.statGainChance;
   const amount = active.statGainAmount != null ? active.statGainAmount : status.config?.statGainAmount;
   addStat('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
-  const recoveryEnabled = active.materialRecoveryEnabled != null
-    ? active.materialRecoveryEnabled
-    : status.config?.materialRecoveryEnabled;
-  if (recoveryEnabled) {
-    const multiplier = active.materialRecoveryChanceMultiplier != null
-      ? active.materialRecoveryChanceMultiplier
-      : status.config?.materialRecoveryChanceMultiplier ?? 0;
-    const percentText = formatPercent(Math.max(0, multiplier), multiplier >= 1 ? 0 : 1);
-    addStat('Recovery Chance', `${percentText} of your ${statName} share when materials are missing`);
-  } else {
-    addStat('Recovery Chance', 'Unavailable');
-  }
+  const creationInfo = calculateResourceCreationInfo(active, status);
+  addStat('Resource Creation Chance', formatResourceCreationText(creationInfo));
   addStat('Total Stat Gains', `${active.totalStatGain || 0} ${statName}`);
   const nextText = isWorking
     ? active.secondsUntilNext == null
