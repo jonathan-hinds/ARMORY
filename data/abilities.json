@@ -21,7 +21,7 @@
     "scaling": ["strength"],
     "effects": [
       { "type": "PhysicalDamage", "value": 15 },
-      { "type": "Stun", "attacks": 2 }
+      { "type": "Stun", "attacks": 1 }
     ]
   },
   {
