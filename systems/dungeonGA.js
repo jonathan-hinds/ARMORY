@@ -1,6 +1,181 @@
+const fs = require('fs').promises;
+const path = require('path');
 const { ensureEquipmentShape, EQUIPMENT_SLOTS, STATS } = require('../models/utils');
 const { compute } = require('./derivedStats');
 const { runDungeonCombat } = require('./combatEngine');
+
+const CONFIG_FILE = path.join(__dirname, '..', 'data', 'dungeonConfig.json');
+
+const DEFAULT_CONFIG = {
+  generations: 4,
+  generationsPerExtraMember: 0,
+  scaling: {
+    attributePointScale: { base: 1.2, perExtraMember: 0.08, minTotal: 30 },
+    gearBudgetScale: { base: 1.3, perExtraMember: 0.18, minTotal: 80 },
+  },
+  targetDuration: { base: 40, perMember: 12 },
+  population: {
+    baseSize: 18,
+    sizePerPartyMember: 0,
+    maxSize: 60,
+    generationGrowth: 0,
+    randomInjectionRate: 0.25,
+    mutateParentRate: 0.2625,
+    mutatePartnerRate: 0.170625,
+    mutateSingleParentRate: 0.6,
+  },
+  evaluationWeights: {
+    damageToParty: 1.8,
+    bossHealthRemaining: 1.1,
+    partyMembersDowned: 140,
+    duration: 6,
+    threatSwaps: 4,
+    winBonus: 450,
+    lossPenalty: 120,
+    bossDamagePenalty: 0.6,
+  },
+};
+
+let configCache = null;
+
+function clampNumber(value, min, max, fallback) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeScale(raw = {}, defaults) {
+  const base = Number.isFinite(raw.base) ? Math.max(0, raw.base) : defaults.base;
+  const perExtraMember = Number.isFinite(raw.perExtraMember)
+    ? Math.max(0, raw.perExtraMember)
+    : defaults.perExtraMember;
+  const minTotal = Number.isFinite(raw.minTotal)
+    ? Math.max(0, Math.round(raw.minTotal))
+    : defaults.minTotal;
+  return { base, perExtraMember, minTotal };
+}
+
+function normalizePopulationConfig(raw = {}) {
+  const defaults = DEFAULT_CONFIG.population;
+  const baseSize = Number.isFinite(raw.baseSize)
+    ? Math.max(2, Math.round(raw.baseSize))
+    : defaults.baseSize;
+  const sizePerPartyMember = Number.isFinite(raw.sizePerPartyMember)
+    ? Math.max(0, raw.sizePerPartyMember)
+    : defaults.sizePerPartyMember;
+  const maxSize = Number.isFinite(raw.maxSize) && raw.maxSize > 0
+    ? Math.max(baseSize, Math.round(raw.maxSize))
+    : defaults.maxSize;
+  const generationGrowth = Number.isFinite(raw.generationGrowth)
+    ? Math.max(0, raw.generationGrowth)
+    : defaults.generationGrowth;
+  let randomInjectionRate = clampNumber(
+    raw.randomInjectionRate,
+    0,
+    1,
+    defaults.randomInjectionRate,
+  );
+  let mutateParentRate = clampNumber(raw.mutateParentRate, 0, 1, defaults.mutateParentRate);
+  let mutatePartnerRate = clampNumber(raw.mutatePartnerRate, 0, 1, defaults.mutatePartnerRate);
+  const total = randomInjectionRate + mutateParentRate + mutatePartnerRate;
+  if (total > 0.999) {
+    const scale = 0.999 / total;
+    randomInjectionRate *= scale;
+    mutateParentRate *= scale;
+    mutatePartnerRate *= scale;
+  }
+  const mutateSingleParentRate = clampNumber(
+    raw.mutateSingleParentRate,
+    0,
+    1,
+    defaults.mutateSingleParentRate,
+  );
+  return {
+    baseSize,
+    sizePerPartyMember,
+    maxSize,
+    generationGrowth,
+    randomInjectionRate,
+    mutateParentRate,
+    mutatePartnerRate,
+    mutateSingleParentRate,
+  };
+}
+
+function normalizeEvaluationWeights(raw = {}) {
+  const defaults = DEFAULT_CONFIG.evaluationWeights;
+  return {
+    damageToParty: Number.isFinite(raw.damageToParty) ? raw.damageToParty : defaults.damageToParty,
+    bossHealthRemaining: Number.isFinite(raw.bossHealthRemaining)
+      ? raw.bossHealthRemaining
+      : defaults.bossHealthRemaining,
+    partyMembersDowned: Number.isFinite(raw.partyMembersDowned)
+      ? raw.partyMembersDowned
+      : defaults.partyMembersDowned,
+    duration: Number.isFinite(raw.duration) ? raw.duration : defaults.duration,
+    threatSwaps: Number.isFinite(raw.threatSwaps) ? raw.threatSwaps : defaults.threatSwaps,
+    winBonus: Number.isFinite(raw.winBonus) ? raw.winBonus : defaults.winBonus,
+    lossPenalty: Number.isFinite(raw.lossPenalty) ? raw.lossPenalty : defaults.lossPenalty,
+    bossDamagePenalty: Number.isFinite(raw.bossDamagePenalty)
+      ? raw.bossDamagePenalty
+      : defaults.bossDamagePenalty,
+  };
+}
+
+function normalizeDungeonConfig(raw = {}) {
+  const config = raw && typeof raw === 'object' ? raw : {};
+  const generations = Number.isFinite(config.generations)
+    ? Math.max(1, Math.round(config.generations))
+    : DEFAULT_CONFIG.generations;
+  const generationsPerExtraMember = Number.isFinite(config.generationsPerExtraMember)
+    ? Math.max(0, config.generationsPerExtraMember)
+    : DEFAULT_CONFIG.generationsPerExtraMember;
+  const scaling = {
+    attributePointScale: normalizeScale(
+      config.scaling && config.scaling.attributePointScale,
+      DEFAULT_CONFIG.scaling.attributePointScale,
+    ),
+    gearBudgetScale: normalizeScale(
+      config.scaling && config.scaling.gearBudgetScale,
+      DEFAULT_CONFIG.scaling.gearBudgetScale,
+    ),
+  };
+  const targetDurationRaw = config.targetDuration && typeof config.targetDuration === 'object'
+    ? config.targetDuration
+    : {};
+  const targetDuration = {
+    base: Number.isFinite(targetDurationRaw.base)
+      ? Math.max(1, targetDurationRaw.base)
+      : DEFAULT_CONFIG.targetDuration.base,
+    perMember: Number.isFinite(targetDurationRaw.perMember)
+      ? Math.max(0, targetDurationRaw.perMember)
+      : DEFAULT_CONFIG.targetDuration.perMember,
+  };
+  return {
+    generations,
+    generationsPerExtraMember,
+    scaling,
+    targetDuration,
+    population: normalizePopulationConfig(config.population),
+    evaluationWeights: normalizeEvaluationWeights(config.evaluationWeights),
+  };
+}
+
+async function loadDungeonConfig() {
+  if (configCache) {
+    return configCache;
+  }
+  try {
+    const data = await fs.readFile(CONFIG_FILE, 'utf8');
+    const parsed = JSON.parse(data);
+    configCache = normalizeDungeonConfig(parsed);
+  } catch (err) {
+    if (err && err.code !== 'ENOENT') {
+      throw err;
+    }
+    configCache = normalizeDungeonConfig(DEFAULT_CONFIG);
+  }
+  return configCache;
+}
 
 const NAME_POOL = [
   'Cataclysm',
@@ -395,16 +570,30 @@ function computePartyProfile(party, equipmentMap) {
   };
 }
 
-function buildDungeonContext(party, abilityMap, equipmentMap, options = {}) {
+function buildDungeonContext(party, abilityMap, equipmentMap, options = {}, config) {
   const profile = computePartyProfile(party, equipmentMap);
   const partySize = Math.max(1, party.length || 1);
   const abilityIds = Array.from(abilityMap.keys());
   const itemsBySlot = buildItemsBySlot(equipmentMap);
-  const pointScale = 1.2 + Math.max(0, partySize - 2) * 0.08;
-  const gearScale = 1.3 + Math.max(0, partySize - 2) * 0.18;
-  const totalPoints = Math.max(30, Math.round(profile.avgPoints * pointScale));
-  const gearBudget = Math.max(80, Math.round(profile.avgGear * gearScale));
-  const targetDuration = 40 + partySize * 12;
+  const extraMembers = Math.max(0, partySize - 2);
+  const attributeScale = config.scaling.attributePointScale.base
+    + extraMembers * config.scaling.attributePointScale.perExtraMember;
+  const gearScale = config.scaling.gearBudgetScale.base
+    + extraMembers * config.scaling.gearBudgetScale.perExtraMember;
+  const totalPoints = Math.max(
+    config.scaling.attributePointScale.minTotal,
+    Math.round(profile.avgPoints * attributeScale),
+  );
+  const gearBudget = Math.max(
+    config.scaling.gearBudgetScale.minTotal,
+    Math.round(profile.avgGear * gearScale),
+  );
+  const targetDuration = config.targetDuration.base + partySize * config.targetDuration.perMember;
+  const generationOverride = Number.isFinite(options.generations)
+    ? Math.max(1, Math.round(options.generations))
+    : null;
+  const generations =
+    generationOverride || Math.max(1, Math.round(config.generations + extraMembers * config.generationsPerExtraMember));
 
   return {
     party,
@@ -418,7 +607,8 @@ function buildDungeonContext(party, abilityMap, equipmentMap, options = {}) {
     partyLevelAvg: profile.avgLevel,
     partySize,
     targetDuration,
-    generations: options.generations || 4,
+    generations,
+    config,
   };
 }
 
@@ -481,14 +671,15 @@ function buildBossPreview(character, equipmentMap, metrics) {
 }
 
 function evaluateFitness(metrics, context, result) {
-  const damageScore = (metrics.damageToParty || 0) * 1.8;
-  const survivalScore = (metrics.bossHealthRemaining || 0) * 1.1;
-  const downedScore = (metrics.partyMembersDowned || 0) * 140;
-  const durationScore = Math.min(metrics.duration || 0, context.targetDuration) * 6;
-  const threatScoreValue = (metrics.threatSwaps || 0) * 4;
-  const bossDamagePenalty = (metrics.damageToBoss || 0) * 0.6;
-  const winBonus = result.winnerSide === 'boss' ? 450 : 0;
-  const lossPenalty = result.winnerSide === 'party' ? 120 : 0;
+  const weights = context.config.evaluationWeights;
+  const damageScore = (metrics.damageToParty || 0) * weights.damageToParty;
+  const survivalScore = (metrics.bossHealthRemaining || 0) * weights.bossHealthRemaining;
+  const downedScore = (metrics.partyMembersDowned || 0) * weights.partyMembersDowned;
+  const durationScore = Math.min(metrics.duration || 0, context.targetDuration) * weights.duration;
+  const threatScoreValue = (metrics.threatSwaps || 0) * weights.threatSwaps;
+  const bossDamagePenalty = (metrics.damageToBoss || 0) * weights.bossDamagePenalty;
+  const winBonus = result.winnerSide === 'boss' ? weights.winBonus : 0;
+  const lossPenalty = result.winnerSide === 'party' ? weights.lossPenalty : 0;
   return damageScore + survivalScore + downedScore + durationScore + threatScoreValue + winBonus - bossDamagePenalty - lossPenalty;
 }
 
@@ -512,25 +703,36 @@ async function evaluateGenome(genome, index, context) {
   };
 }
 
-async function generatePopulation(context, parentA, parentB) {
+async function generatePopulation(context, parentA, parentB, generationIndex = 0) {
   const population = [];
   if (parentA) population.push(normalizeGenome(parentA, context));
   if (parentB) population.push(normalizeGenome(parentB, context));
-  const targetSize = Math.max(18, population.length || 0);
+  const popConfig = context.config.population;
+  const baseTarget = popConfig.baseSize + Math.max(0, context.partySize - 1) * popConfig.sizePerPartyMember;
+  const growth = Math.max(0, generationIndex) * popConfig.generationGrowth;
+  let targetSize = Math.round(baseTarget + growth);
+  if (popConfig.maxSize) {
+    targetSize = Math.min(popConfig.maxSize, targetSize);
+  }
+  targetSize = Math.max(population.length || 0, targetSize);
   while (population.length < targetSize) {
     if (parentA && parentB) {
-      if (Math.random() < 0.25) {
+      const roll = Math.random();
+      if (roll < popConfig.randomInjectionRate) {
         population.push(randomGenome(context));
-      } else if (Math.random() < 0.35) {
+      } else if (roll < popConfig.randomInjectionRate + popConfig.mutateParentRate) {
         population.push(mutateGenome(parentA, context));
-      } else if (Math.random() < 0.35) {
+      } else if (
+        roll
+        < popConfig.randomInjectionRate + popConfig.mutateParentRate + popConfig.mutatePartnerRate
+      ) {
         population.push(mutateGenome(parentB, context));
       } else {
         population.push(breedGenomes(parentA, parentB, context));
       }
     } else if (parentA || parentB) {
       const seed = parentA || parentB;
-      if (Math.random() < 0.6) {
+      if (Math.random() < popConfig.mutateSingleParentRate) {
         population.push(mutateGenome(seed, context));
       } else {
         population.push(randomGenome(context));
@@ -542,8 +744,8 @@ async function generatePopulation(context, parentA, parentB) {
   return population;
 }
 
-async function findChampion(context, parentA, parentB) {
-  const population = await generatePopulation(context, parentA, parentB);
+async function findChampion(context, parentA, parentB, generationIndex = 0) {
+  const population = await generatePopulation(context, parentA, parentB, generationIndex);
   const evaluations = [];
   for (let i = 0; i < population.length; i += 1) {
     // eslint-disable-next-line no-await-in-loop
@@ -557,13 +759,17 @@ async function findChampion(context, parentA, parentB) {
 }
 
 async function generateDungeonBoss(party, abilityMap, equipmentMap, options = {}) {
-  const context = buildDungeonContext(party, abilityMap, equipmentMap, options);
+  if (options.reloadConfig) {
+    configCache = null;
+  }
+  const config = await loadDungeonConfig();
+  const context = buildDungeonContext(party, abilityMap, equipmentMap, options, config);
   context.party = party;
   let parentA = null;
   let parentB = null;
   let finalChampion = null;
   for (let gen = 0; gen < context.generations; gen += 1) {
-    const { champion, partner } = await findChampion(context, parentA, parentB);
+    const { champion, partner } = await findChampion(context, parentA, parentB, gen);
     finalChampion = champion;
     parentA = champion.genome;
     parentB = partner.genome;
