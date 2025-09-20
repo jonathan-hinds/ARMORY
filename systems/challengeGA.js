@@ -201,10 +201,10 @@ function breedRotation(rotA = [], rotB = [], abilityIds) {
     if (rotA.length && Math.random() < 0.5) {
       abilityId = rotA[i % rotA.length];
     }
-    if (!abilityId && rotB.length && Math.random() < 0.7) {
+    if ((abilityId == null) && rotB.length && Math.random() < 0.7) {
       abilityId = rotB[i % rotB.length];
     }
-    if (!abilityId) {
+    if (abilityId == null) {
       abilityId = abilityIds[randomInt(abilityIds.length)];
     }
     rotation.push(abilityId);

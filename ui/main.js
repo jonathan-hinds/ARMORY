@@ -18,6 +18,9 @@ function setRotationDamageType(value) {
   if (rotationDamageTypeSelect) {
     rotationDamageTypeSelect.value = rotationDamageType;
   }
+  if (rotationInitialized) {
+    renderAbilityPool();
+  }
 }
 
 if (rotationDamageTypeSelect) {
@@ -988,7 +991,7 @@ function formatAbilityCost(ability) {
   return parts.length ? parts.join(', ') : 'None';
 }
 
-function abilityTooltip(ability) {
+function abilityTooltip(ability, options = {}) {
   const container = document.createElement('div');
   container.className = 'tooltip-grid';
   const add = (label, value) => {
@@ -1000,6 +1003,20 @@ function abilityTooltip(ability) {
     v.innerHTML = value;
     container.appendChild(v);
   };
+  if (ability && ability.isBasicAttack) {
+    const derived = getActiveDerivedStats();
+    const typeHint = options && typeof options.basicType === 'string' ? options.basicType : rotationDamageType;
+    const normalized = normalizeDamageType(typeHint);
+    const effectType = normalized === 'magic' ? 'MagicDamage' : 'PhysicalDamage';
+    const effectText = describeEffect({ type: effectType, value: 0 }, { derived });
+    const schoolLabel = normalized === 'magic' ? 'Magical' : 'Physical';
+    add('School', schoolLabel);
+    add('Cost', 'None');
+    add('Cooldown', 'None');
+    add('Scaling', 'Weapon Damage');
+    add('Effects', effectText || 'None');
+    return container;
+  }
   add('School', ability.school);
   add('Cost', formatAbilityCost(ability));
   const cooldownText = Number.isFinite(ability.cooldown) ? `${ability.cooldown}s` : 'None';
@@ -3587,7 +3604,6 @@ async function initRotation() {
   await loadAbilityCatalog();
   rotation = [...(currentCharacter.rotation || [])];
   setRotationDamageType(currentCharacter ? currentCharacter.basicType : null);
-  renderAbilityPool();
   renderRotationList();
   const list = document.getElementById('rotation-list');
   list.addEventListener('dragover', handleDragOverList);
@@ -3603,18 +3619,27 @@ function renderAbilityPool() {
   const mag = document.getElementById('magical-abilities');
   phys.innerHTML = '';
   mag.innerHTML = '';
-  abilityCatalog.forEach(ab => {
+  const appendCard = (container, ability) => {
     const card = document.createElement('div');
-    card.textContent = ab.name;
+    card.textContent = ability.name;
     card.className = 'ability-card';
-    card.dataset.id = ab.id;
+    card.dataset.id = ability.id;
     card.draggable = true;
     card.addEventListener('dragstart', handleDragStart);
-    attachTooltip(card, () => abilityTooltip(ab));
+    attachTooltip(card, () => abilityTooltip(ability, { basicType: rotationDamageType }));
+    container.appendChild(card);
+  };
+  abilityCatalog.forEach(ab => {
+    if (!ab) return;
+    if (ab.isBasicAttack) {
+      appendCard(phys, ab);
+      appendCard(mag, ab);
+      return;
+    }
     if (ab.school === 'physical') {
-      phys.appendChild(card);
+      appendCard(phys, ab);
     } else if (ab.school === 'magical') {
-      mag.appendChild(card);
+      appendCard(mag, ab);
     }
   });
 }
@@ -3640,7 +3665,7 @@ function renderRotationList() {
         renderRotationList();
       }
     });
-    attachTooltip(li, () => abilityTooltip(ability));
+    attachTooltip(li, () => abilityTooltip(ability, { basicType: rotationDamageType }));
     list.appendChild(li);
   });
   list.scrollTop = atBottom ? list.scrollHeight : prevScroll;
@@ -5811,7 +5836,7 @@ function renderOpponentPreview(opponent) {
       chip.className = 'rotation-chip';
       chip.textContent = ability ? ability.name : `Ability ${id}`;
       if (ability) {
-        attachTooltip(chip, () => abilityTooltip(ability));
+        attachTooltip(chip, () => abilityTooltip(ability, { basicType: opponent.basicType }));
       }
       rotationList.appendChild(chip);
     });
