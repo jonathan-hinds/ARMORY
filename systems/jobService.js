@@ -68,13 +68,26 @@ function normalizeAttributeMap(attributes) {
   if (!attributes || typeof attributes !== 'object') {
     return result;
   }
-  Object.entries(attributes).forEach(([key, value]) => {
+  let source = attributes;
+  if (typeof source.toObject === 'function') {
+    source = source.toObject();
+  } else if (source._doc && typeof source._doc === 'object') {
+    source = source._doc;
+  }
+  if (!source || typeof source !== 'object') {
+    return result;
+  }
+  Object.entries(source).forEach(([key, value]) => {
     if (!key) {
+      return;
+    }
+    const normalizedKey = typeof key === 'string' ? key.trim().toLowerCase() : null;
+    if (!normalizedKey) {
       return;
     }
     const numeric = Number(value);
     if (Number.isFinite(numeric) && numeric > 0) {
-      result[key] = numeric;
+      result[normalizedKey] = numeric;
     }
   });
   return result;
