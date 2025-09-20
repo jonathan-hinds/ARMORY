@@ -107,6 +107,7 @@ let adventureSelectedDays = null;
 
 let dungeonSource = null;
 let dungeonState = null;
+let dungeonDialog = null;
 let dungeonBars = null;
 let dungeonBossBars = null;
 let dungeonLogElement = null;
