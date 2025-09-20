@@ -572,23 +572,21 @@ async function processJobForCharacter(characterDoc, options = {}) {
         const roll = Math.random();
         generationRoll = roll;
         if (generationChance > 0 && roll < generationChance) {
-          generatedMaterials = [];
-          missing.forEach(entry => {
-            const deficit = entry.required - entry.available;
-            const amount = deficit > 0 ? deficit : 0;
-            if (!amount) {
-              return;
-            }
-            const current = readMaterialCount(characterDoc.materials, entry.materialId);
+          const recoverable = missing
+            .map(entry => ({
+              materialId: entry.materialId,
+              deficit: entry.required - entry.available,
+            }))
+            .filter(entry => entry.materialId && entry.deficit > 0);
+          if (recoverable.length) {
+            const target = recoverable[Math.floor(Math.random() * recoverable.length)];
+            const amount = 1;
+            const current = readMaterialCount(characterDoc.materials, target.materialId);
             const total = current + amount;
-            setMaterialCount(characterDoc.materials, entry.materialId, total);
-            generatedMaterials.push({ materialId: entry.materialId, amount });
-          });
-          if (generatedMaterials.length) {
-            canCraft = true;
+            setMaterialCount(characterDoc.materials, target.materialId, total);
+            generatedMaterials = [{ materialId: target.materialId, amount }];
             generationSucceeded = true;
-          } else {
-            generatedMaterials = null;
+            materialsChanged = true;
           }
         }
       }
@@ -623,7 +621,10 @@ async function processJobForCharacter(characterDoc, options = {}) {
       event.reason = 'insufficient-materials';
       event.missing = missing;
       if (generationAttempted) {
-        event.generationSucceeded = false;
+        event.generationSucceeded = !!generationSucceeded;
+        if (generatedMaterials) {
+          event.generatedMaterials = generatedMaterials;
+        }
       }
       recordJobEvent(jobState, event, logLimit);
       jobChanged = true;
