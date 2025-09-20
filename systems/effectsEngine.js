@@ -11,6 +11,236 @@ const MAX_HIT_CHANCE = 1;
 
 const CHANCE_STATS = ['critChance', 'blockChance', 'dodgeChance', 'hitChance'];
 
+const MAX_TEMP_RESIST = 0.75;
+
+function normalizeDamageChannel(value) {
+  if (typeof value !== 'string') return 'any';
+  const lowered = value.trim().toLowerCase();
+  if (lowered === 'magical' || lowered === 'magic') return 'magical';
+  if (lowered === 'physical' || lowered === 'melee') return 'physical';
+  if (lowered === 'any' || lowered === 'all') return 'any';
+  return 'any';
+}
+
+function matchesDamageChannel(entryType, damageType) {
+  if (!entryType) return true;
+  if (entryType === 'any') return true;
+  return entryType === damageType;
+}
+
+function consumeResistBonuses(target, damageType, now) {
+  if (!target) return 0;
+  if (!Array.isArray(target.resistShields) || target.resistShields.length === 0) {
+    return 0;
+  }
+  const normalizedType = normalizeDamageChannel(damageType);
+  const currentTime = Number.isFinite(now) ? now : null;
+  const remaining = [];
+  let total = 0;
+  target.resistShields.forEach(entry => {
+    if (!entry) return;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    if (expiresAt != null && currentTime != null && currentTime >= expiresAt) {
+      return;
+    }
+    const entryType = normalizeDamageChannel(entry.damageType);
+    if (!matchesDamageChannel(entryType, normalizedType)) {
+      remaining.push(entry);
+      return;
+    }
+    const amount = Number(entry.amount);
+    if (Number.isFinite(amount) && amount > 0) {
+      total += amount;
+    }
+    const uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : 1;
+    const nextUses = uses - 1;
+    if (nextUses > 0) {
+      remaining.push({ ...entry, remainingAttacks: nextUses });
+    }
+  });
+  target.resistShields = remaining;
+  return total;
+}
+
+function applyDamageReflections(source, target, damage, damageType, now, log) {
+  if (!target) {
+    return { damageTaken: damage, reflected: 0 };
+  }
+  if (!Array.isArray(target.damageReflections) || target.damageReflections.length === 0) {
+    return { damageTaken: damage, reflected: 0 };
+  }
+  const normalizedType = normalizeDamageChannel(damageType);
+  const currentTime = Number.isFinite(now) ? now : null;
+  const remaining = [];
+  let totalPercent = 0;
+  let negatePortion = false;
+  target.damageReflections.forEach(entry => {
+    if (!entry) return;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    if (expiresAt != null && currentTime != null && currentTime >= expiresAt) {
+      return;
+    }
+    const entryType = normalizeDamageChannel(entry.damageType);
+    if (!matchesDamageChannel(entryType, normalizedType)) {
+      remaining.push(entry);
+      return;
+    }
+    const percent = Number(entry.percent != null ? entry.percent : entry.amount);
+    if (Number.isFinite(percent) && percent > 0) {
+      totalPercent += percent;
+    }
+    if (entry.negateDamage !== false) {
+      negatePortion = true;
+    }
+    const uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : 1;
+    const nextUses = uses - 1;
+    if (nextUses > 0) {
+      remaining.push({ ...entry, remainingAttacks: nextUses });
+    }
+  });
+  target.damageReflections = remaining;
+  if (!Number.isFinite(damage) || damage <= 0 || totalPercent <= 0) {
+    return { damageTaken: Math.max(0, Math.round(damage || 0)), reflected: 0 };
+  }
+  const clampedPercent = Math.max(0, Math.min(0.95, totalPercent));
+  const reflectAmount = Math.round(damage * clampedPercent);
+  if (reflectAmount <= 0) {
+    return { damageTaken: Math.max(0, Math.round(damage)), reflected: 0 };
+  }
+  let damageTaken = damage;
+  if (negatePortion) {
+    damageTaken = Math.max(0, damage - reflectAmount);
+  }
+  if (source) {
+    const before = Number.isFinite(source.health) ? source.health : 0;
+    const updated = Math.max(0, before - reflectAmount);
+    source.health = updated;
+  }
+  if (target && target.character && source && source.character) {
+    pushLog(log, `${target.character.name} retaliates for ${reflectAmount} damage`, {
+      sourceId: target.character.id,
+      targetId: source.character.id,
+      kind: 'damage',
+      damageType,
+      amount: reflectAmount,
+      retaliate: true,
+    });
+  }
+  return { damageTaken: Math.max(0, Math.round(damageTaken)), reflected: reflectAmount };
+}
+
+function clampPercent(value, max = 0.95) {
+  if (!Number.isFinite(value)) return 0;
+  const clamped = Math.max(0, Math.min(max, value));
+  return clamped;
+}
+
+function applyDamageGuards(target, beforeHealth, maxHealth, damage, now, log) {
+  if (!target) {
+    return { damageTaken: Math.max(0, Math.round(damage || 0)), prevented: 0 };
+  }
+  if (!Array.isArray(target.damageGuards) || target.damageGuards.length === 0) {
+    return { damageTaken: Math.max(0, Math.round(damage || 0)), prevented: 0 };
+  }
+  const currentTime = Number.isFinite(now) ? now : null;
+  const remaining = [];
+  let thresholdPercent = 0;
+  target.damageGuards.forEach(entry => {
+    if (!entry) return;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    if (expiresAt != null && currentTime != null && currentTime >= expiresAt) {
+      return;
+    }
+    const percent = Number(entry.percent != null ? entry.percent : entry.value);
+    thresholdPercent = Math.max(thresholdPercent, clampPercent(percent));
+    const uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : 1;
+    const nextUses = uses - 1;
+    if (nextUses > 0) {
+      remaining.push({ ...entry, remainingAttacks: nextUses });
+    }
+  });
+  target.damageGuards = remaining;
+  const normalizedDamage = Math.max(0, Math.round(damage || 0));
+  if (thresholdPercent <= 0 || normalizedDamage <= 0) {
+    return { damageTaken: normalizedDamage, prevented: 0 };
+  }
+  if (!Number.isFinite(beforeHealth) || !Number.isFinite(maxHealth) || maxHealth <= 0) {
+    return { damageTaken: normalizedDamage, prevented: 0 };
+  }
+  const minHealthAllowed = maxHealth * thresholdPercent;
+  if (beforeHealth <= minHealthAllowed) {
+    return { damageTaken: normalizedDamage, prevented: 0 };
+  }
+  const projectedHealth = beforeHealth - normalizedDamage;
+  if (projectedHealth >= minHealthAllowed) {
+    return { damageTaken: normalizedDamage, prevented: 0 };
+  }
+  const finalHealth = Math.max(minHealthAllowed, projectedHealth);
+  const adjustedDamage = Math.max(0, Math.round(beforeHealth - finalHealth));
+  const prevented = normalizedDamage - adjustedDamage;
+  if (prevented > 0 && target.character) {
+    pushLog(log, `${target.character.name} endures, preventing ${prevented} damage`, {
+      sourceId: target.character.id,
+      targetId: target.character.id,
+      kind: 'buff',
+      amount: prevented,
+    });
+  }
+  return { damageTaken: adjustedDamage, prevented };
+}
+
+function applyDamageHealEffects(target, damageTaken, now, log) {
+  if (!target) {
+    return { healed: 0 };
+  }
+  if (!Array.isArray(target.damageHealShields) || target.damageHealShields.length === 0) {
+    return { healed: 0 };
+  }
+  const currentTime = Number.isFinite(now) ? now : null;
+  const remaining = [];
+  let totalPercent = 0;
+  target.damageHealShields.forEach(entry => {
+    if (!entry) return;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    if (expiresAt != null && currentTime != null && currentTime >= expiresAt) {
+      return;
+    }
+    const percent = Number(entry.percent != null ? entry.percent : entry.value);
+    if (Number.isFinite(percent) && percent > 0) {
+      totalPercent += percent;
+    }
+    const uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : 1;
+    const nextUses = uses - 1;
+    if (nextUses > 0) {
+      remaining.push({ ...entry, remainingAttacks: nextUses });
+    }
+  });
+  target.damageHealShields = remaining;
+  if (!Number.isFinite(damageTaken) || damageTaken <= 0 || totalPercent <= 0) {
+    return { healed: 0 };
+  }
+  const clampedPercent = Math.max(0, Math.min(0.95, totalPercent));
+  const healAmount = Math.round(damageTaken * clampedPercent);
+  if (healAmount <= 0) {
+    return { healed: 0 };
+  }
+  const before = Number.isFinite(target.health) ? target.health : 0;
+  const maxHealth =
+    target.derived && Number.isFinite(target.derived.health) ? target.derived.health : before;
+  const updated = Math.min(maxHealth, before + healAmount);
+  const healed = Math.max(0, Math.round(updated - before));
+  target.health = updated;
+  if (healed > 0 && target.character) {
+    pushLog(log, `${target.character.name} is blessed, recovering ${healed} health`, {
+      sourceId: target.character.id,
+      targetId: target.character.id,
+      kind: 'heal',
+      amount: healed,
+    });
+  }
+  return { healed };
+}
+
 function isChanceStat(stat) {
   return CHANCE_STATS.includes(stat);
 }
@@ -355,21 +585,40 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   if (!Number.isFinite(resist)) {
     resist = 0;
   }
+  const currentTime = Number.isFinite(context.now) ? context.now : null;
+  const resistBonus = consumeResistBonuses(target, resolvedType, currentTime);
+  if (Number.isFinite(resistBonus) && resistBonus > 0) {
+    resist += resistBonus;
+  }
+  resist = Math.max(0, Math.min(MAX_TEMP_RESIST, resist));
   if (resistIgnored) {
     resist = 0;
   }
-  const finalDamage = Math.max(1, Math.round(dmg * (1 - resist)));
-  target.health -= finalDamage;
+  const baseDamage = Math.max(1, Math.round(dmg * (1 - resist)));
+  const beforeHealth = Number.isFinite(target.health) ? target.health : 0;
+  const maxHealth =
+    target.derived && Number.isFinite(target.derived.health) ? target.derived.health : beforeHealth;
+  let damageToApply = baseDamage;
+  const reflectionResult = applyDamageReflections(source, target, damageToApply, resolvedType, currentTime, log);
+  damageToApply = reflectionResult.damageTaken;
+  const guardResult = applyDamageGuards(target, beforeHealth, maxHealth, damageToApply, currentTime, log);
+  damageToApply = guardResult.damageTaken;
+  const appliedDamage = Math.max(0, Math.min(beforeHealth, Math.round(damageToApply)));
+  const updatedHealth = Math.max(0, beforeHealth - appliedDamage);
+  target.health = updatedHealth;
+  const actualDamage = beforeHealth - updatedHealth;
+  const healResult = applyDamageHealEffects(target, actualDamage, currentTime, log);
+  const healedAmount = healResult.healed || 0;
 
   let message;
   if (crit && blocked) {
-    message = `${source.character.name} critically hits ${target.character.name} for ${finalDamage} ${resolvedType} (blocked)`;
+    message = `${source.character.name} critically hits ${target.character.name} for ${actualDamage} ${resolvedType} (blocked)`;
   } else if (crit) {
-    message = `${source.character.name} critically hits ${target.character.name} for ${finalDamage} ${resolvedType}`;
+    message = `${source.character.name} critically hits ${target.character.name} for ${actualDamage} ${resolvedType}`;
   } else if (blocked) {
-    message = `${source.character.name} hits ${target.character.name} for ${finalDamage} ${resolvedType} (blocked)`;
+    message = `${source.character.name} hits ${target.character.name} for ${actualDamage} ${resolvedType} (blocked)`;
   } else {
-    message = `${source.character.name} hits ${target.character.name} for ${finalDamage} ${resolvedType}`;
+    message = `${source.character.name} hits ${target.character.name} for ${actualDamage} ${resolvedType}`;
   }
   if (resistIgnored) {
     message += ' (resistance ignored)';
@@ -383,7 +632,7 @@ function applyDamage(source, target, amount, type, log, context = {}) {
     targetId: target.character.id,
     kind: 'damage',
     damageType: resolvedType,
-    amount: finalDamage,
+    amount: actualDamage,
     crit,
     blocked,
     resistIgnored,
@@ -393,7 +642,7 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   const resultResolution = { ...resolution, damageType: resolvedType, crit, blocked, resistIgnored };
   const outcome = {
     hit: true,
-    amount: finalDamage,
+    amount: actualDamage,
     crit,
     blocked,
     damageType: resolvedType,
@@ -404,6 +653,15 @@ function applyDamage(source, target, amount, type, log, context = {}) {
     if (!outcome.bonusDamageAmount) {
       outcome.bonusDamageAmount = bonusDamageApplied;
     }
+  }
+  if (reflectionResult.reflected > 0) {
+    outcome.reflectedDamage = reflectionResult.reflected;
+  }
+  if (guardResult.prevented > 0) {
+    outcome.preventedDamage = guardResult.prevented;
+  }
+  if (healedAmount > 0) {
+    outcome.healedAmount = healedAmount;
   }
   outcome.resistIgnored = resistIgnored;
   return outcome;
@@ -425,7 +683,7 @@ function applyEffect(source, target, effect, now, log, context = {}) {
           amount: Math.round(bonusDamage),
         });
       }
-      const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage };
+      const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage, now };
       const outcome = applyDamage(source, target, base, 'physical', log, damageContext);
       if (outcome && consumed && bonusDamage > 0) {
         outcome.bonusDamageConsumed = true;
@@ -447,7 +705,7 @@ function applyEffect(source, target, effect, now, log, context = {}) {
           amount: Math.round(bonusDamage),
         });
       }
-      const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage };
+      const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage, now };
       const outcome = applyDamage(source, target, base, 'magical', log, damageContext);
       if (outcome && consumed && bonusDamage > 0) {
         outcome.bonusDamageConsumed = true;
@@ -547,6 +805,200 @@ function applyEffect(source, target, effect, now, log, context = {}) {
           resource,
           amount: amountPerTick,
           duration: durationSeconds,
+        });
+      }
+      return null;
+    }
+    case 'ResistShield': {
+      const recipient = resolveEffectTarget(effect, source, target) || source;
+      if (!recipient) return null;
+      const baseAmount =
+        effect.amount != null ? Number(effect.amount) : effect.value != null ? Number(effect.value) : 0;
+      const scaledAmount = computeScaledValue(
+        baseAmount,
+        source,
+        effect.scaling || effect.amountScaling || effect.valueScaling,
+      );
+      const normalizedAmount = Math.max(0, Math.min(MAX_TEMP_RESIST, scaledAmount));
+      if (normalizedAmount <= 0) {
+        return null;
+      }
+      let attackCount = null;
+      if (Number.isFinite(effect.attackCount)) {
+        attackCount = effect.attackCount;
+      } else if (Number.isFinite(effect.attacks)) {
+        attackCount = effect.attacks;
+      }
+      const uses = Math.max(1, Math.round(Number.isFinite(attackCount) && attackCount > 0 ? attackCount : 1));
+      const durationSeconds = resolveDurationSeconds(effect, {
+        ...context,
+        source: recipient,
+        actor: recipient,
+        user: recipient,
+      });
+      const expiresAt = Number.isFinite(durationSeconds) && durationSeconds > 0 ? now + durationSeconds : null;
+      const damageType = normalizeDamageChannel(effect.damageType);
+      if (!Array.isArray(recipient.resistShields)) {
+        recipient.resistShields = [];
+      }
+      recipient.resistShields.push({
+        amount: normalizedAmount,
+        damageType,
+        remainingAttacks: uses,
+        expiresAt,
+      });
+      if (recipient.character) {
+        const typeLabel =
+          damageType === 'magical'
+            ? 'magical'
+            : damageType === 'physical'
+            ? 'physical'
+            : 'all';
+        const attackText = formatAttackCount(uses) || 'attacks';
+        pushLog(log, `${recipient.character.name} gains +${Math.round(normalizedAmount * 100)}% ${typeLabel} resistance for ${attackText}`, {
+          sourceId: recipient.character.id,
+          targetId: recipient.character.id,
+          kind: 'buff',
+        });
+      }
+      return null;
+    }
+    case 'DamageFloor': {
+      const recipient = resolveEffectTarget(effect, source, target) || source;
+      if (!recipient) return null;
+      const basePercent =
+        effect.percent != null ? Number(effect.percent) : effect.value != null ? Number(effect.value) : 0;
+      const scaledPercent = computeScaledValue(
+        basePercent,
+        source,
+        effect.scaling || effect.percentScaling || effect.valueScaling,
+      );
+      const percent = clampPercent(scaledPercent, 0.95);
+      if (percent <= 0) {
+        return null;
+      }
+      let attackCount = null;
+      if (Number.isFinite(effect.attackCount)) {
+        attackCount = effect.attackCount;
+      } else if (Number.isFinite(effect.attacks)) {
+        attackCount = effect.attacks;
+      }
+      const uses = Math.max(1, Math.round(Number.isFinite(attackCount) && attackCount > 0 ? attackCount : 1));
+      const durationSeconds = resolveDurationSeconds(effect, {
+        ...context,
+        source: recipient,
+        actor: recipient,
+        user: recipient,
+      });
+      const expiresAt = Number.isFinite(durationSeconds) && durationSeconds > 0 ? now + durationSeconds : null;
+      if (!Array.isArray(recipient.damageGuards)) {
+        recipient.damageGuards = [];
+      }
+      recipient.damageGuards.push({
+        percent,
+        remainingAttacks: uses,
+        expiresAt,
+      });
+      if (recipient.character) {
+        const attackText = formatAttackCount(uses) || 'attacks';
+        pushLog(log, `${recipient.character.name} braces to stay above ${Math.round(percent * 100)}% health for ${attackText}`, {
+          sourceId: recipient.character.id,
+          targetId: recipient.character.id,
+          kind: 'buff',
+        });
+      }
+      return null;
+    }
+    case 'DamageReflect': {
+      const recipient = resolveEffectTarget(effect, source, target) || source;
+      if (!recipient) return null;
+      const basePercent =
+        effect.percent != null ? Number(effect.percent) : effect.value != null ? Number(effect.value) : 0;
+      const scaledPercent = computeScaledValue(
+        basePercent,
+        source,
+        effect.scaling || effect.percentScaling || effect.valueScaling,
+      );
+      const percent = clampPercent(scaledPercent, 0.95);
+      if (percent <= 0) {
+        return null;
+      }
+      let attackCount = null;
+      if (Number.isFinite(effect.attackCount)) {
+        attackCount = effect.attackCount;
+      } else if (Number.isFinite(effect.attacks)) {
+        attackCount = effect.attacks;
+      }
+      const uses = Math.max(1, Math.round(Number.isFinite(attackCount) && attackCount > 0 ? attackCount : 1));
+      const durationSeconds = resolveDurationSeconds(effect, {
+        ...context,
+        source: recipient,
+        actor: recipient,
+        user: recipient,
+      });
+      const expiresAt = Number.isFinite(durationSeconds) && durationSeconds > 0 ? now + durationSeconds : null;
+      if (!Array.isArray(recipient.damageReflections)) {
+        recipient.damageReflections = [];
+      }
+      recipient.damageReflections.push({
+        percent,
+        remainingAttacks: uses,
+        damageType: normalizeDamageChannel(effect.damageType),
+        negateDamage: effect.negateDamage !== false,
+        expiresAt,
+      });
+      if (recipient.character) {
+        const attackText = formatAttackCount(uses) || 'attacks';
+        pushLog(log, `${recipient.character.name} prepares to retaliate ${Math.round(percent * 100)}% damage for ${attackText}`, {
+          sourceId: recipient.character.id,
+          targetId: recipient.character.id,
+          kind: 'buff',
+        });
+      }
+      return null;
+    }
+    case 'DamageHeal': {
+      const recipient = resolveEffectTarget(effect, source, target) || source;
+      if (!recipient) return null;
+      const basePercent =
+        effect.percent != null ? Number(effect.percent) : effect.value != null ? Number(effect.value) : 0;
+      const scaledPercent = computeScaledValue(
+        basePercent,
+        source,
+        effect.scaling || effect.percentScaling || effect.valueScaling,
+      );
+      const percent = clampPercent(scaledPercent, 0.95);
+      if (percent <= 0) {
+        return null;
+      }
+      let attackCount = null;
+      if (Number.isFinite(effect.attackCount)) {
+        attackCount = effect.attackCount;
+      } else if (Number.isFinite(effect.attacks)) {
+        attackCount = effect.attacks;
+      }
+      const uses = Math.max(1, Math.round(Number.isFinite(attackCount) && attackCount > 0 ? attackCount : 1));
+      const durationSeconds = resolveDurationSeconds(effect, {
+        ...context,
+        source: recipient,
+        actor: recipient,
+        user: recipient,
+      });
+      const expiresAt = Number.isFinite(durationSeconds) && durationSeconds > 0 ? now + durationSeconds : null;
+      if (!Array.isArray(recipient.damageHealShields)) {
+        recipient.damageHealShields = [];
+      }
+      recipient.damageHealShields.push({
+        percent,
+        remainingAttacks: uses,
+        expiresAt,
+      });
+      if (recipient.character) {
+        const attackText = formatAttackCount(uses) || 'attacks';
+        pushLog(log, `${recipient.character.name} is blessed to heal ${Math.round(percent * 100)}% of damage for ${attackText}`, {
+          sourceId: recipient.character.id,
+          targetId: recipient.character.id,
+          kind: 'buff',
         });
       }
       return null;
@@ -1187,6 +1639,84 @@ function tick(combatant, now, log) {
       });
     }
     return keep;
+  });
+  if (!Array.isArray(combatant.resistShields)) {
+    combatant.resistShields = [];
+  }
+  combatant.resistShields = combatant.resistShields.filter(entry => {
+    if (!entry) return false;
+    const expires = Number.isFinite(entry.expiresAt) ? entry.expiresAt : Infinity;
+    if (now < expires) {
+      return true;
+    }
+    if (combatant.character) {
+      const typeLabel =
+        entry.damageType === 'magical'
+          ? 'magical resistance'
+          : entry.damageType === 'physical'
+          ? 'physical resistance'
+          : 'resistance';
+      pushLog(log, `${combatant.character.name}'s ${typeLabel} ward fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+      });
+    }
+    return false;
+  });
+  if (!Array.isArray(combatant.damageGuards)) {
+    combatant.damageGuards = [];
+  }
+  combatant.damageGuards = combatant.damageGuards.filter(entry => {
+    if (!entry) return false;
+    const expires = Number.isFinite(entry.expiresAt) ? entry.expiresAt : Infinity;
+    if (now < expires) {
+      return true;
+    }
+    if (combatant.character) {
+      pushLog(log, `${combatant.character.name}'s endurance fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+      });
+    }
+    return false;
+  });
+  if (!Array.isArray(combatant.damageReflections)) {
+    combatant.damageReflections = [];
+  }
+  combatant.damageReflections = combatant.damageReflections.filter(entry => {
+    if (!entry) return false;
+    const expires = Number.isFinite(entry.expiresAt) ? entry.expiresAt : Infinity;
+    if (now < expires) {
+      return true;
+    }
+    if (combatant.character) {
+      pushLog(log, `${combatant.character.name}'s retaliation fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+      });
+    }
+    return false;
+  });
+  if (!Array.isArray(combatant.damageHealShields)) {
+    combatant.damageHealShields = [];
+  }
+  combatant.damageHealShields = combatant.damageHealShields.filter(entry => {
+    if (!entry) return false;
+    const expires = Number.isFinite(entry.expiresAt) ? entry.expiresAt : Infinity;
+    if (now < expires) {
+      return true;
+    }
+    if (combatant.character) {
+      pushLog(log, `${combatant.character.name}'s blessing fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+      });
+    }
+    return false;
   });
   combatant.dots = combatant.dots.filter(d => {
     if (!d) return false;

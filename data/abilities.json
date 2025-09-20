@@ -250,5 +250,81 @@
         "ignoreResistOnCrit": true
       }
     ]
+  },
+  {
+    "id": 17,
+    "name": "Rallying Cry",
+    "school": "physical",
+    "costs": [
+      { "type": "stamina", "value": 10 },
+      { "type": "mana", "value": 10 }
+    ],
+    "cooldown": 18,
+    "scaling": ["stamina"],
+    "effects": [
+      {
+        "type": "ResistShield",
+        "damageType": "physical",
+        "amount": 0.05,
+        "scaling": { "stamina": 0.002 },
+        "attackCount": 2,
+        "target": "self"
+      }
+    ]
+  },
+  {
+    "id": 18,
+    "name": "Endure",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 17,
+    "cooldown": 27,
+    "scaling": ["stamina"],
+    "effects": [
+      {
+        "type": "DamageFloor",
+        "percent": 0.1,
+        "scaling": { "stamina": 0.002 },
+        "attackCount": 1,
+        "target": "self"
+      }
+    ]
+  },
+  {
+    "id": 19,
+    "name": "Retaliate",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 20,
+    "cooldown": 18,
+    "scaling": ["stamina"],
+    "effects": [
+      {
+        "type": "DamageReflect",
+        "percent": 0.2,
+        "scaling": { "stamina": 0.003 },
+        "attackCount": 1,
+        "negateDamage": true,
+        "target": "self"
+      }
+    ]
+  },
+  {
+    "id": 20,
+    "name": "Life Blessing",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 15,
+    "cooldown": 17,
+    "scaling": ["stamina", "wisdom"],
+    "effects": [
+      {
+        "type": "DamageHeal",
+        "percent": 0.12,
+        "scaling": { "stamina": 0.0015, "wisdom": 0.0015 },
+        "attackCount": 2,
+        "target": "self"
+      }
+    ]
   }
 ]
