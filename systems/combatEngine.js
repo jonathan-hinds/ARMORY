@@ -838,17 +838,6 @@ async function runDungeonCombat(
     }
 
     nextTimes[actingIndex] += actor.derived.attackIntervalSeconds;
-    if (boss.health <= 0 || alivePartyMembers(party).length <= 0) {
-      metrics.duration = now;
-      break;
-    }
-
-    const waitCandidate = combatants.reduce((min, combatant, idx) => {
-      if (!combatant || combatant.health <= 0) return min;
-      const time = nextTimes[idx];
-      return time < min ? time : min;
-    }, Infinity);
-    const wait = Math.max(0, (Number.isFinite(waitCandidate) ? waitCandidate : now) - now);
     const newLogs = log && log.length > before ? log.slice(before) : outcome.logs;
     if (onUpdate) {
       onUpdate({
@@ -861,6 +850,18 @@ async function runDungeonCombat(
         bossId: boss.character.id,
       });
     }
+
+    if (boss.health <= 0 || alivePartyMembers(party).length <= 0) {
+      metrics.duration = now;
+      break;
+    }
+
+    const waitCandidate = combatants.reduce((min, combatant, idx) => {
+      if (!combatant || combatant.health <= 0) return min;
+      const time = nextTimes[idx];
+      return time < min ? time : min;
+    }, Infinity);
+    const wait = Math.max(0, (Number.isFinite(waitCandidate) ? waitCandidate : now) - now);
     if (!fastForward) {
       await new Promise(res => setTimeout(res, wait * 1000));
     }
