@@ -1377,39 +1377,118 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   text-transform:uppercase;
   color:#555;
 }
+.job-log-scroll {
+  max-height:420px;
+  overflow-y:auto;
+  padding-right:6px;
+}
 .job-log-list {
   list-style:none;
   margin:0;
   padding:0;
   display:flex;
   flex-direction:column;
-  gap:6px;
+  gap:8px;
 }
 .job-log-list li {
+  list-style:none;
+}
+.job-log-entry {
   border:2px solid #000;
-  padding:10px;
+  padding:12px 14px;
   background:#fff;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  box-shadow:3px 3px 0 rgba(0,0,0,0.2);
+}
+.job-log-entry.log-crafted {
+  border-color:#1b5e20;
+  background:#e6f7e6;
+}
+.job-log-entry.log-failed {
+  border-color:#8b1e24;
+  background:#ffe6e6;
+}
+.job-log-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.job-log-title-group {
   display:flex;
   flex-direction:column;
   gap:4px;
 }
-.job-log-list li.log-crafted {
-  border-color:#1b5e20;
-  background:#e6f7e6;
-}
-.job-log-list li.log-failed {
-  border-color:#8b1e24;
-  background:#ffe6e6;
-}
-.job-log-list .message {
-  font-size:13px;
+.job-log-title {
   font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:14px;
 }
-.job-log-list .time {
+.job-log-rarity {
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  color:#333;
+}
+.job-log-badge {
+  padding:4px 10px;
+  border:2px solid #000;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+  background:#000;
+  color:#fff;
+}
+.job-log-badge.success {
+  background:#1b5e20;
+}
+.job-log-badge.failure {
+  background:#8b1e24;
+}
+.job-log-badge.warning {
+  background:#c56a11;
+}
+.job-log-details {
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.job-log-detail {
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+}
+.job-log-detail .label {
+  min-width:140px;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+  color:#111;
+}
+.job-log-detail .value {
+  flex:1;
+  font-size:12px;
+  line-height:1.4;
+  color:#000;
+}
+.job-log-summary {
+  margin:8px 0 0;
+  font-size:12px;
+  line-height:1.5;
+  font-weight:bold;
+  color:#111;
+}
+.job-log-footer {
   font-size:11px;
   color:#333;
   text-transform:uppercase;
   letter-spacing:1px;
+  align-self:flex-end;
 }
 .job-recipe-section .job-recipe-list {
   margin-top:0;
