@@ -5,6 +5,35 @@ const { pushLog } = require('./log');
 const { USEABLE_SLOTS } = require('../models/utils');
 
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
+const MAX_RESIST = 0.75;
+
+function clampResist(value) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(MAX_RESIST, Math.max(0, value));
+}
+
+function applyBossNegationToDerived(derived, negation) {
+  if (!derived || !negation) return null;
+  const meleeTarget = Number.isFinite(negation.melee) ? Math.max(0, negation.melee) : 0;
+  const magicTarget = Number.isFinite(negation.magic) ? Math.max(0, negation.magic) : 0;
+  if (meleeTarget <= 0 && magicTarget <= 0) {
+    return null;
+  }
+  const beforeMelee = clampResist(derived.meleeResist);
+  const beforeMagic = clampResist(derived.magicResist);
+  const meleeResist = clampResist(beforeMelee + meleeTarget);
+  const magicResist = clampResist(beforeMagic + magicTarget);
+  derived.meleeResist = meleeResist;
+  derived.magicResist = magicResist;
+  return {
+    meleeBonus: Math.max(0, meleeResist - beforeMelee),
+    magicBonus: Math.max(0, magicResist - beforeMagic),
+    meleeResist,
+    magicResist,
+    targetMeleeBonus: meleeTarget,
+    targetMagicBonus: magicTarget,
+  };
+}
 
 function resolveEquipment(character, equipmentMap) {
   const resolved = {};
@@ -36,6 +65,7 @@ function createCombatant(character, equipmentMap) {
   const equipped = resolveEquipment(character, equipmentMap);
   const useables = resolveUseables(character, equipmentMap);
   const derived = compute(character, equipped);
+  const negationDetails = character && character.bossNegation ? applyBossNegationToDerived(derived, character.bossNegation) : null;
   const useableEntries = USEABLE_SLOTS.map(slot => {
     const item = useables[slot];
     if (!item || item.slot !== 'useable') return null;
@@ -45,7 +75,7 @@ function createCombatant(character, equipmentMap) {
       used: false,
     };
   }).filter(Boolean);
-  return {
+  const combatant = {
     character,
     derived,
     equipment: equipped,
@@ -70,6 +100,10 @@ function createCombatant(character, equipmentMap) {
     basicAttackEffectType: derived.basicAttackEffectType,
     attacksPerformed: 0,
   };
+  if (negationDetails) {
+    combatant.negation = { ...negationDetails };
+  }
+  return combatant;
 }
 
 function summarizeDamageEvents(target, damageResults, effectType) {
@@ -658,6 +692,7 @@ async function runDungeonCombat(
     ? partyChars.map(character => createCombatant(character, equipmentMap))
     : [];
   const boss = createCombatant(bossChar, equipmentMap);
+  const bossNegation = boss && boss.negation ? { ...boss.negation } : null;
   const combatants = [...party, boss];
   const collectLog = options.collectLog !== false;
   const log = collectLog ? [] : null;
@@ -689,6 +724,16 @@ async function runDungeonCombat(
     duration: 0,
     threatSwaps: 0,
   };
+  if (bossNegation) {
+    metrics.bossNegation = {
+      meleeBonus: bossNegation.meleeBonus || 0,
+      magicBonus: bossNegation.magicBonus || 0,
+      targetMeleeBonus: bossNegation.targetMeleeBonus || bossNegation.meleeBonus || 0,
+      targetMagicBonus: bossNegation.targetMagicBonus || bossNegation.magicBonus || 0,
+      meleeResist: boss.derived.meleeResist,
+      magicResist: boss.derived.magicResist,
+    };
+  }
 
   const selectBossTarget = previous => {
     const living = alivePartyMembers(party);
