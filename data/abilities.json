@@ -4,7 +4,7 @@
     "name": "Quick Slash",
     "school": "physical",
     "costType": "stamina",
-    "costValue": 5,
+    "costValue": 15,
     "cooldown": 12,
     "scaling": ["strength"],
     "effects": [
@@ -16,7 +16,7 @@
     "name": "Heavy Strike",
     "school": "physical",
     "costType": "stamina",
-    "costValue": 8,
+    "costValue": 18,
     "cooldown": 15,
     "scaling": ["strength"],
     "effects": [
@@ -29,11 +29,11 @@
     "name": "Battle Cry",
     "school": "physical",
     "costType": "stamina",
-    "costValue": 6,
+    "costValue": 16,
     "cooldown": 20,
     "scaling": [],
     "effects": [
-      { "type": "BuffDamagePct", "amount": 0.2, "duration": 5 }
+      { "type": "BuffDamagePct", "amount": 0.2, "duration": 16 }
     ]
   },
   {
@@ -100,7 +100,7 @@
     "cooldown": 22,
     "scaling": [],
     "effects": [
-      { "type": "BuffDamagePct", "amount": 0.3, "duration": 6 }
+      { "type": "BuffDamagePct", "amount": 0.3, "duration": 14 }
     ]
   },
   {
