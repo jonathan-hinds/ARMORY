@@ -10,6 +10,12 @@ function getAction(combatant, now, abilityMap) {
     return { type: 'basic', reason: 'missingAbility', abilityId };
   }
 
+  if (ability.isBasicAttack) {
+    combatant.rotationIndex =
+      (combatant.rotationIndex + 1) % combatant.character.rotation.length;
+    return { type: 'basic', reason: 'rotationBasic', ability };
+  }
+
   const cooldownReady =
     !combatant.cooldowns[abilityId] || combatant.cooldowns[abilityId] <= now;
   const costs =

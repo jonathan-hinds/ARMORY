@@ -35,6 +35,7 @@ class Ability {
     cooldown,
     scaling = [],
     effects = [],
+    isBasicAttack = false,
   }) {
     this.id = id;
     this.name = name;
@@ -46,6 +47,7 @@ class Ability {
     this.cooldown = cooldown; // seconds
     this.scaling = scaling; // array of stat names
     this.effects = effects; // array of Effect descriptors
+    this.isBasicAttack = !!isBasicAttack;
   }
 }
 
