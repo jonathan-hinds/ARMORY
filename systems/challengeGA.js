@@ -1,3 +1,5 @@
+const fs = require('fs').promises;
+const path = require('path');
 const ChallengeStateModel = require('../models/ChallengeState');
 const CharacterModel = require('../models/Character');
 const {
@@ -13,15 +15,31 @@ const { compute } = require('./derivedStats');
 const { xpForNextLevel } = require('./characterService');
 const { processJobForCharacter, ensureJobIdleForDoc } = require('./jobService');
 
-const MIN_POPULATION_SIZE = 10;
-const POPULATION_STEP = 10;
-const MAX_POPULATION_SIZE = 100;
-const MUTATION_RATE = 0.2;
-const GEAR_MUTATION_RATE = 0.25;
-const MAX_ROTATION_LENGTH = 6;
-const BASE_REWARD_XP_PCT = 0.04;
-const REWARD_MULTIPLIER_STEP = 0.15;
-const BASE_GOLD_REWARD = 12;
+const CONFIG_FILE = path.join(__dirname, '..', 'data', 'challengeConfig.json');
+
+const DEFAULT_CONFIG = {
+  generations: 1,
+  population: {
+    minSize: 10,
+    stepSize: 10,
+    stepInterval: 3,
+    maxSize: 100,
+  },
+  mutation: {
+    genomeRate: 0.2,
+    gearRate: 0.25,
+  },
+  rotation: {
+    maxLength: 6,
+  },
+  rewards: {
+    baseXpPct: 0.04,
+    rewardMultiplierStep: 0.15,
+    baseGold: 12,
+  },
+};
+
+let configCache = null;
 
 const NAME_POOL = [
   'Nemesis',
@@ -38,6 +56,100 @@ const NAME_POOL = [
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value || null));
+}
+
+function normalizeChallengeConfig(raw) {
+  const config = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+  const generations = Number.isFinite(config.generations)
+    ? Math.max(1, Math.round(config.generations))
+    : DEFAULT_CONFIG.generations;
+
+  const populationRaw = config.population && typeof config.population === 'object' ? config.population : {};
+  const minSize = Number.isFinite(populationRaw.minSize)
+    ? Math.max(2, Math.round(populationRaw.minSize))
+    : DEFAULT_CONFIG.population.minSize;
+  const stepSize = Number.isFinite(populationRaw.stepSize)
+    ? Math.max(0, Math.round(populationRaw.stepSize))
+    : DEFAULT_CONFIG.population.stepSize;
+  const stepInterval = Number.isFinite(populationRaw.stepInterval)
+    ? Math.max(1, Math.round(populationRaw.stepInterval))
+    : DEFAULT_CONFIG.population.stepInterval;
+  const maxSize = Number.isFinite(populationRaw.maxSize)
+    ? Math.max(minSize, Math.round(populationRaw.maxSize))
+    : DEFAULT_CONFIG.population.maxSize;
+
+  const mutationRaw = config.mutation && typeof config.mutation === 'object' ? config.mutation : {};
+  const genomeRate = Number.isFinite(mutationRaw.genomeRate)
+    ? Math.max(0, Math.min(1, mutationRaw.genomeRate))
+    : DEFAULT_CONFIG.mutation.genomeRate;
+  const gearRate = Number.isFinite(mutationRaw.gearRate)
+    ? Math.max(0, Math.min(1, mutationRaw.gearRate))
+    : DEFAULT_CONFIG.mutation.gearRate;
+
+  const rotationRaw = config.rotation && typeof config.rotation === 'object' ? config.rotation : {};
+  const maxLength = Number.isFinite(rotationRaw.maxLength)
+    ? Math.max(3, Math.round(rotationRaw.maxLength))
+    : DEFAULT_CONFIG.rotation.maxLength;
+
+  const rewardsRaw = config.rewards && typeof config.rewards === 'object' ? config.rewards : {};
+  const baseXpPct = Number.isFinite(rewardsRaw.baseXpPct)
+    ? Math.max(0, rewardsRaw.baseXpPct)
+    : DEFAULT_CONFIG.rewards.baseXpPct;
+  const rewardMultiplierStep = Number.isFinite(rewardsRaw.rewardMultiplierStep)
+    ? Math.max(0, rewardsRaw.rewardMultiplierStep)
+    : DEFAULT_CONFIG.rewards.rewardMultiplierStep;
+  const baseGold = Number.isFinite(rewardsRaw.baseGold)
+    ? Math.max(1, Math.round(rewardsRaw.baseGold))
+    : DEFAULT_CONFIG.rewards.baseGold;
+
+  return {
+    generations,
+    population: {
+      minSize,
+      stepSize,
+      stepInterval,
+      maxSize,
+    },
+    mutation: {
+      genomeRate,
+      gearRate,
+    },
+    rotation: {
+      maxLength,
+    },
+    rewards: {
+      baseXpPct,
+      rewardMultiplierStep,
+      baseGold,
+    },
+  };
+}
+
+async function getChallengeConfig() {
+  if (!configCache) {
+    let raw = {};
+    try {
+      const data = await fs.readFile(CONFIG_FILE, 'utf8');
+      raw = JSON.parse(data);
+    } catch (err) {
+      if (err && err.code !== 'ENOENT') {
+        throw err;
+      }
+    }
+    configCache = normalizeChallengeConfig(raw);
+  }
+  return configCache;
+}
+
+function getCachedChallengeConfig() {
+  return configCache || DEFAULT_CONFIG;
+}
+
+function resolveConfig(context) {
+  if (context && context.config && typeof context.config === 'object') {
+    return context.config;
+  }
+  return getCachedChallengeConfig();
 }
 
 function createNewState(characterId) {
@@ -96,11 +208,13 @@ function shuffle(list) {
   return arr;
 }
 
-function populationSizeForRound(round) {
+function populationSizeForRound(round, config) {
+  const populationConfig = config && config.population ? config.population : DEFAULT_CONFIG.population;
   const baseRound = typeof round === 'number' && round > 0 ? round : 1;
-  const increments = Math.floor((baseRound - 1) / 3);
-  const target = MIN_POPULATION_SIZE + increments * POPULATION_STEP;
-  return Math.max(MIN_POPULATION_SIZE, Math.min(MAX_POPULATION_SIZE, target));
+  const interval = Math.max(1, populationConfig.stepInterval || 1);
+  const increments = Math.floor((baseRound - 1) / interval);
+  const target = populationConfig.minSize + increments * populationConfig.stepSize;
+  return Math.max(populationConfig.minSize, Math.min(populationConfig.maxSize, target));
 }
 
 function randomName(round, index) {
@@ -153,13 +267,15 @@ function randomAttributes(total) {
   return adjustAttributes(provisional, total);
 }
 
-function ensureRotation(rotation, abilityIds) {
-  const validIds = new Set(abilityIds || []);
+function ensureRotation(rotation, abilityIds, context) {
+  const validIds = new Set(Array.isArray(abilityIds) ? abilityIds : []);
   const cleaned = Array.isArray(rotation) ? rotation.filter(id => validIds.has(id)) : [];
-  const minLen = 3;
-  const maxLen = MAX_ROTATION_LENGTH;
-  while (cleaned.length < minLen && abilityIds.length) {
-    cleaned.push(abilityIds[randomInt(abilityIds.length)]);
+  const config = resolveConfig(context);
+  const maxLen = Math.max(3, config.rotation.maxLength);
+  const minLen = Math.min(3, maxLen);
+  const sourceIds = Array.isArray(abilityIds) ? abilityIds : [];
+  while (cleaned.length < minLen && sourceIds.length) {
+    cleaned.push(sourceIds[randomInt(sourceIds.length)]);
   }
   if (cleaned.length > maxLen) {
     cleaned.length = maxLen;
@@ -167,32 +283,47 @@ function ensureRotation(rotation, abilityIds) {
   return cleaned;
 }
 
-function randomRotation(abilityIds) {
-  const minLen = 3;
-  const maxLen = MAX_ROTATION_LENGTH;
+function randomRotation(abilityIds, context) {
+  const config = resolveConfig(context);
+  const maxLen = Math.max(3, config.rotation.maxLength);
+  const minLen = Math.min(3, maxLen);
+  const sourceIds = Array.isArray(abilityIds) ? abilityIds : [];
+  if (!sourceIds.length) {
+    return [];
+  }
   const length = minLen + randomInt(Math.max(1, maxLen - minLen + 1));
   const rotation = [];
   for (let i = 0; i < length; i += 1) {
-    rotation.push(abilityIds[randomInt(abilityIds.length)]);
+    rotation.push(sourceIds[randomInt(sourceIds.length)]);
   }
-  return ensureRotation(rotation, abilityIds);
+  return ensureRotation(rotation, sourceIds, context);
 }
 
-function mutateRotation(rotation, abilityIds) {
+function mutateRotation(rotation, abilityIds, context) {
   const next = Array.isArray(rotation) ? rotation.slice() : [];
-  if (!next.length) return randomRotation(abilityIds);
-  if (Math.random() < 0.4 && next.length < MAX_ROTATION_LENGTH) {
-    next.push(abilityIds[randomInt(abilityIds.length)]);
+  const config = resolveConfig(context);
+  const maxLen = Math.max(3, config.rotation.maxLength);
+  const sourceIds = Array.isArray(abilityIds) ? abilityIds : [];
+  if (!next.length) return randomRotation(sourceIds, context);
+  if (Math.random() < 0.4 && next.length < maxLen && sourceIds.length) {
+    next.push(sourceIds[randomInt(sourceIds.length)]);
   } else {
     const idx = randomInt(next.length);
-    next[idx] = abilityIds[randomInt(abilityIds.length)];
+    if (sourceIds.length) {
+      next[idx] = sourceIds[randomInt(sourceIds.length)];
+    }
   }
-  return ensureRotation(next, abilityIds);
+  return ensureRotation(next, sourceIds, context);
 }
 
-function breedRotation(rotA = [], rotB = [], abilityIds) {
-  const minLen = 3;
-  const maxLen = MAX_ROTATION_LENGTH;
+function breedRotation(rotA = [], rotB = [], abilityIds, context) {
+  const config = resolveConfig(context);
+  const maxLen = Math.max(3, config.rotation.maxLength);
+  const minLen = Math.min(3, maxLen);
+  const sourceIds = Array.isArray(abilityIds) ? abilityIds : [];
+  if (!sourceIds.length) {
+    return [];
+  }
   const avgLength = Math.round((rotA.length + rotB.length) / 2) || minLen;
   const length = Math.max(minLen, Math.min(maxLen, avgLength + (randomInt(3) - 1)));
   const rotation = [];
@@ -205,11 +336,11 @@ function breedRotation(rotA = [], rotB = [], abilityIds) {
       abilityId = rotB[i % rotB.length];
     }
     if (abilityId == null) {
-      abilityId = abilityIds[randomInt(abilityIds.length)];
+      abilityId = sourceIds[randomInt(sourceIds.length)];
     }
     rotation.push(abilityId);
   }
-  return ensureRotation(rotation, abilityIds);
+  return ensureRotation(rotation, sourceIds, context);
 }
 
 function buildItemsBySlot(equipmentMap) {
@@ -319,14 +450,14 @@ function mutateEquipment(equipment, gearBudget, itemsBySlot, playerCosts, equipm
   return sanitizeEquipment(current, gearBudget, equipmentMap);
 }
 
-function breedEquipment(eqA, eqB, gearBudget, itemsBySlot, playerCosts, equipmentMap) {
+function breedEquipment(eqA, eqB, gearBudget, itemsBySlot, playerCosts, equipmentMap, context) {
   const inherited = {};
   EQUIPMENT_SLOTS.forEach(slot => {
     const pick = Math.random() < 0.5 ? eqA : eqB;
     inherited[slot] = pick && pick[slot] ? pick[slot] : null;
   });
   let result = sanitizeEquipment(inherited, gearBudget, equipmentMap);
-  if (Math.random() < GEAR_MUTATION_RATE) {
+  if (Math.random() < resolveConfig(context).mutation.gearRate) {
     result = mutateEquipment(result, gearBudget, itemsBySlot, playerCosts, equipmentMap);
   }
   return result;
@@ -344,7 +475,7 @@ function randomBasicType(attributes) {
 function normalizeGenome(genome, context) {
   const { totalPoints, abilityIds, gearBudget, itemsBySlot, playerCosts, equipmentMap } = context;
   const attributes = adjustAttributes(genome && genome.attributes ? genome.attributes : {}, totalPoints);
-  const rotation = ensureRotation(genome && genome.rotation ? genome.rotation : [], abilityIds);
+  const rotation = ensureRotation(genome && genome.rotation ? genome.rotation : [], abilityIds, context);
   const equipment = sanitizeEquipment(genome && genome.equipment ? genome.equipment : {}, gearBudget, equipmentMap);
   let basicType = genome && genome.basicType === 'magic' ? 'magic' : 'melee';
   if (!genome || !genome.basicType) {
@@ -362,7 +493,7 @@ function normalizeGenome(genome, context) {
 
 function randomGenome(context, options = {}) {
   const attributes = randomAttributes(context.totalPoints);
-  const rotation = randomRotation(context.abilityIds);
+  const rotation = randomRotation(context.abilityIds, context);
   const equipment = randomEquipment(
     context.gearBudget,
     context.itemsBySlot,
@@ -386,7 +517,7 @@ function mutateGenome(genome, context) {
   const attributes = { ...genome.attributes };
   const stat = STATS[randomInt(STATS.length)];
   attributes[stat] = (attributes[stat] || 0) + (Math.random() < 0.5 ? -1 : 1);
-  const rotation = mutateRotation(genome.rotation || [], context.abilityIds);
+  const rotation = mutateRotation(genome.rotation || [], context.abilityIds, context);
   const equipment = mutateEquipment(genome.equipment || {}, context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
   const basicType = Math.random() < 0.3 ? (genome.basicType === 'magic' ? 'melee' : 'magic') : genome.basicType;
   return normalizeGenome({ basicType, attributes, rotation, equipment, name: genome.name }, context);
@@ -401,14 +532,22 @@ function breedGenomes(parentA, parentB, context) {
     const a = parentA.attributes ? parentA.attributes[stat] || 0 : 0;
     const b = parentB.attributes ? parentB.attributes[stat] || 0 : 0;
     let value = Math.random() < 0.5 ? a : b;
-    if (Math.random() < MUTATION_RATE) {
+    if (Math.random() < resolveConfig(context).mutation.genomeRate) {
       value += Math.round((Math.random() - 0.5) * 2);
     }
     attributes[stat] = value;
   });
-  const rotation = breedRotation(parentA.rotation || [], parentB.rotation || [], context.abilityIds);
-  let equipment = breedEquipment(parentA.equipment || {}, parentB.equipment || {}, context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
-  if (Math.random() < MUTATION_RATE) {
+  const rotation = breedRotation(parentA.rotation || [], parentB.rotation || [], context.abilityIds, context);
+  let equipment = breedEquipment(
+    parentA.equipment || {},
+    parentB.equipment || {},
+    context.gearBudget,
+    context.itemsBySlot,
+    context.playerCosts,
+    context.equipmentMap,
+    context,
+  );
+  if (Math.random() < resolveConfig(context).mutation.genomeRate) {
     equipment = mutateEquipment(equipment, context.gearBudget, context.itemsBySlot, context.playerCosts, context.equipmentMap);
   }
   let basicType;
@@ -516,9 +655,10 @@ async function buildChallengeContext(characterId) {
     throw new Error('character rotation invalid');
   }
 
-  const [abilities, equipmentMap] = await Promise.all([
+  const [abilities, equipmentMap, config] = await Promise.all([
     getAbilities(),
     getEquipmentMap(),
+    getChallengeConfig(),
   ]);
 
   const abilityIds = abilities.map(a => a.id);
@@ -537,6 +677,7 @@ async function buildChallengeContext(characterId) {
     gearBudget: playerGear.gearScore,
     playerCosts: playerGear.playerCosts,
     round: 1,
+    config,
   };
 
   return {
@@ -570,17 +711,36 @@ async function prepareChallenge(characterId) {
 }
 
 async function findChampion(context, parentA, parentB) {
-  const population = await generatePopulation(context, parentA, parentB);
-  const evaluations = [];
-  for (let i = 0; i < population.length; i += 1) {
+  const config = resolveConfig(context);
+  const generations = Math.max(1, Math.round(config.generations || 1));
+  let currentA = parentA ? normalizeGenome(parentA, context) : null;
+  let currentB = parentB ? normalizeGenome(parentB, context) : null;
+  let bestChampion = null;
+  let bestPartner = null;
+  let bestEvaluations = [];
+
+  for (let gen = 0; gen < generations; gen += 1) {
     // eslint-disable-next-line no-await-in-loop
-    const evaluation = await evaluateGenome(population[i], i, context);
-    evaluations.push(evaluation);
+    const population = await generatePopulation(context, currentA, currentB);
+    const evaluations = [];
+    for (let i = 0; i < population.length; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const evaluation = await evaluateGenome(population[i], i, context);
+      evaluations.push(evaluation);
+    }
+    evaluations.sort((a, b) => b.fitness - a.fitness);
+    const champion = evaluations[0];
+    const partner = evaluations[1] || champion;
+    if (!bestChampion || (champion && champion.fitness > bestChampion.fitness)) {
+      bestChampion = champion;
+      bestPartner = partner;
+      bestEvaluations = evaluations;
+    }
+    currentA = champion ? normalizeGenome(champion.genome, context) : currentA;
+    currentB = partner ? normalizeGenome(partner.genome, context) : currentB;
   }
-  evaluations.sort((a, b) => b.fitness - a.fitness);
-  const champion = evaluations[0];
-  const partner = evaluations[1] || champion;
-  return { champion, partner, evaluations };
+
+  return { champion: bestChampion, partner: bestPartner || bestChampion, evaluations: bestEvaluations };
 }
 
 function buildChallengePayload(state, level) {
@@ -646,7 +806,7 @@ async function generatePopulation(context, parentA, parentB) {
   const population = [];
   if (parentA) population.push(normalizeGenome(parentA, context));
   if (parentB) population.push(normalizeGenome(parentB, context));
-  const targetSize = Math.max(populationSizeForRound(context.round), population.length || 0);
+  const targetSize = Math.max(populationSizeForRound(context.round, resolveConfig(context)), population.length || 0);
   while (population.length < targetSize) {
     if (parentA && parentB) {
       if (Math.random() < 0.2) {
@@ -673,10 +833,11 @@ async function generatePopulation(context, parentA, parentB) {
 }
 
 function rewardForRound(round, level) {
-  const multiplier = 1 + (Math.max(1, round) - 1) * REWARD_MULTIPLIER_STEP;
-  const xpBase = xpForNextLevel(level || 1) * BASE_REWARD_XP_PCT;
+  const rewardsConfig = getCachedChallengeConfig().rewards;
+  const multiplier = 1 + (Math.max(1, round) - 1) * rewardsConfig.rewardMultiplierStep;
+  const xpBase = xpForNextLevel(level || 1) * rewardsConfig.baseXpPct;
   const xpGain = Math.max(5, Math.round(xpBase * multiplier));
-  const goldGain = Math.max(3, Math.round(BASE_GOLD_REWARD * multiplier));
+  const goldGain = Math.max(3, Math.round(rewardsConfig.baseGold * multiplier));
   return { multiplier, xpGain, goldGain };
 }
 
@@ -922,4 +1083,5 @@ module.exports = {
   buildOpponentPreview,
   normalizeGenome,
   computePlayerGear,
+  getChallengeConfig,
 };
