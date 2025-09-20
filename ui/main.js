@@ -1951,62 +1951,6 @@ function getJobLogInfo(entry) {
   };
 }
 
-function formatJobLogMessage(entry) {
-  const info = getJobLogInfo(entry);
-  if (!info) return '';
-  const {
-    itemName,
-    rarity,
-    generatedMaterials,
-    attempted,
-    statGain,
-    reason,
-    describeCreationRoll,
-    creation,
-  } = info;
-  if (info.type === 'crafted') {
-    const rarityText = rarity ? `${rarity} ` : '';
-    let message = `Crafted ${rarityText}${itemName}.`;
-    if (generatedMaterials.length) {
-      const generatedText = generatedMaterials.map(m => `${m.name} ×${m.amount}`).join(', ');
-      const creationSummary = describeCreationRoll('succeeded');
-      if (creationSummary) {
-        message += ` ${creationSummary}`;
-      }
-      message += ` Generated missing materials: ${generatedText}.`;
-    } else if (attempted) {
-      const creationSummary = describeCreationRoll(creation.succeeded ? 'succeeded' : 'failed');
-      if (creationSummary) {
-        message += ` ${creationSummary}`;
-      }
-    }
-    if (statGain) {
-      message += ` Gained +${statGain.amount} ${statGain.stat}.`;
-    }
-    return message;
-  }
-  if (reason === 'insufficient-materials' && info.missingMaterials.length) {
-    const missingText = info.missingMaterials
-      .map(m => `${m.name} (${m.available}/${m.required})`)
-      .join(', ');
-    let message = `Attempted to craft ${itemName} but lacked ${missingText}.`;
-    if (attempted) {
-      const creationSummary = describeCreationRoll('failed', { includeTargets: true });
-      if (creationSummary) {
-        message += ` ${creationSummary}`;
-      }
-    }
-    return message;
-  }
-  if (attempted) {
-    const creationSummary = describeCreationRoll(creation.succeeded ? 'succeeded' : 'failed');
-    if (creationSummary) {
-      return `Attempted to craft ${itemName} but it failed. ${creationSummary}`;
-    }
-  }
-  return `Attempted to craft ${itemName} but it failed.`;
-}
-
 function buildJobLogListItem(entry) {
   const info = getJobLogInfo(entry);
   const li = document.createElement('li');
@@ -2105,14 +2049,6 @@ function buildJobLogListItem(entry) {
 
   if (info.statGain) {
     addDetail('Stat Gain', `+${info.statGain.amount} ${info.statGain.stat}`);
-  }
-
-  const summaryText = formatJobLogMessage(entry);
-  if (summaryText) {
-    const summary = document.createElement('p');
-    summary.className = 'job-log-summary';
-    summary.textContent = summaryText;
-    details.appendChild(summary);
   }
 
   li.appendChild(details);
