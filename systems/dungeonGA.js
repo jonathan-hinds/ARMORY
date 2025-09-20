@@ -251,6 +251,207 @@ function shuffle(list) {
   return arr;
 }
 
+function buildStatFocus(attributes = {}) {
+  const focus = {};
+  let maxValue = 0;
+  let total = 0;
+  STATS.forEach(stat => {
+    const value = Math.max(0, Number(attributes[stat]) || 0);
+    focus[stat] = value;
+    if (value > maxValue) maxValue = value;
+    total += value;
+  });
+  if (maxValue <= 0 || !Number.isFinite(maxValue)) {
+    const baseline = 1 / Math.max(1, STATS.length);
+    STATS.forEach(stat => {
+      focus[stat] = baseline;
+    });
+    return focus;
+  }
+  const divisor = total > 0 ? total : maxValue * Math.max(1, STATS.length);
+  STATS.forEach(stat => {
+    const raw = focus[stat] || 0;
+    const share = raw / divisor;
+    const emphasis = raw / maxValue;
+    focus[stat] = 0.35 * share + 0.65 * emphasis;
+  });
+  return focus;
+}
+
+function abilityWeight(ability, focus) {
+  if (!ability) {
+    return 0;
+  }
+  let weight = ability.isBasicAttack ? 0.6 : 0.2;
+  const scaling = Array.isArray(ability.scaling) ? ability.scaling : [];
+  if (scaling.length) {
+    let matched = 0;
+    let totalFocus = 0;
+    scaling.forEach(stat => {
+      const key = typeof stat === 'string' ? stat : null;
+      if (key && Object.prototype.hasOwnProperty.call(focus, key)) {
+        matched += 1;
+        totalFocus += focus[key] || 0;
+      }
+    });
+    if (matched > 0) {
+      const avgFocus = totalFocus / matched;
+      weight += 2.5 * avgFocus;
+    } else {
+      weight *= 0.45;
+    }
+  } else if (!ability.isBasicAttack) {
+    weight *= 0.6;
+  }
+  const cooldown = Number(ability.cooldown);
+  if (Number.isFinite(cooldown) && cooldown > 12) {
+    weight *= 0.85;
+  }
+  return Math.max(weight, 0.05);
+}
+
+function cooldownSpacingMultiplier(ability, options = {}) {
+  if (!ability) {
+    return 0;
+  }
+  const cooldown = Number(ability.cooldown);
+  if (!Number.isFinite(cooldown) || cooldown <= 0) {
+    return 1;
+  }
+  const attackInterval = Number.isFinite(options.attackInterval) && options.attackInterval > 0
+    ? options.attackInterval
+    : null;
+  if (!attackInterval) {
+    return 1;
+  }
+  const rotation = Array.isArray(options.rotation) ? options.rotation : [];
+  const ignoreIndex = Number.isInteger(options.ignoreIndex) ? options.ignoreIndex : null;
+  const slotIndex = Number.isInteger(options.slotIndex) ? options.slotIndex : rotation.length;
+  const abilityId = options.abilityId != null ? options.abilityId : ability.id;
+  const rawTarget = Number.isInteger(options.targetLength) ? options.targetLength : null;
+  const cycleSlots = Math.max(1, rawTarget != null ? rawTarget : Math.max(rotation.length + 1, 1));
+  const cycleTime = cycleSlots * attackInterval;
+
+  const existingPositions = [];
+  for (let i = 0; i < rotation.length; i += 1) {
+    if (i === ignoreIndex) continue;
+    if (rotation[i] === abilityId) {
+      existingPositions.push(i);
+    }
+  }
+
+  if (!existingPositions.length) {
+    if (cooldown <= attackInterval) {
+      return ability.isBasicAttack ? 1.2 : 1.05;
+    }
+    const ratio = cycleTime / cooldown;
+    if (!Number.isFinite(ratio) || ratio >= 1) {
+      return 1;
+    }
+    const baseline = ability.isBasicAttack ? 0.8 : 0.6;
+    const bonus = ability.isBasicAttack ? 0.3 : 0.4;
+    return Math.max(0.3, Math.min(1.1, baseline + bonus * ratio));
+  }
+
+  let minGap = Infinity;
+  existingPositions.forEach(idx => {
+    const forwardSlots = slotIndex >= idx ? slotIndex - idx : slotIndex + cycleSlots - idx;
+    if (forwardSlots <= 0) {
+      return;
+    }
+    const separation = forwardSlots * attackInterval;
+    if (separation < minGap) {
+      minGap = separation;
+    }
+  });
+
+  if (!Number.isFinite(minGap) || minGap === Infinity) {
+    minGap = cycleTime;
+  }
+
+  const ratio = minGap / cooldown;
+  if (ratio >= 1.2) {
+    return 1.05;
+  }
+  if (ratio >= 1) {
+    return 1;
+  }
+  if (ratio >= 0.8) {
+    return 0.65;
+  }
+  if (ratio >= 0.6) {
+    return 0.4;
+  }
+  if (ratio >= 0.4) {
+    return 0.2;
+  }
+  return 0.08;
+}
+
+function pickAbilityId(abilityIds, abilityMap, focus, options = {}) {
+  const pool = Array.isArray(abilityIds) ? abilityIds : [];
+  if (!pool.length) {
+    return null;
+  }
+  const excludeId = options.excludeId != null ? options.excludeId : null;
+  const rotation = Array.isArray(options.rotation) ? options.rotation : [];
+  const slotIndex = Number.isInteger(options.slotIndex) ? options.slotIndex : rotation.length;
+  const targetLength = Number.isInteger(options.targetLength)
+    ? Math.max(1, options.targetLength)
+    : Math.max(1, rotation.length + 1);
+  const attackInterval = Number.isFinite(options.attackInterval) && options.attackInterval > 0
+    ? options.attackInterval
+    : null;
+  const ignoreIndex = Number.isInteger(options.ignoreIndex) ? options.ignoreIndex : null;
+  const preferId = options.preferId != null ? options.preferId : null;
+
+  let totalWeight = 0;
+  const weights = pool.map(id => {
+    if (excludeId != null && id === excludeId) {
+      return 0;
+    }
+    const ability = abilityMap && typeof abilityMap.get === 'function' ? abilityMap.get(id) : null;
+    if (!ability) {
+      return 0;
+    }
+    let weight = abilityWeight(ability, focus);
+    if (preferId != null && id === preferId) {
+      weight *= 1.1;
+    }
+    if (attackInterval) {
+      weight *= cooldownSpacingMultiplier(ability, {
+        rotation,
+        slotIndex,
+        targetLength,
+        attackInterval,
+        ignoreIndex,
+        abilityId: id,
+      });
+    }
+    totalWeight += weight;
+    return weight;
+  });
+
+  if (totalWeight <= 0) {
+    const filtered = excludeId == null ? pool : pool.filter(id => id !== excludeId);
+    if (!filtered.length) {
+      return pool[randomInt(pool.length)];
+    }
+    return filtered[randomInt(filtered.length)];
+  }
+
+  let roll = Math.random() * totalWeight;
+  for (let i = 0; i < pool.length; i += 1) {
+    const weight = weights[i];
+    if (weight <= 0) continue;
+    if (roll < weight) {
+      return pool[i];
+    }
+    roll -= weight;
+  }
+  return pool[pool.length - 1];
+}
+
 function totalAttributePoints(attributes = {}) {
   return STATS.reduce((acc, stat) => acc + (attributes[stat] || 0), 0);
 }
@@ -300,48 +501,152 @@ function randomAttributes(total) {
   return adjustAttributes(provisional, total);
 }
 
-function ensureRotation(rotation, abilityIds) {
-  const validIds = new Set(abilityIds || []);
-  const cleaned = Array.isArray(rotation) ? rotation.filter(id => validIds.has(id)) : [];
+function ensureRotation(rotation, abilityIds, attributes, context, options = {}) {
+  const sourceIds = Array.isArray(abilityIds) ? abilityIds : [];
+  const validIds = new Set(sourceIds);
+  const initial = Array.isArray(rotation) ? rotation.filter(id => validIds.has(id)) : [];
+  const abilityMap = context && context.abilityMap && typeof context.abilityMap.get === 'function'
+    ? context.abilityMap
+    : null;
+  const focus = buildStatFocus(attributes);
   const minLen = 3;
   const maxLen = 6;
-  while (cleaned.length < minLen && abilityIds.length) {
-    cleaned.push(abilityIds[randomInt(abilityIds.length)]);
+  const attackInterval = Number.isFinite(options.attackInterval) && options.attackInterval > 0
+    ? options.attackInterval
+    : null;
+  const desiredLength = Number.isInteger(options.targetLength) ? options.targetLength : initial.length;
+  const targetLength = Math.max(minLen, Math.min(maxLen, desiredLength || minLen));
+  const result = [];
+
+  for (let i = 0; i < initial.length && result.length < maxLen; i += 1) {
+    const preferId = initial[i];
+    const chosen = pickAbilityId(sourceIds, abilityMap, focus, {
+      rotation: result,
+      slotIndex: result.length,
+      targetLength,
+      attackInterval,
+      preferId,
+    });
+    if (chosen != null) {
+      result.push(chosen);
+    }
   }
-  if (cleaned.length > maxLen) {
-    cleaned.length = maxLen;
+
+  while (result.length < minLen && sourceIds.length) {
+    const chosen = pickAbilityId(sourceIds, abilityMap, focus, {
+      rotation: result,
+      slotIndex: result.length,
+      targetLength: Math.max(targetLength, result.length + 1),
+      attackInterval,
+    });
+    if (chosen == null) {
+      break;
+    }
+    result.push(chosen);
   }
-  return cleaned;
+
+  if (result.length > maxLen) {
+    result.length = maxLen;
+  }
+
+  if (!result.length && sourceIds.length) {
+    const fallback = pickAbilityId(sourceIds, abilityMap, focus, {
+      rotation: result,
+      slotIndex: 0,
+      targetLength: Math.max(minLen, 1),
+      attackInterval,
+    });
+    if (fallback != null) {
+      result.push(fallback);
+    }
+  }
+
+  return result;
 }
 
-function randomRotation(abilityIds) {
+function randomRotation(abilityIds, attributes, context, options = {}) {
   const minLen = 3;
   const maxLen = 6;
   const length = minLen + randomInt(Math.max(1, maxLen - minLen + 1));
+  const abilityMap = context && context.abilityMap && typeof context.abilityMap.get === 'function'
+    ? context.abilityMap
+    : null;
+  const focus = buildStatFocus(attributes);
+  const attackInterval = Number.isFinite(options.attackInterval) && options.attackInterval > 0
+    ? options.attackInterval
+    : null;
   const rotation = [];
   for (let i = 0; i < length; i += 1) {
-    rotation.push(abilityIds[randomInt(abilityIds.length)]);
+    const abilityId = pickAbilityId(abilityIds, abilityMap, focus, {
+      rotation,
+      slotIndex: i,
+      targetLength: length,
+      attackInterval,
+    });
+    if (abilityId == null) {
+      break;
+    }
+    rotation.push(abilityId);
   }
-  return ensureRotation(rotation, abilityIds);
+  return ensureRotation(rotation, abilityIds, attributes, context, {
+    attackInterval,
+    targetLength: length,
+  });
 }
 
-function mutateRotation(rotation, abilityIds) {
+function mutateRotation(rotation, abilityIds, attributes, context, options = {}) {
   const next = Array.isArray(rotation) ? rotation.slice() : [];
-  if (!next.length) return randomRotation(abilityIds);
-  if (Math.random() < 0.4 && next.length < 6) {
-    next.push(abilityIds[randomInt(abilityIds.length)]);
-  } else {
+  const attackInterval = Number.isFinite(options.attackInterval) && options.attackInterval > 0
+    ? options.attackInterval
+    : null;
+  if (!next.length) return randomRotation(abilityIds, attributes, context, { attackInterval });
+  const abilityMap = context && context.abilityMap && typeof context.abilityMap.get === 'function'
+    ? context.abilityMap
+    : null;
+  const focus = buildStatFocus(attributes);
+  if (Math.random() < 0.4 && next.length < 6 && abilityIds && abilityIds.length) {
+    const candidate = pickAbilityId(abilityIds, abilityMap, focus, {
+      rotation: next,
+      slotIndex: next.length,
+      targetLength: Math.min(6, next.length + 1),
+      attackInterval,
+    });
+    if (candidate != null) {
+      next.push(candidate);
+    }
+  } else if (abilityIds && abilityIds.length) {
     const idx = randomInt(next.length);
-    next[idx] = abilityIds[randomInt(abilityIds.length)];
+    const replacement = pickAbilityId(abilityIds, abilityMap, focus, {
+      rotation: next,
+      slotIndex: idx,
+      targetLength: next.length,
+      attackInterval,
+      ignoreIndex: idx,
+      preferId: next[idx],
+    });
+    if (replacement != null) {
+      next[idx] = replacement;
+    }
   }
-  return ensureRotation(next, abilityIds);
+  return ensureRotation(next, abilityIds, attributes, context, {
+    attackInterval,
+    targetLength: next.length,
+  });
 }
 
-function breedRotation(rotA = [], rotB = [], abilityIds) {
+function breedRotation(rotA = [], rotB = [], abilityIds, attributes, context, options = {}) {
   const minLen = 3;
   const maxLen = 6;
   const avgLength = Math.round((rotA.length + rotB.length) / 2) || minLen;
   const length = Math.max(minLen, Math.min(maxLen, avgLength + (randomInt(3) - 1)));
+  const abilityMap = context && context.abilityMap && typeof context.abilityMap.get === 'function'
+    ? context.abilityMap
+    : null;
+  const focus = buildStatFocus(attributes);
+  const attackInterval = Number.isFinite(options.attackInterval) && options.attackInterval > 0
+    ? options.attackInterval
+    : null;
+  const validIds = new Set(Array.isArray(abilityIds) ? abilityIds : []);
   const rotation = [];
   for (let i = 0; i < length; i += 1) {
     let abilityId = null;
@@ -351,12 +656,24 @@ function breedRotation(rotA = [], rotB = [], abilityIds) {
     if ((abilityId == null) && rotB.length && Math.random() < 0.7) {
       abilityId = rotB[i % rotB.length];
     }
-    if (abilityId == null) {
-      abilityId = abilityIds[randomInt(abilityIds.length)];
+    if (abilityId == null || !validIds.has(abilityId)) {
+      abilityId = null;
     }
-    rotation.push(abilityId);
+    const chosen = pickAbilityId(abilityIds, abilityMap, focus, {
+      rotation,
+      slotIndex: rotation.length,
+      targetLength: length,
+      attackInterval,
+      preferId: abilityId,
+    });
+    if (chosen != null) {
+      rotation.push(chosen);
+    }
   }
-  return ensureRotation(rotation, abilityIds);
+  return ensureRotation(rotation, abilityIds, attributes, context, {
+    attackInterval,
+    targetLength: length,
+  });
 }
 
 function buildItemsBySlot(equipmentMap) {
@@ -403,6 +720,46 @@ function sanitizeEquipment(equipment, gearBudget, equipmentMap) {
     }
   }
   return sanitized;
+}
+
+function resolveEquipmentForCompute(equipment, equipmentMap) {
+  const resolved = {};
+  EQUIPMENT_SLOTS.forEach(slot => {
+    const id = equipment && equipment[slot] ? equipment[slot] : null;
+    if (id && equipmentMap && equipmentMap.has(id)) {
+      resolved[slot] = equipmentMap.get(id);
+    } else {
+      resolved[slot] = null;
+    }
+  });
+  return resolved;
+}
+
+function resolveAttackInterval(attributes, equipment, basicType, context) {
+  try {
+    if (!context || !context.equipmentMap) {
+      return null;
+    }
+    const shaped = ensureEquipmentShape(equipment || {});
+    const resolved = resolveEquipmentForCompute(shaped, context.equipmentMap);
+    const character = {
+      attributes: { ...attributes },
+      basicType: basicType === 'magic' ? 'magic' : 'melee',
+      level: (context.baseCharacter && context.baseCharacter.level) || 1,
+      rotation: [],
+      equipment: shaped,
+    };
+    const derived = compute(character, resolved);
+    const value = derived && Number.isFinite(derived.attackIntervalSeconds)
+      ? derived.attackIntervalSeconds
+      : null;
+    if (Number.isFinite(value) && value > 0) {
+      return Math.max(0.5, value);
+    }
+  } catch (err) {
+    // ignore
+  }
+  return null;
 }
 
 function randomEquipment(gearBudget, itemsBySlot, playerCosts, equipmentMap, options = {}) {
@@ -488,15 +845,27 @@ function randomBasicType(attributes) {
   return strength > intellect ? 'melee' : 'magic';
 }
 
+function resolveBasicType(preferred, attributes) {
+  if (preferred === 'magic' || preferred === 'melee') {
+    return preferred;
+  }
+  return randomBasicType(attributes);
+}
+
 function normalizeGenome(genome, context) {
   const { totalPoints, abilityIds, gearBudget, itemsBySlot, playerCosts, equipmentMap } = context;
   const attributes = adjustAttributes(genome && genome.attributes ? genome.attributes : {}, totalPoints);
-  const rotation = ensureRotation(genome && genome.rotation ? genome.rotation : [], abilityIds);
   const equipment = sanitizeEquipment(genome && genome.equipment ? genome.equipment : {}, gearBudget, equipmentMap);
-  let basicType = genome && genome.basicType === 'magic' ? 'magic' : 'melee';
-  if (!genome || !genome.basicType) {
-    basicType = randomBasicType(attributes);
-  }
+  const basicType = resolveBasicType(genome && genome.basicType, attributes);
+  const attackInterval = resolveAttackInterval(attributes, equipment, basicType, context);
+  const requestedLength = Array.isArray(genome && genome.rotation) ? genome.rotation.length : null;
+  const rotation = ensureRotation(
+    genome && genome.rotation ? genome.rotation : [],
+    abilityIds,
+    attributes,
+    context,
+    { attackInterval, targetLength: requestedLength },
+  );
   const named = genome && typeof genome.name === 'string' ? genome.name : null;
   return {
     basicType,
@@ -510,9 +879,10 @@ function normalizeGenome(genome, context) {
 function randomGenome(context, options = {}) {
   const { totalPoints, abilityIds, gearBudget, itemsBySlot, playerCosts, equipmentMap } = context;
   const attributes = randomAttributes(totalPoints);
-  const rotation = randomRotation(abilityIds);
   const equipment = randomEquipment(gearBudget, itemsBySlot, playerCosts, equipmentMap, options);
   const basicType = randomBasicType(attributes);
+  const attackInterval = resolveAttackInterval(attributes, equipment, basicType, context);
+  const rotation = randomRotation(abilityIds, attributes, context, { attackInterval });
   return normalizeGenome({ attributes, rotation, equipment, basicType }, context);
 }
 
@@ -520,7 +890,6 @@ function mutateGenome(genome, context) {
   const attributes = { ...genome.attributes };
   const stat = STATS[randomInt(STATS.length)];
   attributes[stat] = (attributes[stat] || 0) + (Math.random() < 0.5 ? -1 : 1);
-  const rotation = mutateRotation(genome.rotation || [], context.abilityIds);
   const equipment = mutateEquipment(
     genome.equipment || {},
     context.gearBudget,
@@ -528,7 +897,16 @@ function mutateGenome(genome, context) {
     context.playerCosts,
     context.equipmentMap,
   );
-  const basicType = Math.random() < 0.3 ? (genome.basicType === 'magic' ? 'melee' : 'magic') : genome.basicType;
+  const baseType = resolveBasicType(genome && genome.basicType, attributes);
+  const basicType = Math.random() < 0.3 ? (baseType === 'magic' ? 'melee' : 'magic') : baseType;
+  const attackInterval = resolveAttackInterval(attributes, equipment, basicType, context);
+  const rotation = mutateRotation(
+    genome.rotation || [],
+    context.abilityIds,
+    attributes,
+    context,
+    { attackInterval },
+  );
   return normalizeGenome({ basicType, attributes, rotation, equipment, name: genome.name }, context);
 }
 
@@ -546,7 +924,6 @@ function breedGenomes(parentA, parentB, context) {
     }
     attributes[stat] = value;
   });
-  const rotation = breedRotation(parentA.rotation || [], parentB.rotation || [], context.abilityIds);
   let equipment = breedEquipment(
     parentA.equipment || {},
     parentB.equipment || {},
@@ -566,12 +943,21 @@ function breedGenomes(parentA, parentB, context) {
   }
   let basicType;
   if (Math.random() < 0.45) {
-    basicType = parentA.basicType;
+    basicType = resolveBasicType(parentA.basicType, attributes);
   } else if (Math.random() < 0.5) {
-    basicType = parentB.basicType;
+    basicType = resolveBasicType(parentB.basicType, attributes);
   } else {
     basicType = randomBasicType(attributes);
   }
+  const attackInterval = resolveAttackInterval(attributes, equipment, basicType, context);
+  const rotation = breedRotation(
+    parentA.rotation || [],
+    parentB.rotation || [],
+    context.abilityIds,
+    attributes,
+    context,
+    { attackInterval },
+  );
   return normalizeGenome({ basicType, attributes, rotation, equipment }, context);
 }
 
