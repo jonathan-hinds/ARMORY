@@ -44,6 +44,14 @@ const jobMissingSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const jobGeneratedMaterialSchema = new mongoose.Schema(
+  {
+    materialId: { type: String, required: true },
+    amount: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const jobLogEntrySchema = new mongoose.Schema(
   {
     timestamp: { type: Date, default: Date.now },
@@ -56,6 +64,14 @@ const jobLogEntrySchema = new mongoose.Schema(
     reason: { type: String, default: null },
     missing: { type: [jobMissingSchema], default: undefined },
     materials: { type: materialsSchema, default: () => ({}) },
+    generatedMaterials: { type: [jobGeneratedMaterialSchema], default: undefined },
+    generationAttempted: { type: Boolean, default: false },
+    generationSucceeded: { type: Boolean, default: false },
+    generationChance: { type: Number, default: null },
+    generationShare: { type: Number, default: null },
+    generationMultiplier: { type: Number, default: null },
+    generationRoll: { type: Number, default: null },
+    generationAttribute: { type: String, default: null },
   },
   { _id: false }
 );
