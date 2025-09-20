@@ -1,10 +1,10 @@
 {
-  "generations": 10,
+  "generations": 25,
   "population": {
-    "minSize": 10,
+    "minSize": 25,
     "stepSize": 10,
     "stepInterval": 3,
-    "maxSize": 100
+    "maxSize": 125
   },
   "mutation": {
     "genomeRate": 0.2,
