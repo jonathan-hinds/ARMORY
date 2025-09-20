@@ -983,7 +983,6 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   display:flex;
   flex-direction:column;
   font-family:'Courier New', monospace;
-  background-image:repeating-linear-gradient(45deg, rgba(255,255,255,0.05) 0, rgba(255,255,255,0.05) 4px, transparent 4px, transparent 8px);
 }
 .job-dialog-header {
   display:flex;
@@ -1377,39 +1376,119 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   text-transform:uppercase;
   color:#555;
 }
+.job-log-scroll {
+  max-height:420px;
+  overflow-y:auto;
+  padding-right:6px;
+}
 .job-log-list {
   list-style:none;
   margin:0;
   padding:0;
   display:flex;
   flex-direction:column;
-  gap:6px;
+  gap:8px;
 }
 .job-log-list li {
-  border:2px solid #000;
-  padding:10px;
-  background:#fff;
+  list-style:none;
+}
+.job-log-entry {
+  border:2px solid #fff;
+  padding:12px 14px;
+  background:#000;
+  color:#fff;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  box-shadow:4px 4px 0 rgba(255,255,255,0.2);
+}
+.job-log-entry.log-crafted {
+  border-color:#46d369;
+  box-shadow:4px 4px 0 rgba(70,211,105,0.25);
+}
+.job-log-entry.log-failed {
+  border-color:#ff5f5f;
+  box-shadow:4px 4px 0 rgba(255,95,95,0.25);
+}
+.job-log-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.job-log-title-group {
   display:flex;
   flex-direction:column;
   gap:4px;
 }
-.job-log-list li.log-crafted {
-  border-color:#1b5e20;
-  background:#e6f7e6;
-}
-.job-log-list li.log-failed {
-  border-color:#8b1e24;
-  background:#ffe6e6;
-}
-.job-log-list .message {
-  font-size:13px;
+.job-log-title {
   font-weight:bold;
-}
-.job-log-list .time {
-  font-size:11px;
-  color:#333;
   text-transform:uppercase;
   letter-spacing:1px;
+  font-size:14px;
+}
+.job-log-rarity {
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  color:#d6d6d6;
+}
+.job-log-badge {
+  padding:4px 10px;
+  border:2px solid #000;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+  background:#000;
+  color:#fff;
+}
+.job-log-badge.success {
+  background:#1b5e20;
+}
+.job-log-badge.failure {
+  background:#8b1e24;
+}
+.job-log-badge.warning {
+  background:#c56a11;
+}
+.job-log-details {
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.job-log-detail {
+  display:flex;
+  gap:10px;
+  align-items:flex-start;
+}
+.job-log-detail .label {
+  min-width:140px;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+  color:#cfcfcf;
+}
+.job-log-detail .value {
+  flex:1;
+  font-size:12px;
+  line-height:1.4;
+  color:#fff;
+}
+.job-log-summary {
+  margin:8px 0 0;
+  font-size:12px;
+  line-height:1.5;
+  font-weight:bold;
+  color:#f2f2f2;
+}
+.job-log-footer {
+  font-size:11px;
+  color:#bbbbbb;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  align-self:flex-end;
 }
 .job-recipe-section .job-recipe-list {
   margin-top:0;

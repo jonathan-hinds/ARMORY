@@ -1815,8 +1815,24 @@ async function fetchJobStatusAndRefresh(force = false) {
   return status;
 }
 
-function formatJobLogMessage(entry) {
-  if (!entry) return '';
+function formatJobLogMultiplier(value) {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+  if (value === 0) {
+    return '0';
+  }
+  if (Math.abs(value - Math.round(value)) < 0.0001) {
+    return String(Math.round(value));
+  }
+  if (value >= 10) {
+    return value.toFixed(1);
+  }
+  return value.toFixed(2);
+}
+
+function getJobLogInfo(entry) {
+  if (!entry) return null;
   const itemName = entry.itemName
     || (entry.itemId ? titleCase(entry.itemId.replace(/^useable[_-]?/i, '').replace(/_/g, ' ')) : 'item');
   const chanceRaw = Number(entry.generationChance);
@@ -1840,33 +1856,26 @@ function formatJobLogMessage(entry) {
   const share = hasShare ? clamp01(shareRaw) : null;
   const roll = hasRoll ? clamp01(rollRaw) : null;
   const multiplier = hasMultiplier ? Math.max(0, multiplierRaw) : null;
-  const describeGenerated = list =>
-    list
-      .map(m => {
-        const amount = Math.max(1, Math.round(Number(m.amount) || 0));
-        return `${describeMaterial(m.materialId)} ×${amount}`;
-      })
-      .join(', ');
-  const formatMultiplierValue = value => {
-    if (!Number.isFinite(value)) {
-      return null;
-    }
-    if (value === 0) {
-      return '0';
-    }
-    if (Math.abs(value - Math.round(value)) < 0.0001) {
-      return String(Math.round(value));
-    }
-    if (value >= 10) {
-      return value.toFixed(1);
-    }
-    return value.toFixed(2);
-  };
-  const missingTargets = Array.isArray(entry.missing)
-    ? entry.missing
-        .map(m => (m && m.materialId ? describeMaterial(m.materialId) : null))
+  const generatedMaterials = Array.isArray(entry.generatedMaterials)
+    ? entry.generatedMaterials
+        .map(m => {
+          if (!m || !m.materialId) return null;
+          const amount = Math.max(1, Math.round(Number(m.amount) || 0));
+          return { materialId: m.materialId, name: describeMaterial(m.materialId), amount };
+        })
         .filter(Boolean)
     : [];
+  const missingMaterials = Array.isArray(entry.missing)
+    ? entry.missing
+        .map(m => {
+          if (!m || !m.materialId) return null;
+          const required = Math.max(0, Math.round(Number(m.required) || 0));
+          const available = Math.max(0, Math.round(Number(m.available) || 0));
+          return { materialId: m.materialId, name: describeMaterial(m.materialId), required, available };
+        })
+        .filter(Boolean)
+    : [];
+  const missingTargets = missingMaterials.map(m => m.name).filter(Boolean);
   const describeTargets = targets => {
     if (!targets || !targets.length) {
       return 'missing materials';
@@ -1901,44 +1910,84 @@ function formatJobLogMessage(entry) {
     if (hasShare) {
       let sharePart = `${formatPercent(share, 1)} ${attributeName} share`;
       if (hasMultiplier) {
-        sharePart += ` ×${formatMultiplierValue(multiplier)} multiplier`;
+        sharePart += ` ×${formatJobLogMultiplier(multiplier)} multiplier`;
       }
       detailParts.push(sharePart);
     } else if (hasMultiplier) {
-      detailParts.push(`×${formatMultiplierValue(multiplier)} multiplier`);
+      detailParts.push(`×${formatJobLogMultiplier(multiplier)} multiplier`);
     }
     const details = detailParts.length ? ` (${detailParts.join('; ')})` : '';
-    const targetText = includeTargets ? ` to conjure ${describeTargets(missingTargets)}` : '';
+    const targetText = includeTargets && missingTargets.length ? ` to conjure ${describeTargets(missingTargets)}` : '';
     return `Creation roll ${outcome}${targetText}${details}.`;
   };
-  if (entry.type === 'crafted') {
-    const rarityText = entry.rarity ? `${entry.rarity} ` : '';
+  const statGain = entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0
+    ? { stat: statLabel(entry.stat), amount: entry.statAmount }
+    : null;
+  const succeeded = entry.generationSucceeded != null ? !!entry.generationSucceeded : entry.type === 'crafted';
+  return {
+    itemName,
+    rarity: entry.rarity || null,
+    type: entry.type === 'crafted' ? 'crafted' : 'failed',
+    rawType: entry.type || 'failed',
+    reason: entry.reason || null,
+    timestamp: entry.timestamp || null,
+    attributeName,
+    attempted,
+    generatedMaterials,
+    missingMaterials,
+    statGain,
+    creation: {
+      hasChance,
+      hasShare,
+      hasRoll,
+      hasMultiplier,
+      chance,
+      share,
+      roll,
+      multiplier,
+      succeeded,
+    },
+    describeCreationRoll,
+  };
+}
+
+function formatJobLogMessage(entry) {
+  const info = getJobLogInfo(entry);
+  if (!info) return '';
+  const {
+    itemName,
+    rarity,
+    generatedMaterials,
+    attempted,
+    statGain,
+    reason,
+    describeCreationRoll,
+    creation,
+  } = info;
+  if (info.type === 'crafted') {
+    const rarityText = rarity ? `${rarity} ` : '';
     let message = `Crafted ${rarityText}${itemName}.`;
-    if (Array.isArray(entry.generatedMaterials) && entry.generatedMaterials.length) {
-      const generatedText = describeGenerated(entry.generatedMaterials);
+    if (generatedMaterials.length) {
+      const generatedText = generatedMaterials.map(m => `${m.name} ×${m.amount}`).join(', ');
       const creationSummary = describeCreationRoll('succeeded');
       if (creationSummary) {
         message += ` ${creationSummary}`;
       }
       message += ` Generated missing materials: ${generatedText}.`;
     } else if (attempted) {
-      const creationSummary = describeCreationRoll(entry.generationSucceeded ? 'succeeded' : 'failed');
+      const creationSummary = describeCreationRoll(creation.succeeded ? 'succeeded' : 'failed');
       if (creationSummary) {
         message += ` ${creationSummary}`;
       }
     }
-    if (entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0) {
-      message += ` Gained +${entry.statAmount} ${statLabel(entry.stat)}.`;
+    if (statGain) {
+      message += ` Gained +${statGain.amount} ${statGain.stat}.`;
     }
     return message;
   }
-  if (entry.reason === 'insufficient-materials' && Array.isArray(entry.missing) && entry.missing.length) {
-    const missingText = entry.missing
-      .map(m => {
-        const required = Math.max(0, Math.round(Number(m.required) || 0));
-        const available = Math.max(0, Math.round(Number(m.available) || 0));
-        return `${describeMaterial(m.materialId)} (${available}/${required})`;
-      })
+  if (reason === 'insufficient-materials' && info.missingMaterials.length) {
+    const missingText = info.missingMaterials
+      .map(m => `${m.name} (${m.available}/${m.required})`)
       .join(', ');
     let message = `Attempted to craft ${itemName} but lacked ${missingText}.`;
     if (attempted) {
@@ -1950,12 +1999,135 @@ function formatJobLogMessage(entry) {
     return message;
   }
   if (attempted) {
-    const creationSummary = describeCreationRoll(entry.generationSucceeded ? 'succeeded' : 'failed');
+    const creationSummary = describeCreationRoll(creation.succeeded ? 'succeeded' : 'failed');
     if (creationSummary) {
       return `Attempted to craft ${itemName} but it failed. ${creationSummary}`;
     }
   }
   return `Attempted to craft ${itemName} but it failed.`;
+}
+
+function buildJobLogListItem(entry) {
+  const info = getJobLogInfo(entry);
+  const li = document.createElement('li');
+  li.className = `job-log-entry ${info && info.type === 'crafted' ? 'log-crafted' : 'log-failed'}`;
+  if (!info) {
+    return li;
+  }
+  const header = document.createElement('div');
+  header.className = 'job-log-header';
+
+  const titleGroup = document.createElement('div');
+  titleGroup.className = 'job-log-title-group';
+
+  const title = document.createElement('div');
+  title.className = 'job-log-title';
+  title.textContent = info.itemName;
+  titleGroup.appendChild(title);
+
+  if (info.rarity) {
+    const rarity = document.createElement('span');
+    rarity.className = 'job-log-rarity';
+    rarity.textContent = info.rarity;
+    titleGroup.appendChild(rarity);
+  }
+
+  header.appendChild(titleGroup);
+
+  const badge = document.createElement('span');
+  badge.className = `job-log-badge ${info.type === 'crafted'
+    ? 'success'
+    : info.reason === 'insufficient-materials'
+      ? 'warning'
+      : 'failure'}`;
+  badge.textContent = info.type === 'crafted'
+    ? 'Crafted'
+    : info.reason === 'insufficient-materials'
+      ? 'Missing Materials'
+      : 'Failed';
+  header.appendChild(badge);
+
+  li.appendChild(header);
+
+  const details = document.createElement('div');
+  details.className = 'job-log-details';
+
+  const addDetail = (label, value) => {
+    if (!value) return;
+    const row = document.createElement('div');
+    row.className = 'job-log-detail';
+    const l = document.createElement('div');
+    l.className = 'label';
+    l.textContent = label;
+    const v = document.createElement('div');
+    v.className = 'value';
+    v.textContent = value;
+    row.appendChild(l);
+    row.appendChild(v);
+    details.appendChild(row);
+  };
+
+  addDetail('Outcome', info.type === 'crafted' ? 'Success' : info.reason === 'insufficient-materials' ? 'Blocked by missing materials' : 'Failed attempt');
+
+  if (info.attempted) {
+    addDetail('Roll Result', info.creation.succeeded ? 'Creation succeeded' : 'Creation failed');
+  } else {
+    addDetail('Roll Result', 'Not attempted');
+  }
+
+  const creationParts = [];
+  if (info.creation.hasChance) {
+    creationParts.push(`Chance ${formatPercent(info.creation.chance, 1)}`);
+  }
+  if (info.creation.hasRoll) {
+    creationParts.push(`Roll ${formatPercent(info.creation.roll, 2)}`);
+  }
+  if (info.creation.hasShare) {
+    let sharePart = `${formatPercent(info.creation.share, 1)} ${info.attributeName} share`;
+    if (info.creation.hasMultiplier) {
+      sharePart += ` ×${formatJobLogMultiplier(info.creation.multiplier)} multiplier`;
+    }
+    creationParts.push(sharePart);
+  } else if (info.creation.hasMultiplier) {
+    creationParts.push(`×${formatJobLogMultiplier(info.creation.multiplier)} multiplier`);
+  }
+  if (creationParts.length) {
+    addDetail('Creation Roll', creationParts.join(' • '));
+  }
+
+  if (info.generatedMaterials.length) {
+    addDetail('Materials Recovered', info.generatedMaterials.map(m => `${m.name} ×${m.amount}`).join(', '));
+  }
+
+  if (info.missingMaterials.length) {
+    addDetail('Missing Materials', info.missingMaterials.map(m => `${m.name} (${m.available}/${m.required})`).join(', '));
+  }
+
+  if (info.statGain) {
+    addDetail('Stat Gain', `+${info.statGain.amount} ${info.statGain.stat}`);
+  }
+
+  const summaryText = formatJobLogMessage(entry);
+  if (summaryText) {
+    const summary = document.createElement('p');
+    summary.className = 'job-log-summary';
+    summary.textContent = summaryText;
+    details.appendChild(summary);
+  }
+
+  li.appendChild(details);
+
+  if (info.timestamp) {
+    const time = new Date(info.timestamp);
+    if (!Number.isNaN(time.getTime())) {
+      const footer = document.createElement('div');
+      footer.className = 'job-log-footer';
+      footer.textContent = time.toLocaleString();
+      li.appendChild(footer);
+    }
+  }
+
+  return li;
 }
 
 function getJobAttributeSource(status) {
@@ -2275,24 +2447,12 @@ function renderJobActiveContent(container, status) {
     const logList = document.createElement('ul');
     logList.className = 'job-log-list';
     active.log.forEach(entry => {
-      const li = document.createElement('li');
-      li.className = entry.type === 'crafted' ? 'log-crafted' : 'log-failed';
-      const message = document.createElement('div');
-      message.className = 'message';
-      message.textContent = formatJobLogMessage(entry);
-      li.appendChild(message);
-      if (entry.timestamp) {
-        const time = new Date(entry.timestamp);
-        if (!Number.isNaN(time.getTime())) {
-          const timeEl = document.createElement('div');
-          timeEl.className = 'time';
-          timeEl.textContent = time.toLocaleString();
-          li.appendChild(timeEl);
-        }
-      }
-      logList.appendChild(li);
+      logList.appendChild(buildJobLogListItem(entry));
     });
-    logSection.appendChild(logList);
+    const scrollContainer = document.createElement('div');
+    scrollContainer.className = 'job-log-scroll';
+    scrollContainer.appendChild(logList);
+    logSection.appendChild(scrollContainer);
   }
   container.appendChild(logSection);
 
