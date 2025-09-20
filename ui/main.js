@@ -1823,11 +1823,17 @@ function formatJobLogMessage(entry) {
   const shareRaw = Number(entry.generationShare);
   const rollRaw = Number(entry.generationRoll);
   const multiplierRaw = Number(entry.generationMultiplier);
-  const attempted = !!entry.generationAttempted;
   const hasChance = entry.generationChance != null && Number.isFinite(chanceRaw) && chanceRaw >= 0;
   const hasShare = entry.generationShare != null && Number.isFinite(shareRaw) && shareRaw >= 0;
   const hasRoll = entry.generationRoll != null && Number.isFinite(rollRaw) && rollRaw >= 0;
   const hasMultiplier = entry.generationMultiplier != null && Number.isFinite(multiplierRaw) && multiplierRaw >= 0;
+  const attempted = !!entry.generationAttempted
+    || hasChance
+    || hasShare
+    || hasRoll
+    || hasMultiplier
+    || (Array.isArray(entry.generatedMaterials) && entry.generatedMaterials.length > 0)
+    || (entry.generationSucceeded != null);
   const attributeName = entry.generationAttribute ? statLabel(entry.generationAttribute) : 'attribute';
   const clamp01 = value => Math.max(0, Math.min(1, value));
   const chance = hasChance ? clamp01(chanceRaw) : null;
@@ -1856,7 +1862,26 @@ function formatJobLogMessage(entry) {
     }
     return value.toFixed(2);
   };
-  const describeCreationRoll = outcome => {
+  const missingTargets = Array.isArray(entry.missing)
+    ? entry.missing
+        .map(m => (m && m.materialId ? describeMaterial(m.materialId) : null))
+        .filter(Boolean)
+    : [];
+  const describeTargets = targets => {
+    if (!targets || !targets.length) {
+      return 'missing materials';
+    }
+    if (targets.length === 1) {
+      return targets[0];
+    }
+    if (targets.length === 2) {
+      return `${targets[0]} or ${targets[1]}`;
+    }
+    const head = targets.slice(0, -1).join(', ');
+    const tail = targets[targets.length - 1];
+    return `${head}, or ${tail}`;
+  };
+  const describeCreationRoll = (outcome, { includeTargets = false } = {}) => {
     if (!attempted) {
       return '';
     }
@@ -1883,7 +1908,8 @@ function formatJobLogMessage(entry) {
       detailParts.push(`×${formatMultiplierValue(multiplier)} multiplier`);
     }
     const details = detailParts.length ? ` (${detailParts.join('; ')})` : '';
-    return `Creation roll ${outcome}${details}.`;
+    const targetText = includeTargets ? ` to conjure ${describeTargets(missingTargets)}` : '';
+    return `Creation roll ${outcome}${targetText}${details}.`;
   };
   if (entry.type === 'crafted') {
     const rarityText = entry.rarity ? `${entry.rarity} ` : '';
@@ -1916,7 +1942,7 @@ function formatJobLogMessage(entry) {
       .join(', ');
     let message = `Attempted to craft ${itemName} but lacked ${missingText}.`;
     if (attempted) {
-      const creationSummary = describeCreationRoll('failed');
+      const creationSummary = describeCreationRoll('failed', { includeTargets: true });
       if (creationSummary) {
         message += ` ${creationSummary}`;
       }
