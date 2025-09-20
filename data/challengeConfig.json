@@ -1,5 +1,5 @@
 {
-  "generations": 1,
+  "generations": 10,
   "population": {
     "minSize": 10,
     "stepSize": 10,
