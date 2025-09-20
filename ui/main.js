@@ -4543,6 +4543,20 @@ function handleDungeonUpdate(data) {
 }
 
 function handleDungeonEnd(data) {
+  if (data) {
+    if (Array.isArray(data.finalParty) && dungeonBars) {
+      data.finalParty.forEach(member => {
+        if (!member || !member.id) return;
+        const group = dungeonBars.get(member.id);
+        if (group) {
+          updateDungeonBarGroup(group, member);
+        }
+      });
+    }
+    if (data.finalBoss && dungeonBossBars) {
+      updateDungeonBarGroup(dungeonBossBars, data.finalBoss);
+    }
+  }
   if (dungeonLogElement) {
     const outcome = data.winnerSide === 'party' ? 'Victory!' : 'Defeat...';
     appendDungeonLogs([{ message: outcome }], [], null);

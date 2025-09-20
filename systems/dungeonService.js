@@ -160,6 +160,8 @@ async function finalizeMatch(match, result) {
       character: serializeCharacter(doc),
       gold: typeof doc.gold === 'number' ? doc.gold : 0,
       metrics: result.metrics || null,
+      finalParty: Array.isArray(result.finalParty) ? result.finalParty : null,
+      finalBoss: result.finalBoss || null,
     });
     finalizeEntry(entry);
   });
