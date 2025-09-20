@@ -13,7 +13,7 @@ const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
 const { getChallengeStatus, runChallengeFight, startChallenge } = require("./systems/challengeGA");
-const { getJobStatus, selectJob, startJobWork, stopJobWork, ensureJobIdle } = require("./systems/jobService");
+const { getJobStatus, selectJob, startJobWork, stopJobWork, ensureJobIdle, clearJobLog } = require("./systems/jobService");
 const {
   getAdventureStatus,
   startAdventure,
@@ -229,6 +229,22 @@ app.post("/characters/:characterId/job/stop", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message || "failed to stop job" });
+  }
+});
+
+app.post("/characters/:characterId/job/log/clear", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const status = await clearJobLog(pid, characterId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to clear job log" });
   }
 });
 
