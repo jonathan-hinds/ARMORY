@@ -7,6 +7,8 @@ function getAction(combatant, now, abilityMap) {
   const ability = abilityMap.get(abilityId);
 
   if (!ability) {
+    combatant.rotationIndex =
+      (combatant.rotationIndex + 1) % combatant.character.rotation.length;
     return { type: 'basic', reason: 'missingAbility', abilityId };
   }
 
@@ -65,6 +67,8 @@ function getAction(combatant, now, abilityMap) {
 
   if (!cooldownReady) {
     const remaining = combatant.cooldowns[abilityId] - now;
+    combatant.rotationIndex =
+      (combatant.rotationIndex + 1) % combatant.character.rotation.length;
     return {
       type: 'basic',
       reason: 'cooldown',
@@ -74,6 +78,8 @@ function getAction(combatant, now, abilityMap) {
     };
   }
 
+  combatant.rotationIndex =
+    (combatant.rotationIndex + 1) % combatant.character.rotation.length;
   return {
     type: 'basic',
     reason: 'resource',
