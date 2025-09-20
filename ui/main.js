@@ -4221,12 +4221,12 @@ function openDungeonDialog(data) {
   const dialog = document.createElement('div');
   dialog.id = 'dungeon-dialog';
   dialog.innerHTML = `
-    <div class="dialog-box dungeon-box">
-      <div class="dungeon-combatants">
-        <div class="dungeon-party"></div>
-        <div class="dungeon-boss"></div>
+    <div class="dialog-box">
+      <div class="combatants-row dungeon-combatants-row">
+        <div class="dungeon-party party-column" role="group" aria-label="Party status"></div>
+        <div class="dungeon-boss boss-column" role="group" aria-label="Boss status"></div>
       </div>
-      <div class="dungeon-log" id="dungeon-log"></div>
+      <div class="battle-log dungeon-log" id="dungeon-log"></div>
       <div class="dialog-buttons"><button id="dungeon-close" class="hidden">Close</button></div>
     </div>`;
   document.body.appendChild(dialog);
@@ -4242,7 +4242,7 @@ function openDungeonDialog(data) {
   if (Array.isArray(data.party)) {
     data.party.forEach(member => {
       const wrapper = document.createElement('div');
-      wrapper.className = 'dungeon-combatant party-member';
+      wrapper.className = 'combatant dungeon-combatant party-member';
       wrapper.innerHTML = `
         <div class="name">${member.name}</div>
         <div class="bars">
@@ -4262,7 +4262,7 @@ function openDungeonDialog(data) {
   }
   if (bossContainer && data.boss) {
     const wrapper = document.createElement('div');
-    wrapper.className = 'dungeon-combatant boss-member';
+    wrapper.className = 'combatant dungeon-combatant boss-member';
     wrapper.innerHTML = `
       <div class="name">${data.boss.name}</div>
       <div class="bars">
