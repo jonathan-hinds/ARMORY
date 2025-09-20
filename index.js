@@ -8,7 +8,7 @@ const {
 } = require("./systems/playerService");
 const { getAbilities } = require("./systems/abilityService");
 const { updateRotation, levelUp } = require("./systems/characterService");
-const { queueMatch } = require("./systems/matchmaking");
+const { queueMatch, cancelMatchmaking } = require("./systems/matchmaking");
 const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
@@ -287,13 +287,43 @@ app.get("/matchmaking/queue", async (req, res) => {
     res.end();
     return;
   }
+  let handle;
   try {
-    await queueMatch(characterId, send);
+    handle = await queueMatch(characterId, send);
   } catch (err) {
     console.error(err);
     send({ type: "error", message: err.message });
+    res.end();
+    return;
+  }
+
+  req.on("close", () => {
+    if (handle && typeof handle.cancel === "function") {
+      handle.cancel("connection closed");
+    } else {
+      cancelMatchmaking(characterId, "connection closed");
+    }
+  });
+
+  try {
+    await handle.promise;
+  } catch (err) {
+    console.error(err);
   }
   res.end();
+});
+
+app.post("/matchmaking/cancel", (req, res) => {
+  const characterId = parseInt(req.body && req.body.characterId, 10);
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  const reason = (req.body && req.body.reason) || "Matchmaking cancelled";
+  const cancelled = cancelMatchmaking(characterId, reason);
+  if (!cancelled) {
+    return res.status(404).json({ error: "character not queued" });
+  }
+  res.json({ cancelled: true });
 });
 
 app.get("/dungeon/queue", async (req, res) => {
@@ -340,6 +370,19 @@ app.get("/dungeon/queue", async (req, res) => {
     send({ type: "error", message: err.message || "dungeon failed" });
   }
   res.end();
+});
+
+app.post("/dungeon/cancel", (req, res) => {
+  const characterId = parseInt(req.body && req.body.characterId, 10);
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  const reason = (req.body && req.body.reason) || "Dungeon cancelled";
+  const cancelled = cancelDungeon(characterId, reason);
+  if (!cancelled) {
+    return res.status(404).json({ error: "character not queued" });
+  }
+  res.json({ cancelled: true });
 });
 
 app.post("/dungeon/ready", async (req, res) => {
