@@ -95,6 +95,7 @@ function createCombatant(character, equipmentMap) {
     dots: [],
     hots: [],
     resourceOverTime: [],
+    pendingDamageBonuses: [],
     stunnedAttacksRemaining: 0,
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
@@ -163,12 +164,31 @@ function executeCombatAction(actor, target, now, abilityMap, log) {
         abilityId: action.ability.id,
       });
       let lastResolution = null;
+      let lastResult = null;
       let landedDamage = false;
+      let pendingBonusAvailable = true;
       const damageResults = [];
-      action.ability.effects.forEach(effect => {
-        const result = applyEffect(actor, target, effect, now, log, { resolution: lastResolution });
+      action.ability.effects.forEach((effect, index) => {
+        const effectContext = {
+          resolution: lastResolution,
+          lastResult,
+          ability: action.ability,
+          actor,
+          target,
+          actionType: 'ability',
+          effectIndex: index,
+          consumeDamageBonus: pendingBonusAvailable,
+          now,
+        };
+        const result = applyEffect(actor, target, effect, now, log, effectContext);
         if (result && result.resolution) {
           lastResolution = result.resolution;
+        }
+        if (result) {
+          lastResult = result;
+        }
+        if (result && result.bonusDamageConsumed) {
+          pendingBonusAvailable = false;
         }
         if (effect.type === 'Stun' && result && result.hit) {
           summary.stunApplied = true;
@@ -196,7 +216,7 @@ function executeCombatAction(actor, target, now, abilityMap, log) {
         summary.damageEvents = summarizeDamageEvents(target, damageResults, 'ability');
         summary.totalDamage = summary.damageEvents.reduce((acc, entry) => acc + entry.amount, 0);
       }
-      const contextForOnHit = { ability: action.ability };
+      const contextForOnHit = { ability: action.ability, actionType: 'ability' };
       const primary = damageResults.find(res => res && res.damageType);
       if (primary) {
         contextForOnHit.damageType = primary.damageType;
@@ -292,7 +312,14 @@ function executeCombatAction(actor, target, now, abilityMap, log) {
         effectType === 'PhysicalDamage'
           ? { type: 'PhysicalDamage', value: 0 }
           : { type: 'MagicDamage', value: 0 };
-      const result = applyEffect(actor, target, effect, now, log);
+      const basicContext = {
+        actor,
+        target,
+        actionType: 'basic',
+        consumeDamageBonus: true,
+        now,
+      };
+      const result = applyEffect(actor, target, effect, now, log, basicContext);
       if (result && result.hit && Number.isFinite(result.amount) && result.amount > 0) {
         const resolvedDamageType = result.damageType || (effectType === 'PhysicalDamage' ? 'physical' : 'magical');
         handleDamageTaken(target, actor, resolvedDamageType, result.amount, now, log);
@@ -316,6 +343,7 @@ function executeCombatAction(actor, target, now, abilityMap, log) {
         const contextForOnHit = {
           damageType: result.damageType || (effectType === 'PhysicalDamage' ? 'physical' : 'magical'),
           resolution: result.resolution,
+          actionType: 'basic',
         };
         processOnHitEffects(actor, target, 'basic', contextForOnHit, now, log);
       }
@@ -576,7 +604,15 @@ function processOnHitEffects(source, target, trigger, context = {}, now, log) {
     } else if (!resolution.damageType) {
       resolution.damageType = baseType;
     }
-    const outcome = applyEffect(source, target, effect, now, log, { resolution });
+    const effectContext = {
+      resolution,
+      actor: source,
+      target,
+      actionType: context && context.actionType ? context.actionType : null,
+      consumeDamageBonus: false,
+      now,
+    };
+    const outcome = applyEffect(source, target, effect, now, log, effectContext);
     if (outcome && outcome.hit && Number.isFinite(outcome.amount) && outcome.amount > 0) {
       const resolvedDamageType = outcome.damageType || baseType;
       handleDamageTaken(target, source, resolvedDamageType, outcome.amount, now, log);

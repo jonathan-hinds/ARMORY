@@ -420,13 +420,20 @@ function describeEffect(effect, options = {}) {
         const rangeText = formatRange(scaled + minAttack, scaled + (maxAttack != null ? maxAttack : minAttack));
         const scalingText = formatScalingEntries(effect.scaling || effect.valueScaling);
         const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
-        const baseText = rangeText ? `Physical Damage ${rangeText}${suffix}` : 'Physical Damage';
+        let baseText = rangeText ? `Physical Damage ${rangeText}${suffix}` : 'Physical Damage';
+        if (effect.ignoreResistOnCrit) {
+          baseText += ' (ignores resistance on crit)';
+        }
         return applyEffectChance(baseText);
       }
     }
     const amount = effect.value != null ? effect.value : effect.damage;
     const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
-    return applyEffectChance(text ? `Physical Damage ${text}` : 'Physical Damage');
+    let baseText = text ? `Physical Damage ${text}` : 'Physical Damage';
+    if (effect.ignoreResistOnCrit) {
+      baseText += ' (ignores resistance on crit)';
+    }
+    return applyEffectChance(baseText);
   }
   if (effect.type === 'MagicDamage') {
     if (derived) {
@@ -438,13 +445,20 @@ function describeEffect(effect, options = {}) {
         const rangeText = formatRange(scaled + minAttack, scaled + (maxAttack != null ? maxAttack : minAttack));
         const scalingText = formatScalingEntries(effect.scaling || effect.valueScaling);
         const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
-        const baseText = rangeText ? `Magic Damage ${rangeText}${suffix}` : 'Magic Damage';
+        let baseText = rangeText ? `Magic Damage ${rangeText}${suffix}` : 'Magic Damage';
+        if (effect.ignoreResistOnCrit) {
+          baseText += ' (ignores resistance on crit)';
+        }
         return applyEffectChance(baseText);
       }
     }
     const amount = effect.value != null ? effect.value : effect.damage;
     const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
-    return applyEffectChance(text ? `Magic Damage ${text}` : 'Magic Damage');
+    let baseText = text ? `Magic Damage ${text}` : 'Magic Damage';
+    if (effect.ignoreResistOnCrit) {
+      baseText += ' (ignores resistance on crit)';
+    }
+    return applyEffectChance(baseText);
   }
   if (effect.type === 'Heal') {
     const amount = effect.value != null ? effect.value : effect.amount;
@@ -492,9 +506,52 @@ function describeEffect(effect, options = {}) {
   if (effect.type === 'BuffChance') {
     const stat = typeof effect.stat === 'string' ? effect.stat : '';
     const label = CHANCE_LABELS[stat] || titleCase(stat || 'Chance');
-    const amountText = formatChanceValue(effect.amount || 0, { withSign: true });
+    const scaling = effect.amountScaling || effect.scaling || effect.valueScaling;
+    const baseAmount = effect.amount != null ? effect.amount : 0;
+    const scaledAmount = derived
+      ? computeScaledEffectValue(baseAmount, derived, scaling)
+      : baseAmount;
+    const amountText = formatChanceValue(scaledAmount, { withSign: true });
+    const scalingText = formatScalingEntries(scaling);
     const durationText = formatEffectDurationText(effect);
-    const base = durationText ? `${amountText} ${label} for ${durationText}` : `${amountText} ${label}`;
+    const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+    const base = durationText
+      ? `${amountText}${suffix} ${label} for ${durationText}`
+      : `${amountText}${suffix} ${label}`;
+    return applyEffectChance(base);
+  }
+  if (effect.type === 'NextAbilityDamage') {
+    const appliesTo = effect.appliesTo === 'basic' ? 'basic attack' : 'ability';
+    const scaling = effect.scaling || effect.valueScaling || effect.amountScaling;
+    const usesCount = Number.isFinite(effect.uses) && effect.uses > 0 ? Math.floor(effect.uses) : 1;
+    const pluralLabel = appliesTo === 'ability' ? 'abilities' : `${appliesTo}s`;
+    const targetLabel = usesCount > 1 ? `the next ${usesCount} ${pluralLabel}` : `the next ${appliesTo}`;
+    let prefix;
+    if (effect.matchLastResult) {
+      const fallbackText = formatValueWithScaling(effect.value, scaling);
+      prefix = fallbackText
+        ? `Store damage equal to last hit (fallback ${fallbackText})`
+        : 'Store damage equal to last hit';
+    } else if (derived) {
+      const baseValue = effect.value != null ? effect.value : 0;
+      const scaled = computeScaledEffectValue(baseValue, derived, scaling);
+      const formatted = formatNumericValue(Math.round(scaled));
+      const scalingText = formatScalingEntries(scaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      prefix = formatted
+        ? `Store ${formatted}${suffix} bonus ${appliesTo} damage`
+        : `Store bonus ${appliesTo} damage`;
+    } else {
+      const valueText = formatValueWithScaling(effect.value, scaling);
+      prefix = valueText
+        ? `Store ${valueText} bonus ${appliesTo} damage`
+        : `Store bonus ${appliesTo} damage`;
+    }
+    let base = `${prefix} for ${targetLabel}`;
+    const durationText = formatEffectDurationText(effect);
+    if (durationText) {
+      base += ` within ${durationText}`;
+    }
     return applyEffectChance(base);
   }
   if (effect.type === 'BuffDamagePct') {

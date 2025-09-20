@@ -188,5 +188,67 @@
         "damageScaling": { "wisdom": 0.25 }
       }
     ]
+  },
+  {
+    "id": 14,
+    "name": "Restage",
+    "school": "physical",
+    "costs": [
+      { "type": "mana", "value": 10 },
+      { "type": "stamina", "value": 10 }
+    ],
+    "cooldown": 20,
+    "scaling": ["agility"],
+    "effects": [
+      {
+        "type": "PhysicalDamage",
+        "value": 10,
+        "scaling": { "agility": 0.75 }
+      },
+      {
+        "type": "NextAbilityDamage",
+        "value": 10,
+        "scaling": { "agility": 0.75 },
+        "matchLastResult": true,
+        "target": "self"
+      }
+    ]
+  },
+  {
+    "id": 15,
+    "name": "Sharpen Mind",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 12,
+    "cooldown": 16,
+    "scaling": ["agility"],
+    "effects": [
+      {
+        "type": "BuffChance",
+        "stat": "critChance",
+        "amount": 8,
+        "amountScaling": { "agility": 0.15 },
+        "durationType": "selfAttackIntervals",
+        "durationCount": 1,
+        "target": "self"
+      }
+    ]
+  },
+  {
+    "id": 16,
+    "name": "Piercing Blow",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 25,
+    "cooldown": 18,
+    "scaling": ["agility"],
+    "effects": [
+      {
+        "type": "PhysicalDamage",
+        "value": 14,
+        "scaling": { "agility": 0.9 },
+        "ignoreResistOnCrit": true
+      }
+    ]
   }
 ]
