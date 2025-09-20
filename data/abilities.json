@@ -82,7 +82,13 @@
     "cooldown": 14,
     "scaling": ["agility"],
     "effects": [
-      { "type": "Poison", "damage": 3, "duration": 6, "interval": 2 }
+      {
+        "type": "Poison",
+        "damage": 3,
+        "duration": 6,
+        "interval": 2,
+        "damageScaling": { "agility": 0.3 }
+      }
     ]
   },
   {
