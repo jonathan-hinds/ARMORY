@@ -120,5 +120,67 @@
     "effects": [
       { "type": "MagicDamage", "value": 6 }
     ]
+  },
+  {
+    "id": 11,
+    "name": "Sun Beam",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 20,
+    "cooldown": 20,
+    "scaling": ["wisdom"],
+    "effects": [
+      {
+        "type": "Ignite",
+        "damage": 5,
+        "interval": 2,
+        "duration": 10,
+        "damageScaling": { "wisdom": 0.4 }
+      }
+    ]
+  },
+  {
+    "id": 12,
+    "name": "Focus",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 12,
+    "cooldown": 16,
+    "scaling": ["wisdom"],
+    "effects": [
+      {
+        "type": "ResourceOverTime",
+        "resource": "mana",
+        "value": 8,
+        "interval": 10,
+        "duration": 30,
+        "scaling": { "wisdom": 0.35 },
+        "target": "self"
+      }
+    ]
+  },
+  {
+    "id": 13,
+    "name": "Righteous Blade",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 25,
+    "costs": [
+      { "type": "stamina", "value": 25 },
+      { "type": "mana", "value": 25 }
+    ],
+    "cooldown": 22,
+    "scaling": ["wisdom"],
+    "effects": [
+      { "type": "PhysicalDamage", "value": 12, "scaling": { "wisdom": 0.6 } },
+      {
+        "type": "Ignite",
+        "damage": 4,
+        "interval": 2,
+        "duration": 10,
+        "chance": 0.35,
+        "damageScaling": { "wisdom": 0.25 }
+      }
+    ]
   }
 ]

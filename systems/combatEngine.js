@@ -64,6 +64,7 @@ function createCombatant(character, equipmentMap) {
     resourceCostBuffs: [],
     dots: [],
     hots: [],
+    resourceOverTime: [],
     stunnedUntil: 0,
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
@@ -432,10 +433,22 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
             effectType === 'PhysicalDamage' ? 'melee' : 'magic'
           } basic attack.`;
         } else if (action.reason === 'resource' && action.ability) {
-          const available = typeof action.available === 'number' ? action.available : 0;
-          message = `${actor.character.name} lacks ${action.resourceType} (${available}/${action.required}) for ${
-            action.ability.name
-          } and performs a ${effectType === 'PhysicalDamage' ? 'melee' : 'magic'} basic attack.`;
+          let detail = '';
+          if (Array.isArray(action.costs) && action.costs.length) {
+            const shortages = action.costs
+              .filter(entry => entry && entry.resource && entry.required > (entry.available || 0))
+              .map(entry => {
+                const avail = Number.isFinite(entry.available) ? entry.available : 0;
+                const req = Number.isFinite(entry.required) ? entry.required : 0;
+                return `${entry.resource} (${avail}/${req})`;
+              });
+            if (shortages.length) {
+              detail = ` lacking ${shortages.join(' and ')}`;
+            }
+          }
+          message = `${actor.character.name} cannot use ${action.ability.name}${detail || ''} and performs a ${
+            effectType === 'PhysicalDamage' ? 'melee' : 'magic'
+          } basic attack.`;
         } else if (action.reason === 'missingAbility') {
           message = `${actor.character.name} cannot use unknown ability ${action.abilityId} and performs a ${
             effectType === 'PhysicalDamage' ? 'melee' : 'magic'
