@@ -34,6 +34,23 @@ const DEFAULT_CONFIG = {
     lossPenalty: 120,
     bossDamagePenalty: 0.6,
   },
+  bossNegation: {
+    enabled: true,
+    melee: {
+      base: 0.05,
+      min: 0,
+      max: 0.6,
+      primaryScale: 0.0007,
+      secondaryScale: 0.00035,
+    },
+    magic: {
+      base: 0.05,
+      min: 0,
+      max: 0.6,
+      primaryScale: 0.0007,
+      secondaryScale: 0.00035,
+    },
+  },
 };
 
 let configCache = null;
@@ -121,6 +138,30 @@ function normalizeEvaluationWeights(raw = {}) {
   };
 }
 
+function normalizeNegationType(raw = {}, defaults) {
+  const base = Number.isFinite(raw.base) ? Math.max(0, raw.base) : defaults.base;
+  const min = Number.isFinite(raw.min) ? Math.max(0, Math.min(raw.min, 0.75)) : defaults.min;
+  const maxCandidate = Number.isFinite(raw.max) ? Math.max(min, Math.min(raw.max, 0.9)) : defaults.max;
+  const max = Math.max(min, maxCandidate);
+  const primaryScale = Number.isFinite(raw.primaryScale)
+    ? Math.max(0, raw.primaryScale)
+    : defaults.primaryScale;
+  const secondaryScale = Number.isFinite(raw.secondaryScale)
+    ? Math.max(0, raw.secondaryScale)
+    : defaults.secondaryScale;
+  return { base, min, max, primaryScale, secondaryScale };
+}
+
+function normalizeBossNegation(raw = {}) {
+  const defaults = DEFAULT_CONFIG.bossNegation;
+  const enabled = raw.enabled === false ? false : defaults.enabled !== false;
+  return {
+    enabled,
+    melee: normalizeNegationType(raw.melee || {}, defaults.melee),
+    magic: normalizeNegationType(raw.magic || {}, defaults.magic),
+  };
+}
+
 function normalizeDungeonConfig(raw = {}) {
   const config = raw && typeof raw === 'object' ? raw : {};
   const generations = Number.isFinite(config.generations)
@@ -157,6 +198,7 @@ function normalizeDungeonConfig(raw = {}) {
     targetDuration,
     population: normalizePopulationConfig(config.population),
     evaluationWeights: normalizeEvaluationWeights(config.evaluationWeights),
+    bossNegation: normalizeBossNegation(config.bossNegation),
   };
 }
 
@@ -540,33 +582,82 @@ function computePartyProfile(party, equipmentMap) {
       avgLevel: 1,
       avgGear: 0,
       avgSlotCosts: {},
+      offense: {
+        totalMeleeDps: 0,
+        totalMagicDps: 0,
+        totalPrimaryDps: 0,
+        avgMeleeDps: 0,
+        avgMagicDps: 0,
+        avgPrimaryDps: 0,
+      },
     };
   }
   let totalPoints = 0;
   let totalLevel = 0;
   let totalGear = 0;
   const slotTotals = {};
+  const offenseTotals = {
+    totalMeleeDps: 0,
+    totalMagicDps: 0,
+    totalPrimaryDps: 0,
+  };
   party.forEach(character => {
     totalPoints += totalAttributePoints(character.attributes || {});
     totalLevel += character.level || 1;
     const equipment = ensureEquipmentShape(character.equipment || {});
+    const resolved = {};
     EQUIPMENT_SLOTS.forEach(slot => {
       const id = equipment[slot];
       const item = id ? equipmentMap.get(id) : null;
       const cost = item && typeof item.cost === 'number' ? item.cost : 0;
+      resolved[slot] = item || null;
       totalGear += cost;
       slotTotals[slot] = (slotTotals[slot] || 0) + cost;
     });
+    const derived = compute(character, resolved);
+    const attackInterval = Number.isFinite(derived.attackIntervalSeconds)
+      ? Math.max(0.5, derived.attackIntervalSeconds)
+      : 2;
+    const meleeDamage = Math.max(
+      Number.isFinite(derived.maxMeleeAttack) ? derived.maxMeleeAttack : 0,
+      Number.isFinite(derived.minMeleeAttack) ? derived.minMeleeAttack : 0,
+    );
+    const magicDamage = Math.max(
+      Number.isFinite(derived.maxMagicAttack) ? derived.maxMagicAttack : 0,
+      Number.isFinite(derived.minMagicAttack) ? derived.minMagicAttack : 0,
+    );
+    const meleeDps = meleeDamage / Math.max(0.5, attackInterval);
+    const magicDps = magicDamage / Math.max(0.5, attackInterval);
+    offenseTotals.totalMeleeDps += meleeDps;
+    offenseTotals.totalMagicDps += magicDps;
+    const primaryType =
+      character.basicType === 'magic'
+        ? 'magic'
+        : character.basicType === 'melee'
+        ? 'melee'
+        : meleeDps >= magicDps
+        ? 'melee'
+        : 'magic';
+    offenseTotals.totalPrimaryDps += primaryType === 'magic' ? magicDps : meleeDps;
   });
   const avgSlotCosts = {};
   EQUIPMENT_SLOTS.forEach(slot => {
     avgSlotCosts[slot] = Math.round((slotTotals[slot] || 0) / Math.max(1, party.length));
   });
+  const divisor = Math.max(1, party.length);
   return {
     avgPoints: totalPoints / party.length,
     avgLevel: totalLevel / party.length,
     avgGear: totalGear / party.length,
     avgSlotCosts,
+    offense: {
+      totalMeleeDps: offenseTotals.totalMeleeDps,
+      totalMagicDps: offenseTotals.totalMagicDps,
+      totalPrimaryDps: offenseTotals.totalPrimaryDps,
+      avgMeleeDps: offenseTotals.totalMeleeDps / divisor,
+      avgMagicDps: offenseTotals.totalMagicDps / divisor,
+      avgPrimaryDps: offenseTotals.totalPrimaryDps / divisor,
+    },
   };
 }
 
@@ -609,12 +700,84 @@ function buildDungeonContext(party, abilityMap, equipmentMap, options = {}, conf
     targetDuration,
     generations,
     config,
+    partyOffense: profile.offense,
   };
 }
 
 function randomName(index) {
   const base = NAME_POOL[index % NAME_POOL.length];
   return `${base} ${Math.floor(Math.random() * 900 + 100)}`;
+}
+
+function computeNegationValue(primaryPower, secondaryPower, settings) {
+  if (!settings) return 0;
+  const base = Number.isFinite(settings.base) ? Math.max(0, settings.base) : 0;
+  const min = Number.isFinite(settings.min) ? Math.max(0, settings.min) : 0;
+  const max = Number.isFinite(settings.max) ? Math.max(min, settings.max) : 0.75;
+  const primaryScale = Number.isFinite(settings.primaryScale) ? Math.max(0, settings.primaryScale) : 0;
+  const secondaryScale = Number.isFinite(settings.secondaryScale) ? Math.max(0, settings.secondaryScale) : 0;
+  const primary = Number.isFinite(primaryPower) ? Math.max(0, primaryPower) : 0;
+  const secondary = Number.isFinite(secondaryPower) ? Math.max(0, secondaryPower) : 0;
+  const raw = base + primary * primaryScale + secondary * secondaryScale;
+  const value = Number.isFinite(raw) ? raw : 0;
+  return Math.max(min, Math.min(max, value));
+}
+
+function computeBossNegation(context) {
+  if (!context || !context.config || !context.config.bossNegation) {
+    return null;
+  }
+  const { bossNegation } = context.config;
+  if (bossNegation.enabled === false) {
+    return null;
+  }
+  const offense = context.partyOffense || {};
+  const totalMelee = Number.isFinite(offense.totalMeleeDps) ? Math.max(0, offense.totalMeleeDps) : 0;
+  const totalMagic = Number.isFinite(offense.totalMagicDps) ? Math.max(0, offense.totalMagicDps) : 0;
+  const melee = computeNegationValue(totalMelee, totalMagic, bossNegation.melee);
+  const magic = computeNegationValue(totalMagic, totalMelee, bossNegation.magic);
+  if (melee <= 0 && magic <= 0) {
+    return null;
+  }
+  return { melee, magic };
+}
+
+function applyBossNegationToDerived(derived, negation) {
+  if (!derived || !negation) return null;
+  const meleeTarget = Number.isFinite(negation.melee) ? Math.max(0, negation.melee) : 0;
+  const magicTarget = Number.isFinite(negation.magic) ? Math.max(0, negation.magic) : 0;
+  if (meleeTarget <= 0 && magicTarget <= 0) {
+    return null;
+  }
+  const clamp = value => {
+    if (!Number.isFinite(value)) return 0;
+    return Math.min(0.75, Math.max(0, value));
+  };
+  const beforeMelee = clamp(derived.meleeResist);
+  const beforeMagic = clamp(derived.magicResist);
+  const meleeResist = clamp(beforeMelee + meleeTarget);
+  const magicResist = clamp(beforeMagic + magicTarget);
+  derived.meleeResist = meleeResist;
+  derived.magicResist = magicResist;
+  return {
+    meleeBonus: Math.max(0, meleeResist - beforeMelee),
+    magicBonus: Math.max(0, magicResist - beforeMagic),
+    meleeResist,
+    magicResist,
+    targetMeleeBonus: meleeTarget,
+    targetMagicBonus: magicTarget,
+  };
+}
+
+function applyBossNegationToCharacter(character, context) {
+  if (!character) return null;
+  const negation = computeBossNegation(context);
+  if (!negation) {
+    delete character.bossNegation;
+    return null;
+  }
+  character.bossNegation = negation;
+  return negation;
 }
 
 function buildBossCharacter(genome, context, index) {
@@ -642,6 +805,7 @@ function buildBossPreview(character, equipmentMap, metrics) {
     resolved[slot] = id && equipmentMap.has(id) ? equipmentMap.get(id) : null;
   });
   const derived = compute(character, resolved);
+  const negationDetails = character && character.bossNegation ? applyBossNegationToDerived(derived, character.bossNegation) : null;
   const preview = {
     id: character.id,
     name: character.name,
@@ -666,6 +830,18 @@ function buildBossPreview(character, equipmentMap, metrics) {
   };
   if (metrics) {
     preview.metrics = { ...metrics };
+  }
+  if (negationDetails) {
+    preview.negation = {
+      meleeBonus: negationDetails.meleeBonus,
+      magicBonus: negationDetails.magicBonus,
+      targetMeleeBonus: negationDetails.targetMeleeBonus,
+      targetMagicBonus: negationDetails.targetMagicBonus,
+      meleeResist: negationDetails.meleeResist,
+      magicResist: negationDetails.magicResist,
+    };
+    preview.derived.meleeResist = negationDetails.meleeResist;
+    preview.derived.magicResist = negationDetails.magicResist;
   }
   return preview;
 }
@@ -776,11 +952,27 @@ async function generateDungeonBoss(party, abilityMap, equipmentMap, options = {}
   }
   const bossCharacter = buildBossCharacter(finalChampion.genome, context, 0);
   finalChampion.genome.name = bossCharacter.name;
-  const preview = buildBossPreview(bossCharacter, context.equipmentMap, finalChampion.metrics);
+  const negation = applyBossNegationToCharacter(bossCharacter, context);
+  const metrics = { ...(finalChampion.metrics || {}) };
+  if (context.partyOffense) {
+    metrics.partyOffense = {
+      totalMeleeDps: context.partyOffense.totalMeleeDps,
+      totalMagicDps: context.partyOffense.totalMagicDps,
+      totalPrimaryDps: context.partyOffense.totalPrimaryDps,
+      avgMeleeDps: context.partyOffense.avgMeleeDps,
+      avgMagicDps: context.partyOffense.avgMagicDps,
+      avgPrimaryDps: context.partyOffense.avgPrimaryDps,
+      partySize: context.partySize,
+    };
+  }
+  if (negation) {
+    metrics.bossNegation = { ...negation };
+  }
+  const preview = buildBossPreview(bossCharacter, context.equipmentMap, metrics);
   return {
     character: bossCharacter,
     preview,
-    metrics: finalChampion.metrics,
+    metrics,
   };
 }
 
