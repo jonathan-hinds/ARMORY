@@ -69,16 +69,9 @@ async function getPlayerCharacters(playerId) {
   const characterDocs = await CharacterModel.find({ playerId });
   const characters = [];
   for (const doc of characterDocs) {
-    try {
-      const { changed } = await processJobForCharacter(doc);
-      if (changed) {
-        await doc.save();
-      }
-    } catch (err) {
-      console.error(
-        `failed to process jobs for character ${doc && doc.characterId != null ? doc.characterId : "unknown"}`,
-        err
-      );
+    const { changed } = await processJobForCharacter(doc);
+    if (changed) {
+      await doc.save();
     }
     characters.push(serializeCharacter(doc));
   }
