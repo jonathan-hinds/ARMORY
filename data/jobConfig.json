@@ -1,6 +1,6 @@
 {
   "hourSeconds": 3600,
-  "craftsPerHour": 3,
+  "craftsPerHour": 60,
   "statGainChance": 0.05,
   "statGainAmount": 1,
   "logLimit": 30,
