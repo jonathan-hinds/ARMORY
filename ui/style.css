@@ -352,6 +352,45 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #battle-log .log-message.neutral { align-self:center; background:#fff; color:#000; border-style:dashed; text-align:center; }
 #battle-dialog .dialog-buttons { text-align:right; margin-top:16px; }
 
+.dungeon-panel { display:flex; flex-direction:column; gap:12px; }
+.dungeon-controls { display:flex; align-items:center; gap:12px; }
+.dungeon-controls label { font-weight:bold; }
+.dungeon-controls select { padding:4px 6px; }
+.dungeon-controls button { padding:6px 12px; }
+.dungeon-status { min-height:20px; }
+.dungeon-preview-panel { border:1px solid #444; padding:12px; background:#f7f7f7; border-radius:4px; }
+.dungeon-preview-panel h3 { margin-top:0; }
+.dungeon-ready-status { margin-top:8px; font-weight:bold; }
+.dungeon-ready-button { margin-top:8px; padding:6px 12px; }
+
+#dungeon-dialog .dialog-box { width:100%; max-width:780px; }
+#dungeon-dialog .dungeon-combatants { display:flex; gap:16px; }
+#dungeon-dialog .dungeon-party, #dungeon-dialog .dungeon-boss { flex:1; display:flex; flex-direction:column; gap:12px; }
+.dungeon-combatant { border:1px solid #333; padding:12px; border-radius:4px; background:#f5f5f5; }
+.dungeon-combatant.boss-member { background:#1d1d1d; color:#fff; border-color:#555; }
+.dungeon-combatant .name { font-weight:bold; text-align:center; margin-bottom:8px; }
+.dungeon-combatant .bars { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+.dungeon-combatant .bar { position:relative; height:18px; background:#d9d9d9; border-radius:3px; overflow:hidden; }
+.dungeon-combatant .bar .fill { position:absolute; left:0; top:0; height:100%; width:0; transition:width 0.2s ease; }
+.dungeon-combatant .bar.health .fill { background:#d9534f; }
+.dungeon-combatant .bar.mana .fill { background:#5bc0de; }
+.dungeon-combatant .bar.stamina .fill { background:#5cb85c; }
+.dungeon-combatant.boss-member .bar { background:#2a2a2a; }
+.dungeon-combatant.boss-member .bar .fill { opacity:0.9; }
+.dungeon-combatant .bar .label { position:absolute; width:100%; text-align:center; font-size:12px; line-height:18px; pointer-events:none; }
+.dungeon-combatant .bar .label .value { font-weight:bold; }
+.dungeon-combatant .useable-slots { display:flex; justify-content:center; gap:6px; }
+.dungeon-combatant .useable-slot { width:18px; height:18px; border:1px solid #666; border-radius:3px; background:#f0f0f0; }
+.dungeon-combatant .useable-slot.available { background:#4caf50; }
+.dungeon-combatant .useable-slot.used { background:#b34f4f; }
+.dungeon-combatant .useable-slot.empty { background:#f0f0f0; }
+
+#dungeon-dialog .dungeon-log { max-height:240px; overflow-y:auto; background:#101010; color:#f5f5f5; padding:12px; border-radius:4px; margin-top:12px; }
+#dungeon-dialog .dungeon-log .log-message { margin-bottom:4px; font-size:14px; }
+#dungeon-dialog .dungeon-log .log-message.party { color:#e5e5e5; }
+#dungeon-dialog .dungeon-log .log-message.boss { color:#f4b860; }
+#dungeon-dialog .dungeon-log .log-message.neutral { color:#92adc6; }
+
 .stats-table { border-collapse:collapse; margin-bottom:8px; width:100%; }
 .stats-table th, .stats-table td { border:1px solid #000; padding:4px; }
 .stats-table .section td { font-weight:bold; text-align:center; }
