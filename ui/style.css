@@ -1396,22 +1396,34 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .job-log-entry {
   border:2px solid #000;
   padding:10px 12px;
-  background:#f5f3ef;
+  background:#fff;
   display:flex;
   flex-direction:column;
   gap:8px;
   position:relative;
-  box-shadow:4px 4px 0 rgba(0,0,0,0.8);
+  box-shadow:4px 4px 0 #000;
+  color:#000;
 }
 .job-log-entry.log-crafted {
-  background:
-    repeating-linear-gradient(135deg, rgba(0,0,0,0.08) 0 6px, transparent 6px 12px),
-    #f5f3ef;
+  background:#fff;
+  color:#000;
+  border-color:#000;
+  box-shadow:4px 4px 0 #000;
 }
 .job-log-entry.log-failed {
-  background:
-    repeating-linear-gradient(135deg, rgba(0,0,0,0.12) 0 6px, transparent 6px 12px),
-    #f5f3ef;
+  background:#000;
+  color:#fff;
+  border-color:#fff;
+  box-shadow:4px 4px 0 #fff;
+}
+.job-log-entry.log-failed .job-log-rarity,
+.job-log-entry.log-failed .job-log-detail .label,
+.job-log-entry.log-failed .job-log-detail .value,
+.job-log-entry.log-failed .job-log-footer {
+  color:#fff;
+}
+.job-log-entry.log-failed .job-log-badge {
+  border-color:#fff;
 }
 .job-log-header {
   display:flex;
@@ -1444,20 +1456,19 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   letter-spacing:1px;
   font-weight:bold;
   color:#000;
-  background:#f5f3ef;
-  box-shadow:2px 2px 0 rgba(0,0,0,0.8);
+  background:#fff;
+  box-shadow:2px 2px 0 #000;
 }
 .job-log-badge.success {
-  background:
-    repeating-linear-gradient(135deg, #ffffff 0 4px, #cbcbcb 4px 8px);
+  background:#fff;
 }
 .job-log-badge.failure {
-  background:
-    repeating-linear-gradient(135deg, #f1f1f1 0 3px, #bcbcbc 3px 6px);
+  background:#000;
+  color:#fff;
+  border-color:#fff;
 }
 .job-log-badge.warning {
-  background:
-    repeating-linear-gradient(135deg, #f0f0f0 0 2px, #a9a9a9 2px 4px);
+  background:#fff;
 }
 .job-log-details {
   display:flex;
