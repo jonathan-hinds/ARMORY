@@ -284,16 +284,20 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .tooltip-grid { display:grid; grid-template-columns:auto auto; gap:2px 8px; }
 .tooltip-grid .label { font-weight:bold; text-align:right; }
 
-#battle-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; padding:16px; z-index:1000; }
-#battle-dialog .dialog-box { border:1px solid #000; padding:16px; width:100%; max-width:800px; background:#fff; display:flex; flex-direction:column; }
-#battle-dialog .combatants-row { display:flex; gap:16px; margin-bottom:16px; }
-#battle-dialog .combatant { flex:1; border:1px solid #000; padding:12px; }
-#battle-dialog .combatant .name { font-weight:bold; text-align:center; margin-bottom:8px; }
-#battle-dialog .bars { display:flex; flex-direction:column; gap:6px; }
-#battle-dialog .useable-slots { display:flex; justify-content:center; gap:8px; margin-top:8px; }
-#battle-dialog .useable-slot { width:18px; height:18px; border:1px solid #000; background:#fff; position:relative; }
+#battle-dialog, #dungeon-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; padding:16px; z-index:1000; }
+#battle-dialog .dialog-box, #dungeon-dialog .dialog-box { border:1px solid #000; padding:16px; width:100%; max-width:800px; background:#fff; display:flex; flex-direction:column; }
+#dungeon-dialog .dialog-box { max-width:880px; }
+#battle-dialog .combatants-row, #dungeon-dialog .combatants-row { display:flex; gap:16px; margin-bottom:16px; }
+#dungeon-dialog .combatants-row { align-items:stretch; }
+#battle-dialog .combatant, #dungeon-dialog .combatant { flex:1; border:1px solid #000; padding:12px; background:#fff; }
+#battle-dialog .combatant .name, #dungeon-dialog .combatant .name { font-weight:bold; text-align:center; margin-bottom:8px; }
+#battle-dialog .bars, #dungeon-dialog .bars { display:flex; flex-direction:column; gap:6px; }
+#battle-dialog .useable-slots, #dungeon-dialog .useable-slots { display:flex; justify-content:center; gap:8px; margin-top:8px; }
+#battle-dialog .useable-slot, #dungeon-dialog .useable-slot { width:18px; height:18px; border:1px solid #000; background:#fff; position:relative; }
 #battle-dialog .useable-slot::before,
-#battle-dialog .useable-slot::after {
+#battle-dialog .useable-slot::after,
+#dungeon-dialog .useable-slot::before,
+#dungeon-dialog .useable-slot::after {
   content:"";
   position:absolute;
   top:3px;
@@ -304,14 +308,18 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   transform-origin:center;
   opacity:0;
 }
-#battle-dialog .useable-slot::before { transform:translateX(-50%) rotate(45deg); }
-#battle-dialog .useable-slot::after { transform:translateX(-50%) rotate(-45deg); }
-#battle-dialog .useable-slot.available { background:#000; }
+#battle-dialog .useable-slot::before, #dungeon-dialog .useable-slot::before { transform:translateX(-50%) rotate(45deg); }
+#battle-dialog .useable-slot::after, #dungeon-dialog .useable-slot::after { transform:translateX(-50%) rotate(-45deg); }
+#battle-dialog .useable-slot.available, #dungeon-dialog .useable-slot.available { background:#000; }
 #battle-dialog .useable-slot.empty::before,
 #battle-dialog .useable-slot.empty::after,
 #battle-dialog .useable-slot.used::before,
-#battle-dialog .useable-slot.used::after { opacity:1; }
-#battle-dialog .useable-slot.used { background:#fff; }
+#battle-dialog .useable-slot.used::after,
+#dungeon-dialog .useable-slot.empty::before,
+#dungeon-dialog .useable-slot.empty::after,
+#dungeon-dialog .useable-slot.used::before,
+#dungeon-dialog .useable-slot.used::after { opacity:1; }
+#battle-dialog .useable-slot.used, #dungeon-dialog .useable-slot.used { background:#fff; }
 .bar {
   position:relative;
   border:1px solid #000;
@@ -345,12 +353,12 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   pointer-events:none;
   white-space:nowrap;
 }
-#battle-log { border:1px solid #000; height:220px; overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:8px; margin-top:16px; }
-#battle-log .log-message { max-width:75%; padding:6px 8px; border:1px solid #000; }
-#battle-log .log-message.you { align-self:flex-start; background:#000; color:#fff; border-color:#000; }
-#battle-log .log-message.opponent { align-self:flex-end; background:#fff; color:#000; border-color:#000; text-align:right; }
-#battle-log .log-message.neutral { align-self:center; background:#fff; color:#000; border-style:dashed; text-align:center; }
-#battle-dialog .dialog-buttons { text-align:right; margin-top:16px; }
+#battle-log, .battle-log { border:1px solid #000; height:220px; overflow-y:auto; padding:8px; display:flex; flex-direction:column; gap:8px; margin-top:16px; }
+#battle-log .log-message, .battle-log .log-message { max-width:75%; padding:6px 8px; border:1px solid #000; }
+#battle-log .log-message.you, .battle-log .log-message.you, .battle-log .log-message.party { align-self:flex-start; background:#000; color:#fff; border-color:#000; }
+#battle-log .log-message.opponent, .battle-log .log-message.opponent, .battle-log .log-message.boss { align-self:flex-end; background:#fff; color:#000; border-color:#000; text-align:right; }
+#battle-log .log-message.neutral, .battle-log .log-message.neutral { align-self:center; background:#fff; color:#000; border-style:dashed; text-align:center; }
+#battle-dialog .dialog-buttons, #dungeon-dialog .dialog-buttons { text-align:right; margin-top:16px; }
 
 .dungeon-panel { display:flex; flex-direction:column; gap:12px; }
 .dungeon-controls { display:flex; align-items:center; gap:12px; }
@@ -363,88 +371,13 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .dungeon-ready-status { margin-top:8px; font-weight:bold; }
 .dungeon-ready-button { margin-top:8px; padding:6px 12px; }
 
-#dungeon-dialog {
-  position:fixed;
-  inset:0;
-  width:100%;
-  height:100%;
-  background:#fff;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:16px;
-  z-index:1000;
-}
-#dungeon-dialog .dialog-box {
-  border:1px solid #000;
-  padding:16px;
-  width:100%;
-  max-width:880px;
-  background:#fff;
-  display:flex;
-  flex-direction:column;
-  gap:16px;
-  box-shadow:6px 6px 0 #000;
-}
-#dungeon-dialog .dungeon-combatants { display:flex; gap:16px; }
-#dungeon-dialog .dungeon-party, #dungeon-dialog .dungeon-boss { flex:1; display:flex; flex-direction:column; gap:12px; }
-.dungeon-combatant { border:1px solid #000; padding:12px; border-radius:4px; background:#fff; box-shadow:3px 3px 0 #000; }
-.dungeon-combatant.boss-member { background:#101010; color:#fff; border-color:#000; box-shadow:3px 3px 0 #000; }
-#dungeon-dialog .dialog-buttons { text-align:right; }
+#dungeon-dialog .dialog-box { gap:16px; }
+#dungeon-dialog .party-column, #dungeon-dialog .dungeon-party { flex:1; display:flex; flex-direction:column; gap:12px; }
+#dungeon-dialog .boss-column, #dungeon-dialog .dungeon-boss { flex:1; display:flex; flex-direction:column; gap:12px; }
+#dungeon-dialog .boss-column .combatant, #dungeon-dialog .dungeon-boss .combatant { flex:1; }
+#dungeon-dialog .party-column .combatant, #dungeon-dialog .dungeon-party .combatant { flex:0 0 auto; }
 #dungeon-dialog .dialog-buttons button { padding:6px 12px; }
-.dungeon-combatant .name { font-weight:bold; text-align:center; margin-bottom:8px; }
-.dungeon-combatant .bars { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
-.dungeon-combatant .bar { position:relative; height:18px; background:#d9d9d9; border-radius:3px; overflow:hidden; }
-.dungeon-combatant .bar .fill { position:absolute; left:0; top:0; height:100%; width:0; transition:width 0.2s ease; }
-.dungeon-combatant .bar.health .fill { background:#d9534f; }
-.dungeon-combatant .bar.mana .fill { background:#5bc0de; }
-.dungeon-combatant .bar.stamina .fill { background:#5cb85c; }
-.dungeon-combatant.boss-member .bar { background:#2a2a2a; }
-.dungeon-combatant.boss-member .bar .fill { opacity:0.9; }
-.dungeon-combatant .bar .label { position:absolute; width:100%; text-align:center; font-size:12px; line-height:18px; pointer-events:none; }
-.dungeon-combatant .bar .label .value { font-weight:bold; }
-.dungeon-combatant .useable-slots { display:flex; justify-content:center; gap:6px; margin-top:8px; }
-.dungeon-combatant .useable-slot { width:18px; height:18px; border:1px solid #000; border-radius:3px; background:#fff; }
-.dungeon-combatant .useable-slot.available { background:#4caf50; }
-.dungeon-combatant .useable-slot.used { background:#b34f4f; }
-.dungeon-combatant .useable-slot.empty { background:#f0f0f0; }
-
-#dungeon-dialog .dungeon-log {
-  max-height:260px;
-  overflow-y:auto;
-  background:#f5f5f5;
-  color:#000;
-  padding:12px;
-  border:1px solid #000;
-  border-radius:4px;
-  display:flex;
-  flex-direction:column;
-  gap:6px;
-}
-#dungeon-dialog .dungeon-log .log-message {
-  font-size:14px;
-  padding:4px 6px;
-  border-radius:4px;
-  border:1px solid #000;
-  align-self:flex-start;
-  background:#fff;
-  color:#000;
-  box-shadow:2px 2px 0 #000;
-}
-#dungeon-dialog .dungeon-log .log-message.party {
-  background:#fff;
-  color:#000;
-}
-#dungeon-dialog .dungeon-log .log-message.boss {
-  background:#000;
-  color:#fff;
-  align-self:flex-end;
-}
-#dungeon-dialog .dungeon-log .log-message.neutral {
-  background:#e5e5e5;
-  color:#000;
-  align-self:center;
-}
+#dungeon-dialog .dungeon-log { height:220px; }
 
 .stats-table { border-collapse:collapse; margin-bottom:8px; width:100%; }
 .stats-table th, .stats-table td { border:1px solid #000; padding:4px; }
