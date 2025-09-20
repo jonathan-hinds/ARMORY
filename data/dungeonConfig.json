@@ -1,5 +1,5 @@
 {
-  "generations": 20,
+  "generations": 50,
   "generationsPerExtraMember": 0,
   "scaling": {
     "attributePointScale": { "base": 1.5, "perExtraMember": 0.08, "minTotal": 40 },
@@ -7,7 +7,7 @@
   },
   "targetDuration": { "base": 40, "perMember": 12 },
   "population": {
-    "baseSize": 18,
+    "baseSize": 25,
     "sizePerPartyMember": 0,
     "maxSize": 60,
     "generationGrowth": 0,
