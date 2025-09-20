@@ -308,8 +308,10 @@ function setMaterialCount(container, id, value) {
   if (typeof container.set === 'function') {
     if (numeric > 0) {
       container.set(id, numeric);
-    } else {
+    } else if (typeof container.delete === 'function') {
       container.delete(id);
+    } else {
+      delete container[id];
     }
   } else if (numeric > 0) {
     container[id] = numeric;
