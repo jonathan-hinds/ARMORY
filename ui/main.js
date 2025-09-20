@@ -4110,8 +4110,28 @@ function appendDungeonLogs(entries, partyIds, bossId) {
   dungeonLogElement.scrollTop = dungeonLogElement.scrollHeight;
 }
 
-function renderDungeonPreview(previewContainer, data, statusEl) {
+async function renderDungeonPreview(previewContainer, data, statusEl) {
   if (!previewContainer) return;
+  previewContainer.innerHTML = '';
+
+  const loading = document.createElement('div');
+  loading.textContent = 'Preparing encounter...';
+  previewContainer.appendChild(loading);
+
+  try {
+    await loadAbilityCatalog();
+  } catch (err) {
+    console.warn('Failed to load abilities for dungeon preview', err);
+  }
+
+  if (!previewContainer.isConnected) {
+    return;
+  }
+
+  if (data && data.matchId && dungeonState && dungeonState.matchId && dungeonState.matchId !== data.matchId) {
+    return;
+  }
+
   previewContainer.innerHTML = '';
   const panel = document.createElement('div');
   panel.className = 'dungeon-preview-panel';
@@ -4136,11 +4156,32 @@ function renderDungeonPreview(previewContainer, data, statusEl) {
   readyButton.addEventListener('click', () => {
     sendDungeonReady(statusEl);
   });
+
+  const readyCount = Number.isFinite(dungeonState && dungeonState.lastReadyCount)
+    ? dungeonState.lastReadyCount
+    : 0;
+  const readyTotal = Number.isFinite(dungeonState && dungeonState.lastReadyTotal)
+    ? dungeonState.lastReadyTotal
+    : Number.isFinite(data && data.size)
+    ? data.size
+    : Number.isFinite(dungeonState && dungeonState.size)
+    ? dungeonState.size
+    : 0;
+  updateDungeonReady(readyCount, readyTotal);
 }
 
 function updateDungeonReady(count, total) {
-  if (!dungeonState || !dungeonState.readyStatus) return;
-  dungeonState.readyStatus.textContent = `Ready ${count} / ${total}`;
+  if (!dungeonState) return;
+  const normalizedCount = Number.isFinite(count) ? count : 0;
+  const normalizedTotal = Number.isFinite(total)
+    ? total
+    : Number.isFinite(dungeonState.size)
+    ? dungeonState.size
+    : 0;
+  dungeonState.lastReadyCount = normalizedCount;
+  dungeonState.lastReadyTotal = normalizedTotal;
+  if (!dungeonState.readyStatus) return;
+  dungeonState.readyStatus.textContent = `Ready ${normalizedCount} / ${normalizedTotal}`;
 }
 
 async function sendDungeonReady(statusEl) {
@@ -4310,6 +4351,8 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
     size,
     partyIds: [],
     bossId: null,
+    lastReadyCount: 0,
+    lastReadyTotal: size,
   };
 
   const es = new EventSource(`/dungeon/queue?characterId=${currentCharacter.id}&size=${size}`);
@@ -4414,6 +4457,9 @@ function renderDungeonPanel() {
   battleArea.appendChild(container);
 
   ensureCatalog().catch(() => {});
+  loadAbilityCatalog().catch(err => {
+    console.warn('Failed to load abilities for dungeon panel', err);
+  });
 
   queueBtn.addEventListener('click', () => {
     const sizeValue = parseInt(select.value, 10) || 2;
