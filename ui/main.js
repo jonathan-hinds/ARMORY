@@ -300,6 +300,33 @@ function formatEffectDurationText(effect) {
   return '';
 }
 
+function resolveEffectAttackCount(effect) {
+  if (!effect || typeof effect !== 'object') return null;
+  if (Number.isFinite(effect.attackCount)) return effect.attackCount;
+  if (Number.isFinite(effect.attacks)) return effect.attacks;
+  if (
+    Number.isFinite(effect.durationCount) &&
+    (effect.durationType === 'enemyAttackIntervals' ||
+      effect.durationType === 'userAttackIntervals' ||
+      effect.durationType === 'selfAttackIntervals')
+  ) {
+    return effect.durationCount;
+  }
+  return null;
+}
+
+function formatAttackWindow(effect, label = 'attack') {
+  const count = resolveEffectAttackCount(effect);
+  if (!Number.isFinite(count) || count <= 0) return '';
+  const rounded = Math.round(count * 10) / 10;
+  const normalized = Math.abs(rounded - Math.round(rounded)) < 1e-6 ? Math.round(rounded) : rounded;
+  const pluralLabel = label.endsWith('s') ? label : `${label}s`;
+  if (normalized === 1) {
+    return `next ${label}`;
+  }
+  return `next ${normalized} ${pluralLabel}`;
+}
+
 function formatNumericValue(value) {
   if (!Number.isFinite(value)) return '0';
   const abs = Math.abs(value);
@@ -505,6 +532,72 @@ function describeEffect(effect, options = {}) {
       ? `Restore ${valueText} ${label} every ${interval}s for ${duration}s`
       : `Restore ${label} every ${interval}s for ${duration}s`;
     return applyEffectChance(base);
+  }
+  if (effect.type === 'ResistShield') {
+    const scaling = effect.scaling || effect.amountScaling || effect.valueScaling;
+    const baseAmount = effect.amount != null ? effect.amount : effect.value;
+    const windowText = formatAttackWindow(effect);
+    const durationText = windowText ? ` for the ${windowText}` : '';
+    const typeKey = effect.damageType === 'magical' ? 'magical' : effect.damageType === 'physical' ? 'physical' : 'incoming';
+    const typeLabel = typeKey === 'incoming' ? 'Incoming Damage' : `${titleCase(typeKey)} Damage`;
+    if (derived) {
+      const scaled = computeScaledEffectValue(baseAmount, derived, scaling);
+      const pct = Math.max(0, Math.round(Math.min(0.75, scaled) * 100));
+      const percentText = formatChanceValue(pct, { withSign: true });
+      return applyEffectChance(`Gain ${percentText} ${typeLabel} resistance${durationText}`);
+    }
+    const basePct = Number.isFinite(baseAmount) ? baseAmount * 100 : 0;
+    const percentText = formatChanceValue(basePct, { withSign: true });
+    const scalingText = formatScalingEntries(scaling);
+    const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+    return applyEffectChance(`Gain ${percentText}${suffix} ${typeLabel} resistance${durationText}`);
+  }
+  if (effect.type === 'DamageFloor') {
+    const scaling = effect.scaling || effect.percentScaling || effect.valueScaling;
+    const basePercent = effect.percent != null ? effect.percent : effect.value;
+    const windowText = formatAttackWindow(effect);
+    const durationText = windowText ? ` during the ${windowText}` : '';
+    if (derived) {
+      const scaled = computeScaledEffectValue(basePercent, derived, scaling);
+      const pct = Math.max(0, Math.round(Math.min(0.95, scaled) * 100));
+      return applyEffectChance(`Cannot fall below ${formatChanceValue(pct)} health${durationText}`);
+    }
+    const basePct = Number.isFinite(basePercent) ? basePercent * 100 : 0;
+    const scalingText = formatScalingEntries(scaling);
+    const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+    return applyEffectChance(`Cannot fall below ${formatChanceValue(basePct)} health${suffix}${durationText}`);
+  }
+  if (effect.type === 'DamageReflect') {
+    const scaling = effect.scaling || effect.percentScaling || effect.valueScaling;
+    const basePercent = effect.percent != null ? effect.percent : effect.value;
+    const windowText = formatAttackWindow(effect);
+    const durationText = windowText ? ` on the ${windowText}` : '';
+    const typeKey = effect.damageType === 'magical' ? 'incoming magical damage' : effect.damageType === 'physical' ? 'incoming physical damage' : 'incoming damage';
+    const negateNote = effect.negateDamage === false ? '' : ' (negates that portion)';
+    if (derived) {
+      const scaled = computeScaledEffectValue(basePercent, derived, scaling);
+      const pct = Math.max(0, Math.round(Math.min(0.95, scaled) * 100));
+      return applyEffectChance(`Reflect ${formatChanceValue(pct)} ${typeKey}${durationText}${negateNote}`);
+    }
+    const basePct = Number.isFinite(basePercent) ? basePercent * 100 : 0;
+    const scalingText = formatScalingEntries(scaling);
+    const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+    return applyEffectChance(`Reflect ${formatChanceValue(basePct)} ${typeKey}${suffix}${durationText}${negateNote}`);
+  }
+  if (effect.type === 'DamageHeal') {
+    const scaling = effect.scaling || effect.percentScaling || effect.valueScaling;
+    const basePercent = effect.percent != null ? effect.percent : effect.value;
+    const windowText = formatAttackWindow(effect);
+    const durationText = windowText ? ` for the ${windowText}` : '';
+    if (derived) {
+      const scaled = computeScaledEffectValue(basePercent, derived, scaling);
+      const pct = Math.max(0, Math.round(Math.min(0.95, scaled) * 100));
+      return applyEffectChance(`Heal ${formatChanceValue(pct)} of damage taken${durationText}`);
+    }
+    const basePct = Number.isFinite(basePercent) ? basePercent * 100 : 0;
+    const scalingText = formatScalingEntries(scaling);
+    const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+    return applyEffectChance(`Heal ${formatChanceValue(basePct)} of damage taken${suffix}${durationText}`);
   }
   if (effect.type === 'BuffChance') {
     const stat = typeof effect.stat === 'string' ? effect.stat : '';

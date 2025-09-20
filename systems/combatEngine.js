@@ -100,6 +100,10 @@ function createCombatant(character, equipmentMap) {
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
     attacksPerformed: 0,
+    resistShields: [],
+    damageGuards: [],
+    damageReflections: [],
+    damageHealShields: [],
   };
   if (negationDetails) {
     combatant.negation = { ...negationDetails };
