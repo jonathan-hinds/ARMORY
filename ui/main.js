@@ -112,6 +112,7 @@ let dungeonBars = null;
 let dungeonBossBars = null;
 let dungeonLogElement = null;
 let dungeonCloseButton = null;
+let matchmakingState = null;
 
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
@@ -3697,7 +3698,14 @@ function updateAfterBattleEnd(data) {
 
 function launchCombatStream(
   url,
-  { waitingText = 'Preparing battle...', onEnd, onStart, onError, updateArea = true } = {},
+  {
+    waitingText = 'Preparing battle...',
+    onEnd,
+    onStart,
+    onError,
+    onCancel,
+    updateArea = true,
+  } = {},
 ) {
   if (!currentCharacter) return null;
   if (updateArea && battleArea) {
@@ -3921,6 +3929,10 @@ function launchCombatStream(
       if (closeBtn) closeBtn.classList.remove('hidden');
       if (onEnd) onEnd(data);
       es.close();
+    } else if (data.type === 'cancelled') {
+      if (onCancel) onCancel(data);
+      if (onEnd) onEnd(null);
+      es.close();
     } else if (data.type === 'error') {
       if (onError) onError(data);
       if (updateArea && battleArea) {
@@ -3932,6 +3944,151 @@ function launchCombatStream(
   };
 
   return es;
+}
+
+function safeCloseMatchmakingSource() {
+  if (matchmakingState && matchmakingState.source) {
+    try {
+      matchmakingState.source.close();
+    } catch (err) {
+      /* ignore */
+    }
+    matchmakingState.source = null;
+  }
+}
+
+function resetMatchmakingControls(message, { hideLeave = true } = {}) {
+  if (!matchmakingState) return;
+  safeCloseMatchmakingSource();
+  const { queueBtn, leaveBtn, statusEl } = matchmakingState;
+  if (queueBtn) {
+    queueBtn.disabled = false;
+    queueBtn.textContent = 'Find Opponent';
+  }
+  if (leaveBtn) {
+    leaveBtn.disabled = false;
+    leaveBtn.textContent = 'Leave Matchmaking';
+    if (hideLeave) {
+      leaveBtn.classList.add('hidden');
+    }
+  }
+  if (statusEl && message) {
+    statusEl.textContent = message;
+  }
+}
+
+function startMatchmakingQueue() {
+  if (!matchmakingState) return;
+  if (!currentCharacter) {
+    if (matchmakingState.statusEl) {
+      matchmakingState.statusEl.textContent = 'Select a character first.';
+    }
+    return;
+  }
+  if (matchmakingState.source) {
+    return;
+  }
+  const { queueBtn, leaveBtn, statusEl } = matchmakingState;
+  if (queueBtn) {
+    queueBtn.disabled = true;
+    queueBtn.textContent = 'Matching...';
+  }
+  if (statusEl) {
+    statusEl.textContent = 'Searching for opponent...';
+  }
+  if (leaveBtn) {
+    leaveBtn.classList.remove('hidden');
+    leaveBtn.disabled = false;
+    leaveBtn.textContent = 'Leave Matchmaking';
+  }
+  const es = launchCombatStream(`/matchmaking/queue?characterId=${currentCharacter.id}`, {
+    waitingText: 'Waiting for opponent...',
+    updateArea: false,
+    onStart: () => {
+      if (statusEl) {
+        statusEl.textContent = 'Opponent found!';
+      }
+      if (leaveBtn) {
+        leaveBtn.disabled = true;
+        leaveBtn.textContent = 'Match Found';
+      }
+    },
+    onEnd: data => {
+      if (!data) {
+        return;
+      }
+      resetMatchmakingControls('Match complete.');
+      updateAfterBattleEnd(data);
+    },
+    onError: data => {
+      resetMatchmakingControls((data && data.message) || 'Matchmaking failed.');
+    },
+    onCancel: data => {
+      resetMatchmakingControls((data && data.message) || 'Matchmaking cancelled.');
+    },
+  });
+  matchmakingState.source = es;
+  es.onerror = () => {
+    resetMatchmakingControls('Matchmaking connection interrupted.');
+  };
+}
+
+async function cancelMatchmakingQueue() {
+  if (!matchmakingState || !currentCharacter) return;
+  const { leaveBtn, statusEl } = matchmakingState;
+  if (leaveBtn) {
+    leaveBtn.disabled = true;
+    leaveBtn.textContent = 'Leaving...';
+  }
+  if (statusEl) {
+    statusEl.textContent = 'Leaving matchmaking...';
+  }
+  try {
+    await postJSON('/matchmaking/cancel', { characterId: currentCharacter.id });
+  } catch (err) {
+    if (leaveBtn) {
+      leaveBtn.disabled = false;
+      leaveBtn.textContent = 'Leave Matchmaking';
+    }
+    if (statusEl) {
+      statusEl.textContent = err.message || 'Failed to leave matchmaking.';
+    }
+  }
+}
+
+function renderMatchmakingPanel() {
+  if (!battleArea) return;
+  safeCloseMatchmakingSource();
+  battleArea.innerHTML = `
+    <div class="matchmaking-panel">
+      <div id="matchmaking-status" class="matchmaking-status"></div>
+      <div class="matchmaking-controls">
+        <button id="queue-match">Find Opponent</button>
+        <button id="leave-match" class="hidden">Leave Matchmaking</button>
+      </div>
+    </div>
+  `;
+  const statusEl = battleArea.querySelector('#matchmaking-status');
+  const queueBtn = battleArea.querySelector('#queue-match');
+  const leaveBtn = battleArea.querySelector('#leave-match');
+  matchmakingState = {
+    statusEl,
+    queueBtn,
+    leaveBtn,
+    source: null,
+  };
+  if (statusEl) {
+    statusEl.textContent = currentCharacter ? 'Ready to queue for battle.' : 'Select a character first.';
+  }
+  if (!currentCharacter && queueBtn) {
+    queueBtn.disabled = true;
+  }
+  if (queueBtn) {
+    queueBtn.addEventListener('click', startMatchmakingQueue);
+  }
+  if (leaveBtn) {
+    leaveBtn.addEventListener('click', cancelMatchmakingQueue);
+  }
 }
 
 function closeDungeonDialog() {
@@ -4322,11 +4479,37 @@ function handleDungeonEnd(data) {
     dungeonState.queueBtn.disabled = false;
     dungeonState.queueBtn.textContent = 'Find Party';
   }
+  if (dungeonState && dungeonState.leaveButton) {
+    dungeonState.leaveButton.disabled = false;
+    dungeonState.leaveButton.textContent = 'Leave Queue';
+    dungeonState.leaveButton.classList.add('hidden');
+  }
   closeDungeonSource();
   updateAfterBattleEnd(data);
 }
 
-function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
+async function leaveDungeonQueue(statusEl) {
+  if (!currentCharacter || !dungeonState || !dungeonState.leaveButton) return;
+  const button = dungeonState.leaveButton;
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = 'Leaving...';
+  const targetStatus = statusEl || dungeonState.statusEl;
+  if (targetStatus) {
+    showMessage(targetStatus, 'Leaving dungeon queue...', false);
+  }
+  try {
+    await postJSON('/dungeon/cancel', { characterId: currentCharacter.id });
+  } catch (err) {
+    button.disabled = false;
+    button.textContent = 'Leave Queue';
+    if (targetStatus) {
+      showMessage(targetStatus, err.message || 'Failed to leave dungeon queue.', true);
+    }
+  }
+}
+
+function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn) {
   if (!currentCharacter) {
     showMessage(statusEl, 'Select a character first.', true);
     return;
@@ -4335,6 +4518,11 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
   if (queueBtn) {
     queueBtn.disabled = true;
     queueBtn.textContent = 'Matching...';
+  }
+  if (leaveBtn) {
+    leaveBtn.classList.remove('hidden');
+    leaveBtn.disabled = false;
+    leaveBtn.textContent = 'Leave Queue';
   }
   if (previewEl) {
     previewEl.innerHTML = '';
@@ -4346,6 +4534,7 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
     queueBtn,
     statusEl,
     previewEl,
+    leaveButton: leaveBtn || null,
     readyButton: null,
     readyStatus: null,
     matchId: null,
@@ -4367,12 +4556,19 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
     }
     if (!data) return;
     if (data.type === 'error') {
+      const message = data.message || 'Dungeon matchmaking failed.';
+      const isCancelled = /cancelled|closed|disbanded/i.test(message);
       if (statusEl) {
-        showMessage(statusEl, data.message || 'Dungeon matchmaking failed.', true);
+        showMessage(statusEl, message, !isCancelled);
       }
       if (queueBtn) {
         queueBtn.disabled = false;
         queueBtn.textContent = 'Find Party';
+      }
+      if (dungeonState && dungeonState.leaveButton) {
+        dungeonState.leaveButton.disabled = false;
+        dungeonState.leaveButton.textContent = 'Leave Queue';
+        dungeonState.leaveButton.classList.add('hidden');
       }
       closeDungeonSource();
       return;
@@ -4396,6 +4592,11 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
       if (statusEl) {
         showMessage(statusEl, 'Encounter underway...', false);
       }
+      if (dungeonState && dungeonState.leaveButton) {
+        dungeonState.leaveButton.disabled = true;
+        dungeonState.leaveButton.textContent = 'Encounter underway';
+        dungeonState.leaveButton.classList.add('hidden');
+      }
       openDungeonDialog(data);
       return;
     }
@@ -4415,6 +4616,11 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
     }
     if (statusEl) {
       showMessage(statusEl, 'Dungeon connection interrupted.', true);
+    }
+    if (dungeonState && dungeonState.leaveButton) {
+      dungeonState.leaveButton.disabled = false;
+      dungeonState.leaveButton.textContent = 'Leave Queue';
+      dungeonState.leaveButton.classList.add('hidden');
     }
     closeDungeonSource();
   };
@@ -4445,11 +4651,16 @@ function renderDungeonPanel() {
   const queueBtn = document.createElement('button');
   queueBtn.id = 'dungeon-queue';
   queueBtn.textContent = 'Find Party';
+  const leaveBtn = document.createElement('button');
+  leaveBtn.id = 'dungeon-leave';
+  leaveBtn.textContent = 'Leave Queue';
+  leaveBtn.classList.add('hidden');
   const statusEl = document.createElement('div');
   statusEl.className = 'dungeon-status message';
   controls.appendChild(label);
   controls.appendChild(select);
   controls.appendChild(queueBtn);
+  controls.appendChild(leaveBtn);
   container.appendChild(controls);
   container.appendChild(statusEl);
   const previewEl = document.createElement('div');
@@ -4464,7 +4675,11 @@ function renderDungeonPanel() {
 
   queueBtn.addEventListener('click', () => {
     const sizeValue = parseInt(select.value, 10) || 2;
-    startDungeonQueue(sizeValue, statusEl, previewEl, queueBtn);
+    startDungeonQueue(sizeValue, statusEl, previewEl, queueBtn, leaveBtn);
+  });
+
+  leaveBtn.addEventListener('click', () => {
+    leaveDungeonQueue(statusEl);
   });
 }
 
@@ -5370,19 +5585,12 @@ function selectMode(mode) {
   if (mode !== 'dungeon') {
     closeDungeonDialog();
   }
+  if (mode !== 'matchmaking' && matchmakingState) {
+    safeCloseMatchmakingSource();
+    matchmakingState = null;
+  }
   if (mode === 'matchmaking') {
-    battleArea.innerHTML = '<button id="queue-match">Queue for Match</button>';
-    const button = document.getElementById('queue-match');
-    if (button) {
-      button.addEventListener('click', () => {
-        launchCombatStream(`/matchmaking/queue?characterId=${currentCharacter.id}`, {
-          waitingText: 'Waiting for opponent...',
-          onEnd: data => {
-            if (data) updateAfterBattleEnd(data);
-          },
-        });
-      });
-    }
+    renderMatchmakingPanel();
   } else if (mode === 'challenge') {
     renderChallengePanel();
   } else if (mode === 'adventure') {
