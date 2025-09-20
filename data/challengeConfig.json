@@ -1,0 +1,21 @@
+{
+  "generations": 1,
+  "population": {
+    "minSize": 10,
+    "stepSize": 10,
+    "stepInterval": 3,
+    "maxSize": 100
+  },
+  "mutation": {
+    "genomeRate": 0.2,
+    "gearRate": 0.25
+  },
+  "rotation": {
+    "maxLength": 6
+  },
+  "rewards": {
+    "baseXpPct": 0.04,
+    "rewardMultiplierStep": 0.15,
+    "baseGold": 12
+  }
+}
