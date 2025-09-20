@@ -90,7 +90,7 @@
         {
           "trigger": "basic",
           "chance": 0.05,
-          "effect": { "type": "Stun", "duration": 1.5 }
+          "effect": { "type": "Stun", "attacks": 1 }
         }
       ]
     },
@@ -180,7 +180,7 @@
         {
           "trigger": "basic",
           "chance": 0.15,
-          "effect": { "type": "Stun", "duration": 2 }
+          "effect": { "type": "Stun", "attacks": 2 }
         }
       ]
     }
@@ -402,10 +402,9 @@
       "useEffect": {
         "type": "Stun",
         "chance": 0.25,
-        "durationType": "enemyAttackIntervals",
-        "durationCount": 1
+        "attacks": 1
       },
-      "useDuration": "1 enemy attack interval",
+      "useDuration": "1 attack",
       "useConsumed": true,
       "useTarget": "enemy"
     },

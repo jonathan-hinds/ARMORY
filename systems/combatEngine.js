@@ -65,7 +65,7 @@ function createCombatant(character, equipmentMap) {
     dots: [],
     hots: [],
     resourceOverTime: [],
-    stunnedUntil: 0,
+    stunnedAttacksRemaining: 0,
     onHitEffects: derived.onHitEffects || [],
     basicAttackEffectType: derived.basicAttackEffectType,
     attacksPerformed: 0,
@@ -105,8 +105,12 @@ function executeCombatAction(actor, target, now, abilityMap, log) {
     return summary;
   }
 
-  if (actor.stunnedUntil > now) {
-    pushLog(log, `${actor.character.name} is stunned and misses the turn`, {
+  if ((actor.stunnedAttacksRemaining || 0) > 0) {
+    const remainingBefore = Number.isFinite(actor.stunnedAttacksRemaining)
+      ? actor.stunnedAttacksRemaining
+      : 0;
+    actor.stunnedAttacksRemaining = Math.max(0, remainingBefore - 1);
+    pushLog(log, `${actor.character.name} is stunned and misses their attack`, {
       sourceId: actor.character.id,
       targetId: actor.character.id,
       kind: 'stun',

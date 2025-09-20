@@ -105,6 +105,70 @@ function resolveDurationSeconds(effect, context = {}) {
   return 0;
 }
 
+function resolveAttackInterval(entity) {
+  if (!entity || !entity.derived) return null;
+  const value = entity.derived.attackIntervalSeconds;
+  return Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function resolveStunAttackCount(effect, source, target, context = {}) {
+  if (!effect || typeof effect !== 'object') return 0;
+
+  if (Number.isFinite(effect.attacks)) {
+    return Math.max(0, effect.attacks);
+  }
+
+  if (Number.isFinite(effect.attackCount)) {
+    return Math.max(0, effect.attackCount);
+  }
+
+  if (Number.isFinite(effect.durationCount) && effect.durationType) {
+    return Math.max(0, effect.durationCount);
+  }
+
+  const seconds = Number.isFinite(effect.durationSeconds)
+    ? effect.durationSeconds
+    : Number.isFinite(effect.duration)
+    ? effect.duration
+    : 0;
+
+  if (seconds <= 0) return 0;
+
+  const targetInterval = resolveAttackInterval(target);
+  const sourceInterval = resolveAttackInterval(source);
+  const contextEnemyInterval = resolveAttackInterval(context.enemy);
+
+  let interval = null;
+  if (effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals') {
+    interval = sourceInterval;
+  } else if (effect.durationType === 'enemyAttackIntervals') {
+    interval = targetInterval || contextEnemyInterval;
+  } else {
+    interval = targetInterval || contextEnemyInterval || sourceInterval;
+  }
+
+  if (interval && interval > 0) {
+    return Math.max(0, seconds / interval);
+  }
+
+  if (seconds > 0) {
+    return 1;
+  }
+
+  return 0;
+}
+
+function formatAttackCount(count, label = 'attack') {
+  if (!Number.isFinite(count) || count <= 0) return '';
+  const rounded = Math.round(count * 10) / 10;
+  const normalized = Math.abs(rounded - Math.round(rounded)) < 1e-6 ? Math.round(rounded) : rounded;
+  const pluralLabel = label.endsWith('s') ? label : `${label}s`;
+  if (normalized === 1) {
+    return `1 ${label}`;
+  }
+  return `${normalized} ${pluralLabel}`;
+}
+
 function clampProbability(value, min = 0, max = 1) {
   if (!Number.isFinite(value)) return min;
   const clamped = Math.min(Math.max(value, min), max);
@@ -345,15 +409,33 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       if (!resolution.hit) {
         return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
       }
-      const durationSeconds = resolveDurationSeconds(effect, { ...context, source });
-      const duration = Number.isFinite(durationSeconds) ? durationSeconds : 0;
-      target.stunnedUntil = Math.max(target.stunnedUntil, now + duration);
-      pushLog(log, `${target.character.name} is stunned`, {
+      const stunContext = { ...context, enemy: context.enemy || target };
+      const attackCount = resolveStunAttackCount(effect, source, target, stunContext);
+      const normalizedCount = Number.isFinite(attackCount) ? Math.max(0, attackCount) : 0;
+      const prior = Number.isFinite(target.stunnedAttacksRemaining) ? target.stunnedAttacksRemaining : 0;
+      if (normalizedCount > 0) {
+        target.stunnedAttacksRemaining = Math.max(prior, normalizedCount);
+      }
+      const labelBase =
+        effect.durationType === 'enemyAttackIntervals'
+          ? 'enemy attack'
+          : effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals'
+          ? 'own attack'
+          : 'attack';
+      const countText = formatAttackCount(normalizedCount, labelBase);
+      const message =
+        countText && normalizedCount > 0
+          ? `${target.character.name} is stunned for ${countText}`
+          : `${target.character.name} is stunned`;
+      const logDetails = {
         sourceId: target.character.id,
         targetId: source.character.id,
         kind: 'stun',
-        duration,
-      });
+      };
+      if (normalizedCount > 0) {
+        logDetails.attacks = normalizedCount;
+      }
+      pushLog(log, message, logDetails);
       const resultResolution = { ...resolution, damageType: resolution.damageType };
       return { hit: true, amount: 0, damageType: resultResolution.damageType, resolution: resultResolution };
     }
