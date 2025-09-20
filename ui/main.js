@@ -125,6 +125,13 @@ function computeDerived(character) {
   const blockChance = computeBlockChanceLocal(attr);
   const dodgeChance = computeDodgeChanceLocal(attr);
   const hitChance = computeHitChanceLocal(attr);
+  const normalizedAttributes = {
+    strength,
+    stamina,
+    agility,
+    intellect,
+    wisdom,
+  };
   return {
     minMeleeAttack: strength * 2,
     maxMeleeAttack: strength * 2 + 4,
@@ -139,6 +146,7 @@ function computeDerived(character) {
     dodgeChance,
     hitChance,
     chanceBonuses: { critChance: 0, blockChance: 0, dodgeChance: 0, hitChance: 0 },
+    attributes: normalizedAttributes,
   };
 }
 
@@ -288,8 +296,72 @@ function formatValueWithScaling(baseValue, scaling) {
   return '';
 }
 
-function describeEffect(effect) {
+function normalizeStatKey(stat) {
+  if (typeof stat !== 'string') return '';
+  return stat.trim().toLowerCase();
+}
+
+function resolveDerivedAttributes(derived) {
+  if (!derived || typeof derived !== 'object') return null;
+  if (derived.attributes && typeof derived.attributes === 'object') return derived.attributes;
+  if (derived.baseAttributes && typeof derived.baseAttributes === 'object') return derived.baseAttributes;
+  return null;
+}
+
+function computeScalingBonusLocal(derived, scaling) {
+  const attributes = resolveDerivedAttributes(derived);
+  if (!attributes) return 0;
+  if (!scaling || typeof scaling !== 'object') return 0;
+  let total = 0;
+  Object.entries(scaling).forEach(([stat, multiplier]) => {
+    const coeff = Number(multiplier);
+    if (!Number.isFinite(coeff) || coeff === 0) return;
+    const key = normalizeStatKey(stat);
+    if (!key) return;
+    const statValue = Number(attributes[key]);
+    if (!Number.isFinite(statValue)) return;
+    total += statValue * coeff;
+  });
+  return total;
+}
+
+function computeScaledEffectValue(baseValue, derived, scaling) {
+  const base = Number.isFinite(baseValue) ? baseValue : 0;
+  return base + computeScalingBonusLocal(derived, scaling);
+}
+
+function formatRange(min, max) {
+  const minFinite = Number.isFinite(min);
+  const maxFinite = Number.isFinite(max);
+  if (minFinite && maxFinite) {
+    const roundedMin = Math.round(min);
+    const roundedMax = Math.round(max);
+    const minText = formatNumericValue(roundedMin);
+    const maxText = formatNumericValue(roundedMax);
+    return roundedMin === roundedMax ? minText : `${minText}-${maxText}`;
+  }
+  if (minFinite) {
+    return formatNumericValue(Math.round(min));
+  }
+  if (maxFinite) {
+    return formatNumericValue(Math.round(max));
+  }
+  return '';
+}
+
+function getActiveDerivedStats() {
+  if (inventoryView && inventoryView.derived) {
+    return inventoryView.derived;
+  }
+  if (currentCharacter) {
+    return computeDerived(currentCharacter);
+  }
+  return null;
+}
+
+function describeEffect(effect, options = {}) {
   if (!effect || typeof effect !== 'object') return '';
+  const derived = options && options.derived ? options.derived : null;
   const applyEffectChance = text => {
     const chance = typeof effect.chance === 'number' ? effect.chance : null;
     if (!Number.isFinite(chance) || chance <= 0) {
@@ -303,26 +375,64 @@ function describeEffect(effect) {
   };
 
   if (effect.type === 'PhysicalDamage') {
+    if (derived) {
+      const baseAmount = effect.value != null ? effect.value : effect.damage;
+      const scaled = computeScaledEffectValue(baseAmount, derived, effect.scaling || effect.valueScaling);
+      const minAttack = Number.isFinite(derived.minMeleeAttack) ? derived.minMeleeAttack : null;
+      const maxAttack = Number.isFinite(derived.maxMeleeAttack) ? derived.maxMeleeAttack : minAttack;
+      if (minAttack != null) {
+        const rangeText = formatRange(scaled + minAttack, scaled + (maxAttack != null ? maxAttack : minAttack));
+        const scalingText = formatScalingEntries(effect.scaling || effect.valueScaling);
+        const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+        const baseText = rangeText ? `Physical Damage ${rangeText}${suffix}` : 'Physical Damage';
+        return applyEffectChance(baseText);
+      }
+    }
     const amount = effect.value != null ? effect.value : effect.damage;
     const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
-    return text ? `Physical Damage ${text}` : 'Physical Damage';
+    return applyEffectChance(text ? `Physical Damage ${text}` : 'Physical Damage');
   }
   if (effect.type === 'MagicDamage') {
+    if (derived) {
+      const baseAmount = effect.value != null ? effect.value : effect.damage;
+      const scaled = computeScaledEffectValue(baseAmount, derived, effect.scaling || effect.valueScaling);
+      const minAttack = Number.isFinite(derived.minMagicAttack) ? derived.minMagicAttack : null;
+      const maxAttack = Number.isFinite(derived.maxMagicAttack) ? derived.maxMagicAttack : minAttack;
+      if (minAttack != null) {
+        const rangeText = formatRange(scaled + minAttack, scaled + (maxAttack != null ? maxAttack : minAttack));
+        const scalingText = formatScalingEntries(effect.scaling || effect.valueScaling);
+        const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+        const baseText = rangeText ? `Magic Damage ${rangeText}${suffix}` : 'Magic Damage';
+        return applyEffectChance(baseText);
+      }
+    }
     const amount = effect.value != null ? effect.value : effect.damage;
     const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
-    return text ? `Magic Damage ${text}` : 'Magic Damage';
+    return applyEffectChance(text ? `Magic Damage ${text}` : 'Magic Damage');
   }
   if (effect.type === 'Heal') {
     const amount = effect.value != null ? effect.value : effect.amount;
+    if (derived) {
+      const scaled = computeScaledEffectValue(amount, derived, effect.scaling || effect.valueScaling);
+      const text = formatNumericValue(Math.round(scaled));
+      return applyEffectChance(text ? `Heal ${text}` : 'Heal');
+    }
     const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
-    return text ? `Heal ${text}` : 'Heal';
+    return applyEffectChance(text ? `Heal ${text}` : 'Heal');
   }
   if (effect.type === 'RestoreResource') {
     const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
     const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
     const amount = effect.value != null ? effect.value : effect.amount;
+    if (derived) {
+      const scaled = computeScaledEffectValue(amount, derived, effect.scaling || effect.valueScaling);
+      const formatted = formatNumericValue(Math.round(scaled));
+      const scalingText = formatScalingEntries(effect.scaling || effect.valueScaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      return applyEffectChance(`Restore ${formatted} ${label}${suffix}`);
+    }
     const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
-    return text ? `Restore ${text} ${label}` : `Restore ${label}`;
+    return applyEffectChance(text ? `Restore ${text} ${label}` : `Restore ${label}`);
   }
   if (effect.type === 'ResourceOverTime') {
     const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
@@ -330,11 +440,18 @@ function describeEffect(effect) {
     const interval = effect.interval != null ? effect.interval : 1;
     const duration = effect.duration != null ? effect.duration : 0;
     const amount = effect.value != null ? effect.value : effect.amount;
+    if (derived) {
+      const scaled = computeScaledEffectValue(amount, derived, effect.scaling || effect.valueScaling);
+      const perTick = Math.max(0, Math.round(scaled));
+      const scalingText = formatScalingEntries(effect.scaling || effect.valueScaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      return applyEffectChance(`Restore ${formatNumericValue(perTick)} ${label} every ${interval}s for ${duration}s${suffix}`);
+    }
     const valueText = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
     const base = valueText
       ? `Restore ${valueText} ${label} every ${interval}s for ${duration}s`
       : `Restore ${label} every ${interval}s for ${duration}s`;
-    return base;
+    return applyEffectChance(base);
   }
   if (effect.type === 'BuffChance') {
     const stat = typeof effect.stat === 'string' ? effect.stat : '';
@@ -362,6 +479,13 @@ function describeEffect(effect) {
     const dmg = effect.damage != null ? effect.damage : 0;
     const interval = effect.interval != null ? effect.interval : 1;
     const duration = effect.duration != null ? effect.duration : 0;
+    if (derived) {
+      const scaled = computeScaledEffectValue(dmg, derived, effect.damageScaling || effect.scaling);
+      const value = Math.max(0, Math.round(scaled));
+      const scalingText = formatScalingEntries(effect.damageScaling || effect.scaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      return applyEffectChance(`Poison ${formatNumericValue(value)} dmg/${interval}s for ${duration}s${suffix}`);
+    }
     const amountText = formatValueWithScaling(dmg, effect.damageScaling || effect.scaling);
     const base = `Poison ${amountText || formatNumericValue(dmg)} dmg/${interval}s for ${duration}s`;
     return applyEffectChance(base);
@@ -370,6 +494,13 @@ function describeEffect(effect) {
     const dmg = effect.damage != null ? effect.damage : 0;
     const interval = effect.interval != null ? effect.interval : 1;
     const duration = effect.duration != null ? effect.duration : 0;
+    if (derived) {
+      const scaled = computeScaledEffectValue(dmg, derived, effect.damageScaling || effect.scaling);
+      const value = Math.max(0, Math.round(scaled));
+      const scalingText = formatScalingEntries(effect.damageScaling || effect.scaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      return applyEffectChance(`Ignite ${formatNumericValue(value)} dmg/${interval}s for ${duration}s${suffix}`);
+    }
     const amountText = formatValueWithScaling(dmg, effect.damageScaling || effect.scaling);
     const base = `Ignite ${amountText || formatNumericValue(dmg)} dmg/${interval}s for ${duration}s`;
     return applyEffectChance(base);
@@ -496,7 +627,7 @@ function describeOnHit(entry) {
     conditionParts.push(`${entry.conditions.school} abilities`);
   }
   const conditionText = conditionParts.length ? ` (${conditionParts.join(', ')})` : '';
-  return `${chance}% on ${trigger}${conditionText}: ${describeEffect(entry.effect)}`;
+  return `${chance}% on ${trigger}${conditionText}: ${describeEffect(entry.effect, { derived: getActiveDerivedStats() })}`;
 }
 
 function formatAttributeBonuses(bonuses) {
@@ -778,10 +909,15 @@ function abilityTooltip(ability) {
   };
   add('School', ability.school);
   add('Cost', formatAbilityCost(ability));
-  add('Cooldown', `${ability.cooldown}s`);
-  add('Scaling', ability.scaling.length ? ability.scaling.join(', ') : 'None');
-  const effectLines = ability.effects.map(describeEffect).join('<br/>');
-  add('Effects', effectLines);
+  const cooldownText = Number.isFinite(ability.cooldown) ? `${ability.cooldown}s` : 'None';
+  add('Cooldown', cooldownText);
+  const scalingStats = ability.scaling.length
+    ? ability.scaling.map(statLabel).join(', ')
+    : 'None';
+  add('Scaling', scalingStats);
+  const derived = getActiveDerivedStats();
+  const effectLines = ability.effects.map(effect => describeEffect(effect, { derived })).join('<br/>');
+  add('Effects', effectLines || 'None');
   return container;
 }
 
@@ -3350,6 +3486,11 @@ function initTabs() {
 async function initRotation() {
   if (rotationInitialized) return;
   rotationInitialized = true;
+  try {
+    await ensureInventory();
+  } catch (err) {
+    console.warn('Failed to load inventory for rotation view', err);
+  }
   await loadAbilityCatalog();
   rotation = [...(currentCharacter.rotation || [])];
   setRotationDamageType(currentCharacter ? currentCharacter.basicType : null);
