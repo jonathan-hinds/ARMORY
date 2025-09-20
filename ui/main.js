@@ -254,6 +254,33 @@ function formatIntervalDuration(countRaw, singular, plural) {
 
 function formatEffectDurationText(effect) {
   if (!effect || typeof effect !== 'object') return '';
+  if (effect.type === 'Stun') {
+    if (Number.isFinite(effect.attacks)) {
+      return formatIntervalDuration(effect.attacks, 'attack');
+    }
+    if (Number.isFinite(effect.attackCount)) {
+      return formatIntervalDuration(effect.attackCount, 'attack');
+    }
+    if (Number.isFinite(effect.durationCount)) {
+      let label = 'attack';
+      let pluralLabel = 'attacks';
+      if (effect.durationType === 'enemyAttackIntervals') {
+        label = 'enemy attack';
+        pluralLabel = 'enemy attacks';
+      } else if (effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals') {
+        label = 'own attack';
+        pluralLabel = 'own attacks';
+      }
+      return formatIntervalDuration(effect.durationCount, label, pluralLabel);
+    }
+    if (Number.isFinite(effect.durationSeconds) || Number.isFinite(effect.duration)) {
+      const seconds = Number.isFinite(effect.durationSeconds) ? effect.durationSeconds : effect.duration;
+      if (seconds > 0) {
+        return formatIntervalDuration(1, 'attack');
+      }
+    }
+    return '';
+  }
   if (typeof effect.duration === 'number' && Number.isFinite(effect.duration)) {
     const value = effect.duration;
     const formatted = Number.isInteger(value) ? String(value) : value.toFixed(1);
