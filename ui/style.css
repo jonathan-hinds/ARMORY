@@ -1543,15 +1543,15 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   border-color:#fff;
 }
 .job-log-entry.log-discovery {
-  background:#fff6c4;
-  color:#111;
+  background:#fff;
+  color:#000;
   border-color:#000;
   box-shadow:4px 4px 0 #000;
 }
 .job-log-entry.log-discovery .job-log-detail .label,
 .job-log-entry.log-discovery .job-log-detail .value,
 .job-log-entry.log-discovery .job-log-footer {
-  color:#111;
+  color:#000;
 }
 .job-log-entry.log-discovery .job-log-badge {
   border-color:#000;
@@ -1602,7 +1602,7 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   background:#fff;
 }
 .job-log-badge.info {
-  background:#fff6c4;
+  background:#fff;
 }
 .job-log-details {
   display:flex;
