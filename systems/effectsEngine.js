@@ -76,6 +76,88 @@ function formatChanceAmount(amount) {
   return Number.isInteger(abs) ? String(abs) : abs.toFixed(1);
 }
 
+function normalizeActionType(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'ability' || normalized === 'basic') {
+    return normalized;
+  }
+  return null;
+}
+
+function ensurePendingDamageBonuses(entity) {
+  if (!entity) return [];
+  if (!Array.isArray(entity.pendingDamageBonuses)) {
+    entity.pendingDamageBonuses = [];
+  }
+  return entity.pendingDamageBonuses;
+}
+
+function prunePendingDamageBonuses(entity, now) {
+  if (!entity) return [];
+  const list = ensurePendingDamageBonuses(entity);
+  const currentTime = Number.isFinite(now) ? now : null;
+  const filtered = list.filter(entry => {
+    if (!entry) return false;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    if (expiresAt != null && currentTime != null && currentTime >= expiresAt) {
+      return false;
+    }
+    const uses = Number.isFinite(entry.remainingUses) ? entry.remainingUses : 1;
+    return uses > 0;
+  });
+  entity.pendingDamageBonuses = filtered;
+  return filtered;
+}
+
+function consumePendingDamageBonus(source, context = {}, now, damageType) {
+  if (!source) {
+    return { amount: 0, consumed: false };
+  }
+  prunePendingDamageBonuses(source, now);
+  const shouldConsume = context && context.consumeDamageBonus !== false;
+  if (!shouldConsume) {
+    return { amount: 0, consumed: false };
+  }
+  const actionType = normalizeActionType(context.actionType);
+  const list = ensurePendingDamageBonuses(source);
+  if (!list.length) {
+    return { amount: 0, consumed: false };
+  }
+  const remaining = [];
+  let total = 0;
+  let consumed = false;
+  list.forEach(entry => {
+    if (!entry) return;
+    const appliesTo = normalizeActionType(entry.appliesTo) || 'ability';
+    if (actionType && appliesTo && appliesTo !== actionType) {
+      remaining.push(entry);
+      return;
+    }
+    if (entry.damageType && damageType && entry.damageType !== damageType) {
+      remaining.push(entry);
+      return;
+    }
+    const uses = Number.isFinite(entry.remainingUses) ? entry.remainingUses : 1;
+    if (uses <= 0) {
+      return;
+    }
+    const bonusValue = Number(entry.amount);
+    if (Number.isFinite(bonusValue) && bonusValue !== 0) {
+      total += bonusValue;
+      if (bonusValue > 0) {
+        consumed = true;
+      }
+    }
+    const nextUses = uses - 1;
+    if (nextUses > 0) {
+      remaining.push({ ...entry, remainingUses: nextUses });
+    }
+  });
+  source.pendingDamageBonuses = remaining;
+  return { amount: total, consumed };
+}
+
 function resolveDurationSeconds(effect, context = {}) {
   if (!effect || typeof effect !== 'object') return 0;
   if (typeof effect.durationSeconds === 'number') {
@@ -250,7 +332,32 @@ function applyDamage(source, target, amount, type, log, context = {}) {
     dmg *= BLOCK_DAMAGE_MULTIPLIER;
   }
 
-  const resist = resolvedType === 'physical' ? target.derived.meleeResist : target.derived.magicResist;
+  const effectDetails = context && context.effect ? context.effect : null;
+  const normalizedDamageType = resolvedType === 'magical' ? 'magical' : 'physical';
+  let resistIgnored = false;
+  if (crit && effectDetails && effectDetails.ignoreResistOnCrit) {
+    const flag = effectDetails.ignoreResistOnCrit;
+    if (flag === true) {
+      resistIgnored = normalizedDamageType === 'physical';
+    } else if (typeof flag === 'string') {
+      const lowered = flag.toLowerCase();
+      resistIgnored = lowered === 'any' || lowered === normalizedDamageType;
+    } else if (Array.isArray(flag)) {
+      const loweredList = flag
+        .filter(value => typeof value === 'string')
+        .map(value => value.toLowerCase());
+      resistIgnored = loweredList.includes('any') || loweredList.includes(normalizedDamageType);
+    }
+  }
+
+  let resist =
+    resolvedType === 'physical' ? target.derived.meleeResist : target.derived.magicResist;
+  if (!Number.isFinite(resist)) {
+    resist = 0;
+  }
+  if (resistIgnored) {
+    resist = 0;
+  }
   const finalDamage = Math.max(1, Math.round(dmg * (1 - resist)));
   target.health -= finalDamage;
 
@@ -264,7 +371,13 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   } else {
     message = `${source.character.name} hits ${target.character.name} for ${finalDamage} ${resolvedType}`;
   }
+  if (resistIgnored) {
+    message += ' (resistance ignored)';
+  }
 
+  const bonusDamageApplied = Number.isFinite(context.bonusDamageApplied)
+    ? context.bonusDamageApplied
+    : 0;
   pushLog(log, message, {
     sourceId: source.character.id,
     targetId: target.character.id,
@@ -273,10 +386,27 @@ function applyDamage(source, target, amount, type, log, context = {}) {
     amount: finalDamage,
     crit,
     blocked,
+    resistIgnored,
+    bonusDamageApplied: bonusDamageApplied > 0 ? bonusDamageApplied : undefined,
   });
 
-  const resultResolution = { ...resolution, damageType: resolvedType, crit, blocked };
-  return { hit: true, amount: finalDamage, crit, blocked, damageType: resolvedType, resolution: resultResolution };
+  const resultResolution = { ...resolution, damageType: resolvedType, crit, blocked, resistIgnored };
+  const outcome = {
+    hit: true,
+    amount: finalDamage,
+    crit,
+    blocked,
+    damageType: resolvedType,
+    resolution: resultResolution,
+  };
+  if (bonusDamageApplied > 0) {
+    outcome.bonusDamageApplied = bonusDamageApplied;
+    if (!outcome.bonusDamageAmount) {
+      outcome.bonusDamageAmount = bonusDamageApplied;
+    }
+  }
+  outcome.resistIgnored = resistIgnored;
+  return outcome;
 }
 
 function applyEffect(source, target, effect, now, log, context = {}) {
@@ -284,14 +414,46 @@ function applyEffect(source, target, effect, now, log, context = {}) {
     case 'PhysicalDamage': {
       const baseBonus = typeof effect.value === 'number' ? effect.value : 0;
       const scaledBonus = computeScaledValue(baseBonus, source, effect.scaling || effect.valueScaling);
-      const base = scaledBonus + randBetween(source.derived.minMeleeAttack, source.derived.maxMeleeAttack);
-      return applyDamage(source, target, base, 'physical', log, context);
+      let base = scaledBonus + randBetween(source.derived.minMeleeAttack, source.derived.maxMeleeAttack);
+      const { amount: bonusDamage, consumed } = consumePendingDamageBonus(source, context, now, 'physical');
+      if (bonusDamage > 0) {
+        base += bonusDamage;
+        pushLog(log, `${source.character.name} unleashes stored power for ${Math.round(bonusDamage)} bonus damage`, {
+          sourceId: source.character.id,
+          targetId: target.character.id,
+          kind: 'buff',
+          amount: Math.round(bonusDamage),
+        });
+      }
+      const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage };
+      const outcome = applyDamage(source, target, base, 'physical', log, damageContext);
+      if (outcome && consumed && bonusDamage > 0) {
+        outcome.bonusDamageConsumed = true;
+        outcome.bonusDamageAmount = bonusDamage;
+      }
+      return outcome;
     }
     case 'MagicDamage': {
       const baseBonus = typeof effect.value === 'number' ? effect.value : 0;
       const scaledBonus = computeScaledValue(baseBonus, source, effect.scaling || effect.valueScaling);
-      const base = scaledBonus + randBetween(source.derived.minMagicAttack, source.derived.maxMagicAttack);
-      return applyDamage(source, target, base, 'magical', log, context);
+      let base = scaledBonus + randBetween(source.derived.minMagicAttack, source.derived.maxMagicAttack);
+      const { amount: bonusDamage, consumed } = consumePendingDamageBonus(source, context, now, 'magical');
+      if (bonusDamage > 0) {
+        base += bonusDamage;
+        pushLog(log, `${source.character.name} unleashes stored power for ${Math.round(bonusDamage)} bonus damage`, {
+          sourceId: source.character.id,
+          targetId: target.character.id,
+          kind: 'buff',
+          amount: Math.round(bonusDamage),
+        });
+      }
+      const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage };
+      const outcome = applyDamage(source, target, base, 'magical', log, damageContext);
+      if (outcome && consumed && bonusDamage > 0) {
+        outcome.bonusDamageConsumed = true;
+        outcome.bonusDamageAmount = bonusDamage;
+      }
+      return outcome;
     }
     case 'Heal': {
       const amount = typeof effect.value === 'number' ? effect.value : 0;
@@ -527,8 +689,13 @@ function applyEffect(source, target, effect, now, log, context = {}) {
     }
     case 'BuffChance': {
       const stat = typeof effect.stat === 'string' ? effect.stat : null;
-      const amount = typeof effect.amount === 'number' ? effect.amount : 0;
-      if (!stat || !isChanceStat(stat) || !Number.isFinite(amount) || amount === 0) {
+      const baseAmount = typeof effect.amount === 'number' ? effect.amount : 0;
+      const scaledAmount = computeScaledValue(
+        baseAmount,
+        source,
+        effect.amountScaling || effect.scaling || effect.valueScaling,
+      );
+      if (!stat || !isChanceStat(stat) || !Number.isFinite(scaledAmount) || scaledAmount === 0) {
         return null;
       }
       if (!target.chanceBuffs) {
@@ -537,7 +704,7 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       const current = Number.isFinite(target.derived && target.derived[stat])
         ? target.derived[stat]
         : 0;
-      const newValue = current + amount;
+      const newValue = current + scaledAmount;
       if (!target.derived) {
         target.derived = {};
       }
@@ -551,18 +718,90 @@ function applyEffect(source, target, effect, now, log, context = {}) {
           expires = now;
         }
       }
-      target.chanceBuffs.push({ stat, amount, expires });
-      const amountText = formatChanceAmount(amount);
-      const sign = amount > 0 ? '+' : amount < 0 ? '-' : '';
+      target.chanceBuffs.push({ stat, amount: scaledAmount, expires });
+      const amountText = formatChanceAmount(scaledAmount);
+      const sign = scaledAmount > 0 ? '+' : scaledAmount < 0 ? '-' : '';
       pushLog(log, `${target.character.name} gains ${sign}${amountText}% ${formatChanceStat(stat)}`, {
         sourceId: target.character.id,
         targetId: target.character.id,
         kind: 'buff',
         stat,
-        amount,
+        amount: scaledAmount,
         duration: durationSeconds,
       });
       return null;
+    }
+    case 'NextAbilityDamage': {
+      const recipient = resolveEffectTarget(effect, source, target) || source;
+      if (!recipient) {
+        return null;
+      }
+      prunePendingDamageBonuses(recipient, now);
+      let amount = 0;
+      if (
+        effect.matchLastResult &&
+        context &&
+        context.lastResult &&
+        context.lastResult.hit &&
+        Number.isFinite(context.lastResult.amount) &&
+        context.lastResult.amount > 0
+      ) {
+        amount = context.lastResult.amount;
+      } else {
+        const baseValue = typeof effect.value === 'number' ? effect.value : 0;
+        amount = computeScaledValue(
+          baseValue,
+          source,
+          effect.scaling || effect.valueScaling || effect.amountScaling,
+        );
+      }
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return null;
+      }
+      const rounded = Math.round(amount);
+      if (rounded <= 0) {
+        return null;
+      }
+      const appliesTo = normalizeActionType(effect.appliesTo) || 'ability';
+      const uses = Number.isFinite(effect.uses) && effect.uses > 0 ? Math.floor(effect.uses) : 1;
+      const inheritDamageType =
+        effect.matchLastDamageType !== false &&
+        context &&
+        context.lastResult &&
+        context.lastResult.damageType;
+      const resolvedDamageType = effect.damageType || inheritDamageType || null;
+      const durationSeconds = resolveDurationSeconds(effect, {
+        ...context,
+        source: recipient,
+        actor: recipient,
+        user: recipient,
+      });
+      let expiresAt = null;
+      if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
+        expiresAt = now + durationSeconds;
+      }
+      const entry = {
+        amount: rounded,
+        appliesTo,
+        damageType: resolvedDamageType,
+        remainingUses: uses,
+        expiresAt,
+      };
+      ensurePendingDamageBonuses(recipient).push(entry);
+      const label = appliesTo === 'basic' ? 'basic attack' : 'ability';
+      pushLog(log, `${recipient.character.name} stores ${rounded} bonus ${label} damage`, {
+        sourceId: recipient.character.id,
+        targetId: recipient.character.id,
+        kind: 'buff',
+        amount: rounded,
+        appliesTo: label,
+      });
+      return {
+        hit: false,
+        amount: 0,
+        bonusStored: rounded,
+        resolution: context && context.resolution ? { ...context.resolution } : null,
+      };
     }
     case 'HealOverTime': {
       const total = typeof effect.value === 'number' ? effect.value : 0;
@@ -749,6 +988,7 @@ function applyEffect(source, target, effect, now, log, context = {}) {
 }
 
 function tick(combatant, now, log) {
+  prunePendingDamageBonuses(combatant, now);
   combatant.buffs = combatant.buffs.filter(b => {
     if (now >= b.expires) {
       combatant.damageBuff -= b.amount;
