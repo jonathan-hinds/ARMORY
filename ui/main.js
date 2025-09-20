@@ -253,6 +253,41 @@ function formatEffectDurationText(effect) {
   return '';
 }
 
+function formatNumericValue(value) {
+  if (!Number.isFinite(value)) return '0';
+  const abs = Math.abs(value);
+  const rounded = Number.isInteger(abs) ? abs.toString() : abs.toFixed(2).replace(/\.0+$/, '').replace(/\.([1-9]*)0+$/, '.$1');
+  return value < 0 ? `-${rounded}` : rounded;
+}
+
+function formatScalingEntries(scaling) {
+  if (!scaling || typeof scaling !== 'object') return [];
+  return Object.entries(scaling)
+    .filter(([, amount]) => Number.isFinite(amount) && amount !== 0)
+    .map(([stat, amount]) => {
+      const label = statLabel(stat);
+      const magnitude = formatNumericValue(Math.abs(amount));
+      const sign = amount >= 0 ? '+' : '-';
+      return `${sign}${magnitude}x ${label}`;
+    });
+}
+
+function formatValueWithScaling(baseValue, scaling) {
+  const hasBase = Number.isFinite(baseValue);
+  const baseText = hasBase ? formatNumericValue(baseValue) : '';
+  const scalingParts = formatScalingEntries(scaling);
+  if (hasBase && scalingParts.length) {
+    return `${baseText} (${scalingParts.join(', ')})`;
+  }
+  if (hasBase) {
+    return baseText;
+  }
+  if (scalingParts.length) {
+    return `(${scalingParts.join(', ')})`;
+  }
+  return '';
+}
+
 function describeEffect(effect) {
   if (!effect || typeof effect !== 'object') return '';
   const applyEffectChance = text => {
@@ -266,22 +301,40 @@ function describeEffect(effect) {
     }
     return `${pct}% chance to ${text}`;
   };
+
   if (effect.type === 'PhysicalDamage') {
     const amount = effect.value != null ? effect.value : effect.damage;
-    return amount != null ? `Physical Damage ${amount}` : 'Physical Damage';
+    const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    return text ? `Physical Damage ${text}` : 'Physical Damage';
   }
   if (effect.type === 'MagicDamage') {
     const amount = effect.value != null ? effect.value : effect.damage;
-    return amount != null ? `Magic Damage ${amount}` : 'Magic Damage';
+    const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    return text ? `Magic Damage ${text}` : 'Magic Damage';
   }
   if (effect.type === 'Heal') {
-    return effect.value != null ? `Heal ${effect.value}` : 'Heal';
+    const amount = effect.value != null ? effect.value : effect.amount;
+    const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    return text ? `Heal ${text}` : 'Heal';
   }
   if (effect.type === 'RestoreResource') {
     const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
     const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
     const amount = effect.value != null ? effect.value : effect.amount;
-    return amount != null ? `Restore ${amount} ${label}` : `Restore ${label}`;
+    const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    return text ? `Restore ${text} ${label}` : `Restore ${label}`;
+  }
+  if (effect.type === 'ResourceOverTime') {
+    const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
+    const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
+    const interval = effect.interval != null ? effect.interval : 1;
+    const duration = effect.duration != null ? effect.duration : 0;
+    const amount = effect.value != null ? effect.value : effect.amount;
+    const valueText = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    const base = valueText
+      ? `Restore ${valueText} ${label} every ${interval}s for ${duration}s`
+      : `Restore ${label} every ${interval}s for ${duration}s`;
+    return base;
   }
   if (effect.type === 'BuffChance') {
     const stat = typeof effect.stat === 'string' ? effect.stat : '';
@@ -309,13 +362,17 @@ function describeEffect(effect) {
     const dmg = effect.damage != null ? effect.damage : 0;
     const interval = effect.interval != null ? effect.interval : 1;
     const duration = effect.duration != null ? effect.duration : 0;
-    return `Poison ${dmg} dmg/${interval}s for ${duration}s`;
+    const amountText = formatValueWithScaling(dmg, effect.damageScaling || effect.scaling);
+    const base = `Poison ${amountText || formatNumericValue(dmg)} dmg/${interval}s for ${duration}s`;
+    return applyEffectChance(base);
   }
   if (effect.type === 'Ignite') {
     const dmg = effect.damage != null ? effect.damage : 0;
     const interval = effect.interval != null ? effect.interval : 1;
     const duration = effect.duration != null ? effect.duration : 0;
-    return `Ignite ${dmg} dmg/${interval}s for ${duration}s`;
+    const amountText = formatValueWithScaling(dmg, effect.damageScaling || effect.scaling);
+    const base = `Ignite ${amountText || formatNumericValue(dmg)} dmg/${interval}s for ${duration}s`;
+    return applyEffectChance(base);
   }
   if (effect.type === 'HealOverTime') {
     const total = effect.value != null ? effect.value : effect.amount;
@@ -687,6 +744,26 @@ function itemTooltip(item) {
   return container;
 }
 
+function formatAbilityCost(ability) {
+  if (!ability || typeof ability !== 'object') return 'None';
+  const costs = Array.isArray(ability.costs) && ability.costs.length
+    ? ability.costs
+    : ability.costType
+    ? [{ type: ability.costType, value: ability.costValue }]
+    : [];
+  if (!costs.length) return 'None';
+  const parts = costs
+    .map(entry => {
+      const value = Number.isFinite(entry.value) ? entry.value : ability.costValue;
+      const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+      const label = RESOURCE_LABELS[type] || titleCase(type || 'Resource');
+      const amountText = Number.isFinite(value) ? formatNumericValue(value) : '';
+      return amountText ? `${amountText} ${label}` : label;
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join(', ') : 'None';
+}
+
 function abilityTooltip(ability) {
   const container = document.createElement('div');
   container.className = 'tooltip-grid';
@@ -700,7 +777,7 @@ function abilityTooltip(ability) {
     container.appendChild(v);
   };
   add('School', ability.school);
-  add('Cost', `${ability.costValue} ${ability.costType}`);
+  add('Cost', formatAbilityCost(ability));
   add('Cooldown', `${ability.cooldown}s`);
   add('Scaling', ability.scaling.length ? ability.scaling.join(', ') : 'None');
   const effectLines = ability.effects.map(describeEffect).join('<br/>');

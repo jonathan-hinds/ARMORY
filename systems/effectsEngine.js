@@ -15,6 +15,46 @@ function isChanceStat(stat) {
   return CHANCE_STATS.includes(stat);
 }
 
+function resolveStatValue(source, stat) {
+  if (!source || !stat) return 0;
+  const normalized = String(stat).trim().toLowerCase();
+  if (!normalized) return 0;
+  const attributes = source.derived && source.derived.attributes ? source.derived.attributes : null;
+  if (!attributes) return 0;
+  const value = attributes[normalized];
+  return Number.isFinite(value) ? value : 0;
+}
+
+function resolveScalingBonus(source, scaling) {
+  if (!scaling || typeof scaling !== 'object') return 0;
+  let total = 0;
+  Object.entries(scaling).forEach(([stat, multiplier]) => {
+    const coeff = Number(multiplier);
+    if (!Number.isFinite(coeff) || coeff === 0) return;
+    const statValue = resolveStatValue(source, stat);
+    total += statValue * coeff;
+  });
+  return total;
+}
+
+function computeScaledValue(baseValue, source, scaling) {
+  const base = Number.isFinite(baseValue) ? baseValue : 0;
+  const bonus = resolveScalingBonus(source, scaling);
+  return base + bonus;
+}
+
+function resolveEffectTarget(effect, source, target) {
+  if (!effect || typeof effect !== 'object') return target;
+  const hint = typeof effect.target === 'string' ? effect.target.trim().toLowerCase() : null;
+  if (hint === 'self' || hint === 'ally' || hint === 'source') {
+    return source;
+  }
+  if (hint === 'enemy' || hint === 'target') {
+    return target;
+  }
+  return target;
+}
+
 function formatChanceStat(stat) {
   switch (stat) {
     case 'critChance':
@@ -178,13 +218,15 @@ function applyDamage(source, target, amount, type, log, context = {}) {
 function applyEffect(source, target, effect, now, log, context = {}) {
   switch (effect.type) {
     case 'PhysicalDamage': {
-      const bonus = typeof effect.value === 'number' ? effect.value : 0;
-      const base = bonus + randBetween(source.derived.minMeleeAttack, source.derived.maxMeleeAttack);
+      const baseBonus = typeof effect.value === 'number' ? effect.value : 0;
+      const scaledBonus = computeScaledValue(baseBonus, source, effect.scaling || effect.valueScaling);
+      const base = scaledBonus + randBetween(source.derived.minMeleeAttack, source.derived.maxMeleeAttack);
       return applyDamage(source, target, base, 'physical', log, context);
     }
     case 'MagicDamage': {
-      const bonus = typeof effect.value === 'number' ? effect.value : 0;
-      const base = bonus + randBetween(source.derived.minMagicAttack, source.derived.maxMagicAttack);
+      const baseBonus = typeof effect.value === 'number' ? effect.value : 0;
+      const scaledBonus = computeScaledValue(baseBonus, source, effect.scaling || effect.valueScaling);
+      const base = scaledBonus + randBetween(source.derived.minMagicAttack, source.derived.maxMagicAttack);
       return applyDamage(source, target, base, 'magical', log, context);
     }
     case 'Heal': {
@@ -201,10 +243,11 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       return null;
     }
     case 'RestoreResource': {
-      const recipient = target || source;
+      const resolvedTarget = resolveEffectTarget(effect, source, target);
+      const recipient = resolvedTarget || source;
       if (!recipient) return null;
       const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : null;
-      const amount = typeof effect.value === 'number' ? effect.value : 0;
+      const amount = computeScaledValue(effect.value, source, effect.scaling || effect.valueScaling);
       if (!resource || !Number.isFinite(amount) || amount <= 0) {
         return null;
       }
@@ -216,13 +259,68 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       recipient[resource] = updated;
       const restored = updated - before;
       if (restored > 0 && recipient.character) {
+        const logged = Math.round(restored);
+        if (logged > 0) {
+          const label = resource.charAt(0).toUpperCase() + resource.slice(1);
+          pushLog(log, `${recipient.character.name} restores ${logged} ${label}`, {
+            sourceId: recipient.character.id,
+            targetId: recipient.character.id,
+            kind: 'resource',
+            resource,
+            amount: logged,
+          });
+        }
+      }
+      return null;
+    }
+    case 'ResourceOverTime': {
+      const resolvedTarget = resolveEffectTarget(effect, source, target);
+      const recipient = resolvedTarget || source;
+      if (!recipient) return null;
+      const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : null;
+      const scaledAmount = computeScaledValue(effect.value, source, effect.scaling || effect.valueScaling);
+      if (!resource || !Number.isFinite(scaledAmount) || scaledAmount <= 0) {
+        return null;
+      }
+      const amountPerTick = Math.max(0, Math.round(scaledAmount));
+      if (amountPerTick <= 0) {
+        return null;
+      }
+      const interval = Number.isFinite(effect.interval) && effect.interval > 0 ? effect.interval : 1;
+      const rawDuration = Number.isFinite(effect.duration) && effect.duration >= 0 ? effect.duration : null;
+      const explicitTicks =
+        Number.isFinite(effect.ticks) && effect.ticks > 0 ? Math.floor(effect.ticks) : null;
+      let totalDuration = rawDuration;
+      if (totalDuration == null && explicitTicks != null) {
+        totalDuration = interval * explicitTicks;
+      }
+      let ticksRemaining = explicitTicks;
+      if (ticksRemaining == null && totalDuration != null && interval > 0) {
+        ticksRemaining = Math.max(1, Math.round(totalDuration / interval));
+      }
+      const expires = totalDuration != null ? now + totalDuration : Infinity;
+      if (!Array.isArray(recipient.resourceOverTime)) {
+        recipient.resourceOverTime = [];
+      }
+      recipient.resourceOverTime.push({
+        resource,
+        amountPerTick,
+        interval,
+        nextTick: now + interval,
+        expires,
+        ticksRemaining,
+        sourceId: source && source.character ? source.character.id : null,
+      });
+      if (recipient.character) {
         const label = resource.charAt(0).toUpperCase() + resource.slice(1);
-        pushLog(log, `${recipient.character.name} restores ${restored} ${label}`, {
+        const durationSeconds = totalDuration != null ? totalDuration : null;
+        pushLog(log, `${recipient.character.name} begins regenerating ${label.toLowerCase()}`, {
           sourceId: recipient.character.id,
           targetId: recipient.character.id,
-          kind: 'resource',
+          kind: 'buff',
           resource,
-          amount: restored,
+          amount: amountPerTick,
+          duration: durationSeconds,
         });
       }
       return null;
@@ -265,7 +363,15 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       if (!resolution.hit) {
         return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
       }
-      const damage = typeof effect.damage === 'number' ? effect.damage : 0;
+      const chance = Number(effect.chance);
+      if (Number.isFinite(chance) && chance >= 0 && chance < 1) {
+        if (Math.random() > chance) {
+          return { hit: true, amount: 0, damageType: resolution.damageType, resolution };
+        }
+      }
+      const baseDamage = typeof effect.damage === 'number' ? effect.damage : 0;
+      const scaledDamage = computeScaledValue(baseDamage, source, effect.damageScaling || effect.scaling);
+      const damage = Math.max(0, scaledDamage);
       const interval = typeof effect.interval === 'number' && effect.interval > 0 ? effect.interval : 1;
       const duration = typeof effect.duration === 'number' && effect.duration >= 0 ? effect.duration : 0;
       target.dots.push({
@@ -300,7 +406,15 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       if (!resolution.hit) {
         return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
       }
-      const damage = typeof effect.damage === 'number' ? effect.damage : 0;
+      const chance = Number(effect.chance);
+      if (Number.isFinite(chance) && chance >= 0 && chance < 1) {
+        if (Math.random() > chance) {
+          return { hit: true, amount: 0, damageType: resolution.damageType, resolution };
+        }
+      }
+      const baseDamage = typeof effect.damage === 'number' ? effect.damage : 0;
+      const scaledDamage = computeScaledValue(baseDamage, source, effect.damageScaling || effect.scaling);
+      const damage = Math.max(0, scaledDamage);
       const interval = typeof effect.interval === 'number' && effect.interval > 0 ? effect.interval : 1;
       const duration = typeof effect.duration === 'number' && effect.duration >= 0 ? effect.duration : 0;
       target.dots.push({
@@ -690,6 +804,64 @@ function tick(combatant, now, log) {
         sourceId: combatant.character.id,
         targetId: combatant.character.id,
         kind: 'buffEnd',
+      });
+    }
+    return keep;
+  });
+  if (!Array.isArray(combatant.resourceOverTime)) {
+    combatant.resourceOverTime = [];
+  }
+  combatant.resourceOverTime = combatant.resourceOverTime.filter(rot => {
+    if (!rot) return false;
+    const resource = typeof rot.resource === 'string' ? rot.resource : null;
+    if (!resource) return false;
+    const interval = Number.isFinite(rot.interval) && rot.interval > 0 ? rot.interval : 1;
+    const expires = Number.isFinite(rot.expires) ? rot.expires : Infinity;
+    if (!Number.isFinite(rot.nextTick)) {
+      rot.nextTick = now + interval;
+    }
+    let ticksRemaining = Number.isFinite(rot.ticksRemaining) ? rot.ticksRemaining : null;
+    while (now >= rot.nextTick && now < expires) {
+      const amount = Number.isFinite(rot.amountPerTick) ? rot.amountPerTick : 0;
+      if (amount > 0) {
+        const before = Number.isFinite(combatant[resource]) ? combatant[resource] : 0;
+        const derivedMax =
+          combatant.derived && Number.isFinite(combatant.derived[resource])
+            ? combatant.derived[resource]
+            : null;
+        const cap = derivedMax != null && derivedMax > 0 ? derivedMax : before + amount;
+        const updated = Math.min(before + amount, cap);
+        combatant[resource] = updated;
+        const restored = updated - before;
+        if (restored > 0 && combatant.character) {
+          const label = resource.charAt(0).toUpperCase() + resource.slice(1);
+          pushLog(log, `${combatant.character.name} regenerates ${Math.round(restored)} ${label}`, {
+            sourceId: combatant.character.id,
+            targetId: combatant.character.id,
+            kind: 'resource',
+            resource,
+            amount: restored,
+          });
+        }
+      }
+      if (ticksRemaining != null) {
+        ticksRemaining -= 1;
+      }
+      rot.nextTick += interval;
+      if (ticksRemaining != null && ticksRemaining <= 0) {
+        break;
+      }
+    }
+    rot.ticksRemaining = ticksRemaining;
+    const stillTicks = ticksRemaining == null || ticksRemaining > 0;
+    const keep = stillTicks && now < expires;
+    if (!keep && combatant.character) {
+      const label = resource.charAt(0).toUpperCase() + resource.slice(1);
+      pushLog(log, `${combatant.character.name}'s ${label.toLowerCase()} regeneration fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+        resource,
       });
     }
     return keep;
