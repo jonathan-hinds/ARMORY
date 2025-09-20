@@ -21,6 +21,7 @@ const {
   isAdventureActive,
   streamAdventureCombat,
 } = require("./systems/adventureService");
+const { queueDungeon, cancelDungeon, readyForDungeon } = require("./systems/dungeonService");
 const app = express();
 const connectDB = require("./db");
 
@@ -293,6 +294,66 @@ app.get("/matchmaking/queue", async (req, res) => {
     send({ type: "error", message: err.message });
   }
   res.end();
+});
+
+app.get("/dungeon/queue", async (req, res) => {
+  const characterId = parseInt(req.query.characterId, 10);
+  const size = req.query.size != null ? parseInt(req.query.size, 10) : 2;
+  if (!characterId) {
+    return res.status(400).end();
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  const send = data => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    await ensureAdventureIdle(characterId);
+    await ensureJobIdle(characterId);
+  } catch (err) {
+    send({ type: "error", message: err.message || "character unavailable" });
+    res.end();
+    return;
+  }
+  let handle;
+  try {
+    handle = await queueDungeon(characterId, size, send);
+  } catch (err) {
+    send({ type: "error", message: err.message || "failed to join dungeon" });
+    res.end();
+    return;
+  }
+  req.on("close", () => {
+    if (handle && typeof handle.cancel === "function") {
+      handle.cancel("connection closed");
+    } else {
+      cancelDungeon(characterId, "connection closed");
+    }
+  });
+  try {
+    await handle.promise;
+  } catch (err) {
+    send({ type: "error", message: err.message || "dungeon failed" });
+  }
+  res.end();
+});
+
+app.post("/dungeon/ready", async (req, res) => {
+  const matchId = req.body && req.body.matchId;
+  const characterId = parseInt((req.body && req.body.characterId) || 0, 10);
+  if (!matchId || !characterId) {
+    return res.status(400).json({ error: "matchId and characterId required" });
+  }
+  try {
+    const status = await readyForDungeon(matchId, characterId);
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message || "failed to ready" });
+  }
 });
 
 app.get("/challenge/status", async (req, res) => {

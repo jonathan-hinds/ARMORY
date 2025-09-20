@@ -105,6 +105,13 @@ let adventurePollInFlight = false;
 let adventureElements = null;
 let adventureSelectedDays = null;
 
+let dungeonSource = null;
+let dungeonState = null;
+let dungeonBars = null;
+let dungeonBossBars = null;
+let dungeonLogElement = null;
+let dungeonCloseButton = null;
+
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
 const ADVENTURE_PREVIEW_TTL = 30000;
@@ -3926,6 +3933,494 @@ function launchCombatStream(
   return es;
 }
 
+function closeDungeonDialog() {
+  if (dungeonCloseButton) {
+    dungeonCloseButton.removeEventListener('click', closeDungeonDialog);
+  }
+  if (dungeonDialog) {
+    dungeonDialog.remove();
+  }
+  dungeonDialog = null;
+  dungeonBars = null;
+  dungeonBossBars = null;
+  dungeonLogElement = null;
+  dungeonCloseButton = null;
+}
+
+function closeDungeonSource() {
+  if (dungeonSource) {
+    try {
+      dungeonSource.close();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  dungeonSource = null;
+}
+
+function updateDungeonBar(bar, current, maxValue) {
+  if (!bar) return;
+  if (typeof maxValue === 'number') {
+    bar.max = maxValue;
+  }
+  const max = typeof bar.max === 'number' && bar.max > 0 ? bar.max : 0;
+  const nextCurrent = typeof current === 'number' ? current : bar.current || 0;
+  bar.current = nextCurrent;
+  const clampedCurrent = max > 0 ? Math.min(Math.max(nextCurrent, 0), max) : Math.max(nextCurrent, 0);
+  const ratio = max > 0 ? clampedCurrent / max : 0;
+  if (bar.fill) {
+    bar.fill.style.width = `${Math.max(0, Math.min(ratio, 1)) * 100}%`;
+  }
+  const displayCurrent = Math.round(Math.max(nextCurrent, 0));
+  const displayMax = Math.round(max);
+  if (bar.labelText) {
+    bar.labelText.textContent = `${bar.prefix}: ${displayCurrent} / ${displayMax}`;
+  }
+  if (bar.labelContainer) {
+    const coverageThreshold = 0.65;
+    let useLightText = ratio >= coverageThreshold;
+    if (bar.element && bar.fill && bar.labelText) {
+      const barWidth = bar.element.clientWidth;
+      const fillWidth = bar.fill.clientWidth;
+      const textWidth = bar.labelText.getBoundingClientRect().width;
+      const constrainedTextWidth = Math.min(textWidth, barWidth);
+      const textStart = Math.max(0, (barWidth - constrainedTextWidth) / 2);
+      const textEnd = textStart + constrainedTextWidth;
+      const coverage = Math.max(0, Math.min(fillWidth, textEnd) - textStart);
+      const coverageRatio = constrainedTextWidth > 0 ? coverage / constrainedTextWidth : 0;
+      useLightText = coverageRatio >= coverageThreshold;
+    }
+    bar.labelContainer.style.color = useLightText ? '#fff' : '#000';
+  }
+}
+
+function createDungeonUseableSlots(rootEl) {
+  const slots = {};
+  USEABLE_SLOTS.forEach(slot => {
+    const element = rootEl.querySelector(`.useable-slot[data-slot="${slot}"]`);
+    if (element) {
+      element.title = slotLabel(slot);
+      slots[slot] = element;
+    }
+  });
+  return slots;
+}
+
+function createDungeonBarGroup(rootEl, stats) {
+  const makeBar = (selector, prefix, maxValue) => {
+    const barEl = rootEl.querySelector(selector);
+    if (!barEl) return null;
+    const fillEl = barEl.querySelector('.fill');
+    const labelContainer = barEl.querySelector('.label');
+    const labelText = labelContainer ? labelContainer.querySelector('.value') || labelContainer : null;
+    return {
+      element: barEl,
+      fill: fillEl,
+      labelContainer,
+      labelText,
+      prefix,
+      max: typeof maxValue === 'number' ? maxValue : 0,
+      current: 0,
+    };
+  };
+  const s = stats || {};
+  return {
+    health: makeBar('.bar.health', 'HP', s.maxHealth),
+    mana: makeBar('.bar.mana', 'MP', s.maxMana),
+    stamina: makeBar('.bar.stamina', 'SP', s.maxStamina),
+    maxHealth: typeof s.maxHealth === 'number' ? s.maxHealth : 0,
+    maxMana: typeof s.maxMana === 'number' ? s.maxMana : 0,
+    maxStamina: typeof s.maxStamina === 'number' ? s.maxStamina : 0,
+    useableSlots: createDungeonUseableSlots(rootEl),
+  };
+}
+
+function applyDungeonUseables(group, state) {
+  if (!group || !group.useableSlots) return;
+  const slotState = {};
+  if (state && Array.isArray(state.useables)) {
+    state.useables.forEach(entry => {
+      if (entry && entry.slot) {
+        slotState[entry.slot] = entry;
+      }
+    });
+  }
+  USEABLE_SLOTS.forEach(slot => {
+    const el = group.useableSlots[slot];
+    if (!el) return;
+    const info = slotState[slot];
+    el.classList.remove('available', 'empty', 'used');
+    let stateLabel = 'empty';
+    if (info && info.hasItem && !info.used) {
+      el.classList.add('available');
+      stateLabel = 'available';
+    } else if (info && info.hasItem && info.used) {
+      el.classList.add('used');
+      stateLabel = 'used';
+    } else {
+      el.classList.add('empty');
+      stateLabel = 'empty';
+    }
+    el.dataset.state = stateLabel;
+    const slotName = slotLabel(slot);
+    if (slotName) {
+      let description = 'empty';
+      if (stateLabel === 'available') description = 'ready';
+      if (stateLabel === 'used') description = 'consumed';
+      el.setAttribute('aria-label', `${slotName} ${description}`);
+    }
+  });
+}
+
+function updateDungeonBarGroup(group, state) {
+  if (!group || !state) return;
+  if (typeof state.maxHealth === 'number') group.maxHealth = state.maxHealth;
+  if (typeof state.maxMana === 'number') group.maxMana = state.maxMana;
+  if (typeof state.maxStamina === 'number') group.maxStamina = state.maxStamina;
+  updateDungeonBar(group.health, state.health, group.maxHealth);
+  updateDungeonBar(group.mana, state.mana, group.maxMana);
+  updateDungeonBar(group.stamina, state.stamina, group.maxStamina);
+  applyDungeonUseables(group, state);
+}
+
+function classifyDungeonLogEntry(entry, partyIds, bossId) {
+  if (!entry || typeof entry !== 'object') return 'neutral';
+  const partySet = new Set((partyIds || []).map(id => String(id)));
+  const boss = bossId != null ? String(bossId) : null;
+  const src = entry.sourceId != null ? String(entry.sourceId) : null;
+  const tgt = entry.targetId != null ? String(entry.targetId) : null;
+  if (src && partySet.has(src)) return 'party';
+  if (src && boss && src === boss) return 'boss';
+  if (tgt && partySet.has(tgt)) return 'party';
+  if (tgt && boss && tgt === boss) return 'boss';
+  return 'neutral';
+}
+
+function appendDungeonLogs(entries, partyIds, bossId) {
+  if (!dungeonLogElement || !Array.isArray(entries)) return;
+  entries.forEach(entry => {
+    if (!entry || !entry.message) return;
+    const line = document.createElement('div');
+    line.classList.add('log-message');
+    const type = classifyDungeonLogEntry(entry, partyIds, bossId);
+    line.classList.add(type || 'neutral');
+    line.textContent = entry.message;
+    dungeonLogElement.appendChild(line);
+  });
+  dungeonLogElement.scrollTop = dungeonLogElement.scrollHeight;
+}
+
+function renderDungeonPreview(previewContainer, data, statusEl) {
+  if (!previewContainer) return;
+  previewContainer.innerHTML = '';
+  const panel = document.createElement('div');
+  panel.className = 'dungeon-preview-panel';
+  const title = document.createElement('h3');
+  title.textContent = 'Dungeon Boss';
+  panel.appendChild(title);
+  const details = renderOpponentPreview(data.boss);
+  if (details) {
+    panel.appendChild(details);
+  }
+  const readyStatus = document.createElement('div');
+  readyStatus.className = 'dungeon-ready-status';
+  readyStatus.textContent = 'Ready 0 / ?';
+  panel.appendChild(readyStatus);
+  const readyButton = document.createElement('button');
+  readyButton.className = 'dungeon-ready-button';
+  readyButton.textContent = 'Ready Up';
+  panel.appendChild(readyButton);
+  previewContainer.appendChild(panel);
+  dungeonState.readyStatus = readyStatus;
+  dungeonState.readyButton = readyButton;
+  readyButton.addEventListener('click', () => {
+    sendDungeonReady(statusEl);
+  });
+}
+
+function updateDungeonReady(count, total) {
+  if (!dungeonState || !dungeonState.readyStatus) return;
+  dungeonState.readyStatus.textContent = `Ready ${count} / ${total}`;
+}
+
+async function sendDungeonReady(statusEl) {
+  if (!dungeonState || !dungeonState.matchId || !currentCharacter) return;
+  const button = dungeonState.readyButton;
+  if (button && button.disabled) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Ready...';
+  }
+  if (statusEl) {
+    showMessage(statusEl, 'Signalling readiness...', false);
+  }
+  try {
+    const data = await postJSON('/dungeon/ready', {
+      matchId: dungeonState.matchId,
+      characterId: currentCharacter.id,
+    });
+    updateDungeonReady(data.ready, data.total);
+    if (statusEl) {
+      showMessage(statusEl, 'Ready confirmed. Waiting for allies...', false);
+    }
+  } catch (err) {
+    if (statusEl) {
+      showMessage(statusEl, err.message || 'Failed to ready.', true);
+    }
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Ready Up';
+    }
+  }
+}
+
+function openDungeonDialog(data) {
+  closeDungeonDialog();
+  const dialog = document.createElement('div');
+  dialog.id = 'dungeon-dialog';
+  dialog.innerHTML = `
+    <div class="dialog-box dungeon-box">
+      <div class="dungeon-combatants">
+        <div class="dungeon-party"></div>
+        <div class="dungeon-boss"></div>
+      </div>
+      <div class="dungeon-log" id="dungeon-log"></div>
+      <div class="dialog-buttons"><button id="dungeon-close" class="hidden">Close</button></div>
+    </div>`;
+  document.body.appendChild(dialog);
+  dungeonDialog = dialog;
+  const partyContainer = dialog.querySelector('.dungeon-party');
+  const bossContainer = dialog.querySelector('.dungeon-boss');
+  dungeonLogElement = dialog.querySelector('#dungeon-log');
+  dungeonCloseButton = dialog.querySelector('#dungeon-close');
+  if (dungeonCloseButton) {
+    dungeonCloseButton.addEventListener('click', closeDungeonDialog);
+  }
+  dungeonBars = new Map();
+  if (Array.isArray(data.party)) {
+    data.party.forEach(member => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'dungeon-combatant party-member';
+      wrapper.innerHTML = `
+        <div class="name">${member.name}</div>
+        <div class="bars">
+          <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+          <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+          <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+        </div>
+        <div class="useable-slots" role="group" aria-label="Useable item slots">
+          <div class="useable-slot" data-slot="useable1"></div>
+          <div class="useable-slot" data-slot="useable2"></div>
+        </div>`;
+      partyContainer.appendChild(wrapper);
+      const group = createDungeonBarGroup(wrapper, member);
+      dungeonBars.set(member.id, group);
+      updateDungeonBarGroup(group, member);
+    });
+  }
+  if (bossContainer && data.boss) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'dungeon-combatant boss-member';
+    wrapper.innerHTML = `
+      <div class="name">${data.boss.name}</div>
+      <div class="bars">
+        <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+        <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+        <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+      </div>
+      <div class="useable-slots" role="group" aria-label="Useable item slots">
+        <div class="useable-slot" data-slot="useable1"></div>
+        <div class="useable-slot" data-slot="useable2"></div>
+      </div>`;
+    bossContainer.appendChild(wrapper);
+    dungeonBossBars = createDungeonBarGroup(wrapper, data.boss);
+    updateDungeonBarGroup(dungeonBossBars, data.boss);
+  }
+  if (Array.isArray(data.log) && data.log.length) {
+    appendDungeonLogs(data.log, data.partyIds || [], data.bossId);
+  }
+}
+
+function handleDungeonUpdate(data) {
+  if (!data) return;
+  if (Array.isArray(data.party) && dungeonBars) {
+    data.party.forEach(member => {
+      const group = dungeonBars.get(member.id);
+      if (group) {
+        updateDungeonBarGroup(group, member);
+      }
+    });
+  }
+  if (data.boss && dungeonBossBars) {
+    updateDungeonBarGroup(dungeonBossBars, data.boss);
+  }
+  if (Array.isArray(data.log) && data.log.length) {
+    appendDungeonLogs(data.log, data.partyIds || (dungeonState && dungeonState.partyIds) || [], data.bossId || (dungeonState && dungeonState.bossId));
+  }
+}
+
+function handleDungeonEnd(data) {
+  if (dungeonLogElement) {
+    const outcome = data.winnerSide === 'party' ? 'Victory!' : 'Defeat...';
+    appendDungeonLogs([{ message: outcome }], [], null);
+    appendDungeonLogs([
+      { message: `+${data.xpGain || 0} XP, +${data.gpGain || 0} GP` },
+    ], [], null);
+  }
+  if (dungeonCloseButton) {
+    dungeonCloseButton.classList.remove('hidden');
+  }
+  if (dungeonState && dungeonState.statusEl) {
+    showMessage(dungeonState.statusEl, 'Dungeon complete.', false);
+  }
+  if (dungeonState && dungeonState.readyButton) {
+    dungeonState.readyButton.disabled = true;
+  }
+  if (dungeonState && dungeonState.queueBtn) {
+    dungeonState.queueBtn.disabled = false;
+    dungeonState.queueBtn.textContent = 'Find Party';
+  }
+  closeDungeonSource();
+  updateAfterBattleEnd(data);
+}
+
+function startDungeonQueue(size, statusEl, previewEl, queueBtn) {
+  if (!currentCharacter) {
+    showMessage(statusEl, 'Select a character first.', true);
+    return;
+  }
+  closeDungeonSource();
+  if (queueBtn) {
+    queueBtn.disabled = true;
+    queueBtn.textContent = 'Matching...';
+  }
+  if (previewEl) {
+    previewEl.innerHTML = '';
+  }
+  if (statusEl) {
+    showMessage(statusEl, 'Searching for allies...', false);
+  }
+  dungeonState = {
+    queueBtn,
+    statusEl,
+    previewEl,
+    readyButton: null,
+    readyStatus: null,
+    matchId: null,
+    size,
+    partyIds: [],
+    bossId: null,
+  };
+
+  const es = new EventSource(`/dungeon/queue?characterId=${currentCharacter.id}&size=${size}`);
+  dungeonSource = es;
+  es.onmessage = ev => {
+    let data;
+    try {
+      data = JSON.parse(ev.data);
+    } catch (err) {
+      return;
+    }
+    if (!data) return;
+    if (data.type === 'error') {
+      if (statusEl) {
+        showMessage(statusEl, data.message || 'Dungeon matchmaking failed.', true);
+      }
+      if (queueBtn) {
+        queueBtn.disabled = false;
+        queueBtn.textContent = 'Find Party';
+      }
+      closeDungeonSource();
+      return;
+    }
+    if (data.type === 'preview') {
+      dungeonState.matchId = data.matchId;
+      if (statusEl) {
+        showMessage(statusEl, 'Boss encountered. Ready when prepared.', false);
+      }
+      renderDungeonPreview(previewEl, data, statusEl);
+      updateDungeonReady(0, data.size || dungeonState.size);
+      return;
+    }
+    if (data.type === 'ready') {
+      updateDungeonReady(data.ready || 0, data.total || dungeonState.size);
+      return;
+    }
+    if (data.type === 'start' && data.mode === 'dungeon') {
+      dungeonState.partyIds = data.partyIds || (data.party ? data.party.map(member => member.id) : []);
+      dungeonState.bossId = data.bossId || (data.boss ? data.boss.id : null);
+      if (statusEl) {
+        showMessage(statusEl, 'Encounter underway...', false);
+      }
+      openDungeonDialog(data);
+      return;
+    }
+    if (data.type === 'update' && data.mode === 'dungeon') {
+      handleDungeonUpdate(data);
+      return;
+    }
+    if (data.type === 'end') {
+      handleDungeonEnd(data);
+      closeDungeonSource();
+    }
+  };
+  es.onerror = () => {
+    if (queueBtn) {
+      queueBtn.disabled = false;
+      queueBtn.textContent = 'Find Party';
+    }
+    if (statusEl) {
+      showMessage(statusEl, 'Dungeon connection interrupted.', true);
+    }
+    closeDungeonSource();
+  };
+}
+
+function renderDungeonPanel() {
+  if (!battleArea) return;
+  if (!currentCharacter) {
+    battleArea.textContent = 'Select a character first.';
+    return;
+  }
+  battleArea.innerHTML = '';
+  const container = document.createElement('div');
+  container.className = 'dungeon-panel';
+  const controls = document.createElement('div');
+  controls.className = 'dungeon-controls';
+  const label = document.createElement('label');
+  label.setAttribute('for', 'dungeon-party-size');
+  label.textContent = 'Party Size';
+  const select = document.createElement('select');
+  select.id = 'dungeon-party-size';
+  for (let size = 2; size <= 5; size += 1) {
+    const option = document.createElement('option');
+    option.value = String(size);
+    option.textContent = `${size} Players`;
+    select.appendChild(option);
+  }
+  const queueBtn = document.createElement('button');
+  queueBtn.id = 'dungeon-queue';
+  queueBtn.textContent = 'Find Party';
+  const statusEl = document.createElement('div');
+  statusEl.className = 'dungeon-status message';
+  controls.appendChild(label);
+  controls.appendChild(select);
+  controls.appendChild(queueBtn);
+  container.appendChild(controls);
+  container.appendChild(statusEl);
+  const previewEl = document.createElement('div');
+  previewEl.id = 'dungeon-preview';
+  container.appendChild(previewEl);
+  battleArea.appendChild(container);
+
+  ensureCatalog().catch(() => {});
+
+  queueBtn.addEventListener('click', () => {
+    const sizeValue = parseInt(select.value, 10) || 2;
+    startDungeonQueue(sizeValue, statusEl, previewEl, queueBtn);
+  });
+}
+
 function stopAdventurePolling() {
   if (adventurePollTimer) {
     clearInterval(adventurePollTimer);
@@ -4824,6 +5319,10 @@ document.querySelectorAll('#battle-modes button').forEach(btn => {
 
 function selectMode(mode) {
   stopAdventurePolling();
+  closeDungeonSource();
+  if (mode !== 'dungeon') {
+    closeDungeonDialog();
+  }
   if (mode === 'matchmaking') {
     battleArea.innerHTML = '<button id="queue-match">Queue for Match</button>';
     const button = document.getElementById('queue-match');
@@ -4841,6 +5340,8 @@ function selectMode(mode) {
     renderChallengePanel();
   } else if (mode === 'adventure') {
     renderAdventurePanel();
+  } else if (mode === 'dungeon') {
+    renderDungeonPanel();
   } else {
     battleArea.textContent = 'Mode not implemented';
   }
