@@ -2,7 +2,7 @@
   "generations": 100,
   "generationsPerExtraMember": 0,
   "scaling": {
-    "attributePointScale": { "base": 1.5, "perExtraMember": 0.08, "minTotal": 40 },
+    "attributePointScale": { "base": 1.5, "perExtraMember": 0.08, "minTotal": 60 },
     "gearBudgetScale": { "base": 1.5, "perExtraMember": 0.18, "minTotal": 80 }
   },
   "targetDuration": { "base": 40, "perMember": 12 },
