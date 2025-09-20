@@ -1008,6 +1008,32 @@ async function stopJobWork(playerId, characterId) {
   return setJobWorkingState(playerId, characterId, false);
 }
 
+async function clearJobLog(playerId, characterId) {
+  const pid = Number(playerId);
+  const cid = Number(characterId);
+  if (!Number.isFinite(pid) || !Number.isFinite(cid)) {
+    throw new Error('playerId and characterId required');
+  }
+  const config = await loadJobConfig();
+  const characterDoc = await CharacterModel.findOne({ playerId: pid, characterId: cid });
+  if (!characterDoc) {
+    throw new Error('character not found');
+  }
+  const jobState = ensureJobState(characterDoc);
+  const hadEntries = Array.isArray(jobState.log) && jobState.log.length > 0;
+  if (hadEntries) {
+    jobState.log.splice(0, jobState.log.length);
+    if (typeof characterDoc.markModified === 'function') {
+      characterDoc.markModified('job');
+    }
+  }
+  const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config });
+  if (hadEntries || processedChanges) {
+    await characterDoc.save();
+  }
+  return buildStatusForDoc(characterDoc, config);
+}
+
 module.exports = {
   getJobStatus,
   selectJob,
@@ -1015,6 +1041,7 @@ module.exports = {
   loadJobConfig,
   startJobWork,
   stopJobWork,
+  clearJobLog,
   ensureJobIdle,
   ensureJobIdleForDoc,
 };

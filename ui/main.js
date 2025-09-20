@@ -2028,13 +2028,17 @@ function getJobLogInfo(entry) {
   };
 }
 
-function buildJobLogListItem(entry) {
-  const info = getJobLogInfo(entry);
+function createJobLogEntryStructure({
+  className,
+  titleText,
+  rarityText,
+  badgeText,
+  badgeClass,
+  timestamp,
+}) {
   const li = document.createElement('li');
-  li.className = `job-log-entry ${info && info.type === 'crafted' ? 'log-crafted' : 'log-failed'}`;
-  if (!info) {
-    return li;
-  }
+  li.className = `job-log-entry${className ? ` ${className}` : ''}`;
+
   const header = document.createElement('div');
   header.className = 'job-log-header';
 
@@ -2043,35 +2047,30 @@ function buildJobLogListItem(entry) {
 
   const title = document.createElement('div');
   title.className = 'job-log-title';
-  title.textContent = info.itemName;
+  title.textContent = titleText;
   titleGroup.appendChild(title);
 
-  if (info.rarity) {
+  if (rarityText) {
     const rarity = document.createElement('span');
     rarity.className = 'job-log-rarity';
-    rarity.textContent = info.rarity;
+    rarity.textContent = rarityText;
     titleGroup.appendChild(rarity);
   }
 
   header.appendChild(titleGroup);
 
-  const badge = document.createElement('span');
-  badge.className = `job-log-badge ${info.type === 'crafted'
-    ? 'success'
-    : info.reason === 'insufficient-materials'
-      ? 'warning'
-      : 'failure'}`;
-  badge.textContent = info.type === 'crafted'
-    ? 'Crafted'
-    : info.reason === 'insufficient-materials'
-      ? 'Missing Materials'
-      : 'Failed';
-  header.appendChild(badge);
+  if (badgeText) {
+    const badge = document.createElement('span');
+    badge.className = badgeClass ? `job-log-badge ${badgeClass}` : 'job-log-badge';
+    badge.textContent = badgeText;
+    header.appendChild(badge);
+  }
 
   li.appendChild(header);
 
   const details = document.createElement('div');
   details.className = 'job-log-details';
+  li.appendChild(details);
 
   const addDetail = (label, value) => {
     if (!value) return;
@@ -2087,6 +2086,40 @@ function buildJobLogListItem(entry) {
     row.appendChild(v);
     details.appendChild(row);
   };
+
+  if (timestamp) {
+    const time = new Date(timestamp);
+    if (!Number.isNaN(time.getTime())) {
+      const footer = document.createElement('div');
+      footer.className = 'job-log-footer';
+      footer.textContent = time.toLocaleString();
+      li.appendChild(footer);
+    }
+  }
+
+  return { li, addDetail };
+}
+
+function createStandardJobLogCard(info, { hideGenerated = false } = {}) {
+  const className = info.type === 'crafted' ? 'log-crafted' : 'log-failed';
+  const badgeClass = info.type === 'crafted'
+    ? 'success'
+    : info.reason === 'insufficient-materials'
+      ? 'warning'
+      : 'failure';
+  const badgeText = info.type === 'crafted'
+    ? 'Crafted'
+    : info.reason === 'insufficient-materials'
+      ? 'Missing Materials'
+      : 'Failed';
+  const { li, addDetail } = createJobLogEntryStructure({
+    className,
+    titleText: info.itemName,
+    rarityText: info.rarity,
+    badgeText,
+    badgeClass,
+    timestamp: info.timestamp,
+  });
 
   addDetail('Outcome', info.type === 'crafted' ? 'Success' : info.reason === 'insufficient-materials' ? 'Blocked by missing materials' : 'Failed attempt');
 
@@ -2116,7 +2149,7 @@ function buildJobLogListItem(entry) {
     addDetail('Creation Roll', creationParts.join(' • '));
   }
 
-  if (info.generatedMaterials.length) {
+  if (!hideGenerated && info.generatedMaterials.length) {
     addDetail('Materials Recovered', info.generatedMaterials.map(m => `${m.name} ×${m.amount}`).join(', '));
   }
 
@@ -2128,19 +2161,50 @@ function buildJobLogListItem(entry) {
     addDetail('Stat Gain', `+${info.statGain.amount} ${info.statGain.stat}`);
   }
 
-  li.appendChild(details);
+  return li;
+}
 
-  if (info.timestamp) {
-    const time = new Date(info.timestamp);
-    if (!Number.isNaN(time.getTime())) {
-      const footer = document.createElement('div');
-      footer.className = 'job-log-footer';
-      footer.textContent = time.toLocaleString();
-      li.appendChild(footer);
-    }
+function createDiscoveryLogCard(info) {
+  const materialsText = info.generatedMaterials.map(m => `${m.name} ×${m.amount}`).join(', ');
+  const creationSummary = info.describeCreationRoll(
+    info.creation.succeeded ? 'succeeded' : 'failed',
+    { includeTargets: true }
+  );
+  const { li, addDetail } = createJobLogEntryStructure({
+    className: 'log-discovery',
+    titleText: 'Resource Discovery',
+    badgeText: 'Recovered',
+    badgeClass: 'info',
+    timestamp: info.timestamp,
+  });
+
+  addDetail('Recovered', materialsText);
+  addDetail('Attempted Recipe', info.itemName);
+  if (creationSummary) {
+    addDetail('Creation Roll', creationSummary);
   }
 
   return li;
+}
+
+function buildJobLogListItem(entry) {
+  const fragment = document.createDocumentFragment();
+  const info = getJobLogInfo(entry);
+  if (!info) {
+    return fragment;
+  }
+  const splitDiscovery = info.type !== 'crafted' && info.generatedMaterials.length > 0;
+  const primaryCard = createStandardJobLogCard(info, { hideGenerated: splitDiscovery });
+  if (primaryCard) {
+    fragment.appendChild(primaryCard);
+  }
+  if (splitDiscovery) {
+    const discoveryCard = createDiscoveryLogCard(info);
+    if (discoveryCard) {
+      fragment.appendChild(discoveryCard);
+    }
+  }
+  return fragment;
 }
 
 function getJobAttributeSource(status) {
@@ -2448,10 +2512,24 @@ function renderJobActiveContent(container, status) {
 
   const logSection = document.createElement('div');
   logSection.className = 'job-log-section';
+  const logHeaderBar = document.createElement('div');
+  logHeaderBar.className = 'job-log-header-bar';
   const logTitle = document.createElement('h4');
   logTitle.textContent = 'Recent Activity';
-  logSection.appendChild(logTitle);
-  if (!active.log || !active.log.length) {
+  logHeaderBar.appendChild(logTitle);
+  const clearButton = document.createElement('button');
+  clearButton.type = 'button';
+  clearButton.className = 'job-log-clear';
+  clearButton.textContent = 'Clear Log';
+  const hasLogEntries = Array.isArray(active.log) && active.log.length > 0;
+  if (!hasLogEntries) {
+    clearButton.disabled = true;
+  } else {
+    clearButton.addEventListener('click', () => handleClearJobLog(container, clearButton));
+  }
+  logHeaderBar.appendChild(clearButton);
+  logSection.appendChild(logHeaderBar);
+  if (!hasLogEntries) {
     const emptyLog = document.createElement('p');
     emptyLog.className = 'job-empty-text';
     emptyLog.textContent = 'No activity recorded yet.';
@@ -2566,6 +2644,136 @@ async function handleJobShiftToggle(shouldStart, container, button) {
     alert(err && err.message ? err.message : shouldStart ? 'Failed to start working' : 'Failed to stop working');
   } finally {
     if (button) button.disabled = false;
+  }
+}
+
+function showJobConfirmDialog({
+  title = 'Confirm Action',
+  message = 'Are you sure?',
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Cancel',
+} = {}) {
+  return new Promise(resolve => {
+    let overlay = document.getElementById('job-confirm-overlay');
+    if (overlay) {
+      overlay.remove();
+    }
+    overlay = document.createElement('div');
+    overlay.id = 'job-confirm-overlay';
+    overlay.className = 'job-confirm-overlay';
+
+    const dialog = document.createElement('div');
+    dialog.className = 'job-confirm-dialog';
+    overlay.appendChild(dialog);
+
+    const heading = document.createElement('h3');
+    heading.textContent = title;
+    dialog.appendChild(heading);
+
+    const body = document.createElement('p');
+    body.textContent = message;
+    dialog.appendChild(body);
+
+    const actions = document.createElement('div');
+    actions.className = 'job-confirm-actions';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = cancelLabel;
+    actions.appendChild(cancelBtn);
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.type = 'button';
+    confirmBtn.className = 'confirm';
+    confirmBtn.textContent = confirmLabel;
+    actions.appendChild(confirmBtn);
+
+    dialog.appendChild(actions);
+
+    document.body.appendChild(overlay);
+
+    let settled = false;
+    const cleanup = result => {
+      if (settled) return;
+      settled = true;
+      document.removeEventListener('keydown', keyHandler);
+      overlay.remove();
+      resolve(result);
+    };
+
+    const keyHandler = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cleanup(false);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        cleanup(true);
+      }
+    };
+
+    cancelBtn.addEventListener('click', () => cleanup(false));
+    confirmBtn.addEventListener('click', () => cleanup(true));
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) {
+        cleanup(false);
+      }
+    });
+    document.addEventListener('keydown', keyHandler);
+
+    setTimeout(() => {
+      try {
+        confirmBtn.focus();
+      } catch (err) {
+        /* ignore */
+      }
+    }, 0);
+  });
+}
+
+async function handleClearJobLog(container, button) {
+  if (!currentPlayer || !currentCharacter || !container || !button) return;
+  const confirmed = await showJobConfirmDialog({
+    title: 'Clear Crafting Log',
+    message: 'Are you sure you want to clear all recent crafting activity?',
+    confirmLabel: 'Clear Log',
+    cancelLabel: 'Cancel',
+  });
+  if (!confirmed) {
+    return;
+  }
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Clearing...';
+  let responsePayload = null;
+  try {
+    const res = await fetch(`/characters/${currentCharacter.id}/job/log/clear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : 'Failed to clear crafting log';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+  } catch (err) {
+    alert(err && err.message ? err.message : 'Failed to clear crafting log');
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = originalText;
+    }
   }
 }
 
