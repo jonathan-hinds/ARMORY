@@ -212,14 +212,19 @@ app.post("/characters/:characterId/job/select", async (req, res) => {
 
 app.post("/characters/:characterId/job/start", async (req, res) => {
   const characterId = parseInt(req.params.characterId, 10);
-  const { playerId } = req.body || {};
+  const { playerId, modeId: rawModeId, mode: rawMode } = req.body || {};
   const pid = parseInt(playerId, 10);
   if (!pid || !characterId) {
     return res.status(400).json({ error: "playerId and characterId required" });
   }
   try {
     await ensureAdventureIdle(characterId);
-    const status = await startJobWork(pid, characterId);
+    const modeId = typeof rawModeId === "string" && rawModeId.trim()
+      ? rawModeId.trim().toLowerCase()
+      : typeof rawMode === "string" && rawMode.trim()
+        ? rawMode.trim().toLowerCase()
+        : null;
+    const status = await startJobWork(pid, characterId, { modeId });
     res.json(status);
   } catch (err) {
     console.error(err);
@@ -261,13 +266,18 @@ app.post("/characters/:characterId/job/log/clear", async (req, res) => {
 
 app.post("/characters/:characterId/job/blacksmith/task", async (req, res) => {
   const characterId = parseInt(req.params.characterId, 10);
-  const { playerId, task } = req.body || {};
+  const { playerId, task, mode } = req.body || {};
   const pid = parseInt(playerId, 10);
-  if (!pid || !characterId || !task) {
-    return res.status(400).json({ error: "playerId, characterId and task required" });
+  const selection = typeof mode === "string" && mode.trim()
+    ? mode
+    : typeof task === "string" && task.trim()
+      ? task
+      : "";
+  if (!pid || !characterId || !selection) {
+    return res.status(400).json({ error: "playerId, characterId and mode required" });
   }
   try {
-    const status = await setBlacksmithTask(pid, characterId, task);
+    const status = await setBlacksmithTask(pid, characterId, selection);
     res.json(status);
   } catch (err) {
     console.error(err);
