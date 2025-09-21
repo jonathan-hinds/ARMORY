@@ -2842,6 +2842,7 @@ function createBlacksmithItemCard(entry, { type, container }) {
   controls.className = 'blacksmith-item-controls';
 
   let quantityInput = null;
+  let enforceQuantityBounds = () => {};
   if (type === 'inventory') {
     const quantityField = document.createElement('div');
     quantityField.className = 'blacksmith-quantity-field';
@@ -2862,7 +2863,10 @@ function createBlacksmithItemCard(entry, { type, container }) {
       quantityInput.value = '0';
       quantityInput.disabled = true;
     }
-    const enforceQuantityBounds = () => {
+    enforceQuantityBounds = () => {
+      if (!quantityInput) {
+        return;
+      }
       const raw = parseInt(quantityInput.value, 10);
       if (!Number.isFinite(raw)) {
         return;
