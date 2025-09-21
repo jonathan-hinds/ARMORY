@@ -1467,10 +1467,13 @@ function findQueueIndexForItem(queue, baseItemId, { preferAugmented = false } = 
   return fallback;
 }
 
-async function addToSalvageQueue(playerId, characterId, itemId) {
+async function addToSalvageQueue(playerId, characterId, itemId, count = 1) {
   const pid = Number(playerId);
   const cid = Number(characterId);
   const baseItemId = typeof itemId === 'string' ? itemId.trim() : '';
+  const parsedCount = Number(count);
+  const normalizedCount = Number.isFinite(parsedCount) ? Math.floor(parsedCount) : 1;
+  const quantity = normalizedCount > 0 ? normalizedCount : 1;
   if (!Number.isFinite(pid) || !Number.isFinite(cid) || !baseItemId) {
     throw new Error('playerId, characterId and itemId required');
   }
@@ -1500,18 +1503,31 @@ async function addToSalvageQueue(playerId, characterId, itemId) {
   if (!(available > 0)) {
     throw new Error('no unequipped copies available');
   }
-  const index = findInventoryIndexForItem(characterDoc, baseItemId, { preferAugmented: false });
-  if (index === -1) {
-    throw new Error('item not available');
+  if (quantity > available) {
+    throw new Error('not enough unequipped copies available');
   }
-  const [rawId] = characterDoc.items.splice(index, 1);
-  blacksmithState.salvageQueue.push(rawId);
+  let moved = 0;
+  while (moved < quantity) {
+    const nextIndex = findInventoryIndexForItem(characterDoc, baseItemId, { preferAugmented: false });
+    if (nextIndex === -1) {
+      break;
+    }
+    const [rawId] = characterDoc.items.splice(nextIndex, 1);
+    if (!rawId) {
+      break;
+    }
+    blacksmithState.salvageQueue.push(rawId);
+    moved += 1;
+  }
+  if (moved !== quantity) {
+    throw new Error('failed to add requested quantity to salvage queue');
+  }
   jobState.blacksmith = blacksmithState;
-  if (typeof characterDoc.markModified === 'function') {
+  if (moved > 0 && typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('items');
     characterDoc.markModified('job');
   }
-  if (processed || rawId) {
+  if (processed || moved > 0) {
     await characterDoc.save();
   }
   return buildStatusForDoc(characterDoc, config);
