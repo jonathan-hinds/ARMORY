@@ -10,6 +10,7 @@ const {
 } = require('../models/utils');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
+const { resolveItemSync } = require('./customItemService');
 const { runCombat } = require('./combatEngine');
 const { compute } = require('./derivedStats');
 const { xpForNextLevel } = require('./characterService');
@@ -679,7 +680,7 @@ function sanitizeEquipment(equipment, gearBudget, equipmentMap) {
   let total = 0;
   EQUIPMENT_SLOTS.forEach(slot => {
     const id = equipment && equipment[slot] ? equipment[slot] : null;
-    const item = id ? equipmentMap.get(id) : null;
+    const item = id ? resolveItemSync(prepared.character, id, equipmentMap) : null;
     if (item && item.slot === slot) {
       sanitized[slot] = item.id;
       total += typeof item.cost === 'number' ? item.cost : 0;
@@ -691,7 +692,11 @@ function sanitizeEquipment(equipment, gearBudget, equipmentMap) {
   if (budget != null && total > budget) {
     const sorted = EQUIPMENT_SLOTS.filter(slot => sanitized[slot]).map(slot => ({
       slot,
-      cost: (equipmentMap.get(sanitized[slot]) && equipmentMap.get(sanitized[slot]).cost) || 0,
+      cost: (() => {
+        const equippedId = sanitized[slot];
+        const resolved = equippedId ? resolveItemSync(prepared.character, equippedId, equipmentMap) : null;
+        return (resolved && typeof resolved.cost === 'number') ? resolved.cost : 0;
+      })(),
     }));
     sorted.sort((a, b) => b.cost - a.cost);
     for (const entry of sorted) {
@@ -916,7 +921,7 @@ function computePlayerGear(character, equipmentMap) {
   let gearScore = 0;
   EQUIPMENT_SLOTS.forEach(slot => {
     const id = equipment[slot];
-    const item = id ? equipmentMap.get(id) : null;
+    const item = id ? resolveItemSync(member.character, id, equipmentMap) : null;
     const cost = item && typeof item.cost === 'number' ? item.cost : 0;
     playerCosts[slot] = cost;
     gearScore += cost;
@@ -948,7 +953,7 @@ function resolveEquipmentForCompute(equipment, equipmentMap) {
   EQUIPMENT_SLOTS.forEach(slot => {
     const id = equipment && equipment[slot] ? equipment[slot] : null;
     if (id && equipmentMap && equipmentMap.has(id)) {
-      resolved[slot] = equipmentMap.get(id);
+      resolved[slot] = resolveItemSync(member.character, id, equipmentMap);
     } else {
       resolved[slot] = null;
     }

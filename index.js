@@ -13,7 +13,17 @@ const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
 const { getChallengeStatus, runChallengeFight, startChallenge } = require("./systems/challengeGA");
-const { getJobStatus, selectJob, startJobWork, stopJobWork, ensureJobIdle, clearJobLog } = require("./systems/jobService");
+const {
+  getJobStatus,
+  selectJob,
+  startJobWork,
+  stopJobWork,
+  ensureJobIdle,
+  clearJobLog,
+  setBlacksmithTask,
+  addBlacksmithQueueItem,
+  removeBlacksmithQueueItem,
+} = require("./systems/jobService");
 const {
   getAdventureStatus,
   startAdventure,
@@ -246,6 +256,54 @@ app.post("/characters/:characterId/job/log/clear", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message || "failed to clear job log" });
+  }
+});
+
+app.post("/characters/:characterId/job/blacksmith/task", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, task } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId || !task) {
+    return res.status(400).json({ error: "playerId, characterId and task required" });
+  }
+  try {
+    const status = await setBlacksmithTask(pid, characterId, task);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to update task" });
+  }
+});
+
+app.post("/characters/:characterId/job/blacksmith/salvage/add", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, itemId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId || !itemId) {
+    return res.status(400).json({ error: "playerId, characterId and itemId required" });
+  }
+  try {
+    const status = await addBlacksmithQueueItem(pid, characterId, itemId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to add item to queue" });
+  }
+});
+
+app.post("/characters/:characterId/job/blacksmith/salvage/remove", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, itemId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId || !itemId) {
+    return res.status(400).json({ error: "playerId, characterId and itemId required" });
+  }
+  try {
+    const status = await removeBlacksmithQueueItem(pid, characterId, itemId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to remove item from queue" });
   }
 });
 

@@ -1522,6 +1522,206 @@ function createJobRecipeList(job, { includeOwned = false } = {}) {
   return list;
 }
 
+function appendBlacksmithDetail(list, label, text) {
+  if (!list || !text) return;
+  const li = document.createElement('li');
+  li.className = 'blacksmith-item-stat';
+  if (label) {
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'label';
+    labelSpan.textContent = label;
+    li.appendChild(labelSpan);
+  }
+  const valueSpan = document.createElement('span');
+  valueSpan.className = 'value';
+  valueSpan.textContent = text;
+  li.appendChild(valueSpan);
+  list.appendChild(li);
+}
+
+function createBlacksmithItemCard(entry, { actionType = null, actionLabel = null, onAction = null } = {}) {
+  if (!entry || !entry.item) return null;
+  const { item } = entry;
+  const card = document.createElement('div');
+  card.className = 'blacksmith-item-card';
+  if (entry.instanceId) {
+    card.dataset.instanceId = entry.instanceId;
+  }
+
+  const header = document.createElement('div');
+  header.className = 'blacksmith-item-header';
+
+  const name = document.createElement('div');
+  name.className = 'blacksmith-item-name';
+  name.textContent = item.name || 'Unknown Equipment';
+  header.appendChild(name);
+
+  const rarity = document.createElement('div');
+  rarity.className = 'blacksmith-item-rarity';
+  rarity.textContent = item.rarity || 'Common';
+  header.appendChild(rarity);
+
+  card.appendChild(header);
+
+  const meta = document.createElement('div');
+  meta.className = 'blacksmith-item-meta';
+  meta.textContent = formatItemMeta(item);
+  card.appendChild(meta);
+
+  if (entry.baseItemId && entry.baseItemId !== item.id) {
+    const baseItem = getEquipmentById(entry.baseItemId);
+    const baseName = baseItem && baseItem.name
+      ? baseItem.name
+      : titleCase(String(entry.baseItemId).replace(/^custom:/, '').replace(/_/g, ' '));
+    const variant = document.createElement('div');
+    variant.className = 'blacksmith-item-variant';
+    variant.textContent = `Forged from ${baseName}`;
+    card.appendChild(variant);
+  }
+
+  const stats = document.createElement('ul');
+  stats.className = 'blacksmith-item-stats';
+  appendBlacksmithDetail(stats, 'Attributes', formatAttributeBonuses(item.attributeBonuses));
+  appendBlacksmithDetail(stats, 'Chance Bonuses', formatChanceBonuses(item.chanceBonuses));
+  appendBlacksmithDetail(stats, 'Resources', formatResourceBonuses(item.resourceBonuses));
+  appendBlacksmithDetail(stats, 'Resistances', formatResistances(item.resistances));
+  if (item.weaponDamageType) {
+    appendBlacksmithDetail(stats, 'Damage Type', titleCase(item.weaponDamageType));
+  } else if (item.damageType) {
+    appendBlacksmithDetail(stats, 'Damage Type', titleCase(item.damageType));
+  }
+  if (stats.childElementCount) {
+    card.appendChild(stats);
+  }
+
+  if (actionType && typeof onAction === 'function' && entry.instanceId) {
+    const actionRow = document.createElement('div');
+    actionRow.className = 'blacksmith-item-actions';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `blacksmith-item-action${actionType === 'remove' ? ' remove' : ''}`;
+    button.textContent = actionLabel || (actionType === 'remove' ? 'Remove from Queue' : 'Add to Queue');
+    button.addEventListener('click', () => onAction(entry.instanceId, button));
+    actionRow.appendChild(button);
+    card.appendChild(actionRow);
+  }
+
+  attachTooltip(card, () => itemTooltip(item));
+  return card;
+}
+
+function createBlacksmithColumn({
+  title,
+  entries = [],
+  emptyText,
+  className = '',
+  actionType = null,
+  actionLabel = null,
+  onAction = null,
+}) {
+  const column = document.createElement('div');
+  column.className = className ? `blacksmith-column ${className}` : 'blacksmith-column';
+
+  const heading = document.createElement('h5');
+  heading.textContent = `${title}${entries.length ? ` (${entries.length})` : ''}`;
+  column.appendChild(heading);
+
+  if (!entries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'blacksmith-empty';
+    empty.textContent = emptyText;
+    column.appendChild(empty);
+    return column;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'blacksmith-item-list';
+  entries.forEach(entry => {
+    const card = createBlacksmithItemCard(entry, { actionType, actionLabel, onAction });
+    if (card) {
+      list.appendChild(card);
+    }
+  });
+  column.appendChild(list);
+  return column;
+}
+
+function createBlacksmithTaskSection(activeJob, container) {
+  if (!activeJob) return null;
+  const data = activeJob.blacksmith || {};
+  const queue = Array.isArray(data.salvageQueue) ? data.salvageQueue : [];
+  const inventory = Array.isArray(data.inventory) ? data.inventory : [];
+  const task = data.task === 'salvage' ? 'salvage' : 'craft';
+
+  const section = document.createElement('div');
+  section.className = 'blacksmith-section';
+
+  const header = document.createElement('div');
+  header.className = 'blacksmith-task-header';
+
+  const title = document.createElement('h4');
+  title.textContent = 'Workshop Tasks';
+  header.appendChild(title);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'blacksmith-task-buttons';
+
+  const addTaskButton = (value, label) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'blacksmith-task-button';
+    button.textContent = label;
+    if (task === value) {
+      button.classList.add('active');
+      button.disabled = true;
+    }
+    button.addEventListener('click', () => handleSetBlacksmithTask(value, container, button));
+    buttons.appendChild(button);
+  };
+
+  addTaskButton('craft', 'Forge Gear');
+  addTaskButton('salvage', 'Salvage Gear');
+
+  header.appendChild(buttons);
+  section.appendChild(header);
+
+  const note = document.createElement('p');
+  note.className = 'blacksmith-note';
+  note.textContent = task === 'salvage'
+    ? 'While salvaging, one queued item is dismantled each roll to recover random materials.'
+    : 'While forging, the workshop attempts to craft equipment from the forge catalog each roll.';
+  section.appendChild(note);
+
+  const columns = document.createElement('div');
+  columns.className = 'blacksmith-columns';
+
+  const queueColumn = createBlacksmithColumn({
+    title: 'Salvage Queue',
+    entries: queue,
+    emptyText: 'No gear queued for salvage.',
+    className: task === 'salvage' ? 'salvage active' : 'salvage',
+    actionType: 'remove',
+    actionLabel: 'Remove from Queue',
+    onAction: (instanceId, button) => handleRemoveBlacksmithQueueItem(instanceId, container, button),
+  });
+
+  const inventoryColumn = createBlacksmithColumn({
+    title: 'Available Gear',
+    entries: inventory,
+    emptyText: 'No spare gear available to salvage.',
+    className: task === 'craft' ? 'inventory active' : 'inventory',
+    actionType: 'add',
+    actionLabel: 'Add to Queue',
+    onAction: (instanceId, button) => handleAddBlacksmithQueueItem(instanceId, container, button),
+  });
+
+  columns.appendChild(queueColumn);
+  columns.appendChild(inventoryColumn);
+  section.appendChild(columns);
+
+  return section;
+}
+
 function setSetValues(targetSet, values) {
   targetSet.clear();
   values.forEach(value => {
@@ -2281,6 +2481,15 @@ function getJobLogInfo(entry) {
         })
         .filter(Boolean)
     : [];
+  const producedMaterials = Array.isArray(entry.producedMaterials)
+    ? entry.producedMaterials
+        .map(m => {
+          if (!m || !m.materialId) return null;
+          const amount = Math.max(1, Math.round(Number(m.amount) || 0));
+          return { materialId: m.materialId, name: describeMaterial(m.materialId), amount };
+        })
+        .filter(Boolean)
+    : [];
   const missingMaterials = Array.isArray(entry.missing)
     ? entry.missing
         .map(m => {
@@ -2340,28 +2549,38 @@ function getJobLogInfo(entry) {
     ? { stat: statLabel(entry.stat), amount: entry.statAmount }
     : null;
   const succeeded = entry.generationSucceeded != null ? !!entry.generationSucceeded : entry.type === 'crafted';
+  const normalizedType = entry.type === 'salvaged'
+    ? 'salvaged'
+    : entry.type === 'crafted'
+      ? 'crafted'
+      : 'failed';
+  const itemBonus = entry.itemBonus && entry.itemBonus.stat && Number.isFinite(entry.itemBonus.amount)
+    ? { stat: statLabel(entry.itemBonus.stat), amount: entry.itemBonus.amount }
+    : null;
   return {
     itemName,
     rarity: entry.rarity || null,
-    type: entry.type === 'crafted' ? 'crafted' : 'failed',
-    rawType: entry.type || 'failed',
+    type: normalizedType,
+    rawType: entry.type || normalizedType,
     reason: entry.reason || null,
     timestamp: entry.timestamp || null,
     attributeName,
     attempted,
     generatedMaterials,
+    producedMaterials,
     missingMaterials,
     statGain,
+    itemBonus,
     creation: {
-      hasChance,
-      hasShare,
-      hasRoll,
-      hasMultiplier,
-      chance,
-      share,
-      roll,
-      multiplier,
-      succeeded,
+      hasChance: normalizedType === 'salvaged' ? false : hasChance,
+      hasShare: normalizedType === 'salvaged' ? false : hasShare,
+      hasRoll: normalizedType === 'salvaged' ? false : hasRoll,
+      hasMultiplier: normalizedType === 'salvaged' ? false : hasMultiplier,
+      chance: normalizedType === 'salvaged' ? null : chance,
+      share: normalizedType === 'salvaged' ? null : share,
+      roll: normalizedType === 'salvaged' ? null : roll,
+      multiplier: normalizedType === 'salvaged' ? null : multiplier,
+      succeeded: normalizedType === 'salvaged' ? null : succeeded,
     },
     describeCreationRoll,
   };
@@ -2500,6 +2719,10 @@ function createStandardJobLogCard(info, { hideGenerated = false } = {}) {
     addDetail('Stat Gain', `+${info.statGain.amount} ${info.statGain.stat}`);
   }
 
+  if (info.itemBonus) {
+    addDetail('Item Enhancement', `+${info.itemBonus.amount} ${info.itemBonus.stat}`);
+  }
+
   return li;
 }
 
@@ -2526,10 +2749,37 @@ function createDiscoveryLogCard(info) {
   return li;
 }
 
+function createSalvageLogCard(info) {
+  const { li, addDetail } = createJobLogEntryStructure({
+    className: 'log-salvaged',
+    titleText: info.itemName,
+    rarityText: info.rarity,
+    badgeText: 'Salvaged',
+    badgeClass: 'info',
+    timestamp: info.timestamp,
+  });
+  if (info.producedMaterials.length) {
+    addDetail('Recovered Materials', info.producedMaterials.map(m => `${m.name} ×${m.amount}`).join(', '));
+  } else {
+    addDetail('Recovered Materials', 'No materials recovered');
+  }
+  if (info.statGain) {
+    addDetail('Stat Gain', `+${info.statGain.amount} ${info.statGain.stat}`);
+  }
+  return li;
+}
+
 function buildJobLogListItem(entry) {
   const fragment = document.createDocumentFragment();
   const info = getJobLogInfo(entry);
   if (!info) {
+    return fragment;
+  }
+  if (info.type === 'salvaged') {
+    const salvageCard = createSalvageLogCard(info);
+    if (salvageCard) {
+      fragment.appendChild(salvageCard);
+    }
     return fragment;
   }
   const splitDiscovery = info.type !== 'crafted' && info.generatedMaterials.length > 0;
@@ -2710,6 +2960,11 @@ function renderJobActiveContent(container, status) {
   const active = status.activeJob;
   const jobDef = status.jobs ? status.jobs.find(job => job.id === active.id) || active : active;
   const statName = active.attribute ? statLabel(active.attribute) : 'Attribute';
+  const isBlacksmith = (jobDef && (jobDef.behavior === 'blacksmith' || jobDef.id === 'blacksmith'))
+    || active.behavior === 'blacksmith'
+    || active.id === 'blacksmith';
+  const blacksmithData = isBlacksmith && active.blacksmith ? active.blacksmith : null;
+  const blacksmithTask = blacksmithData && blacksmithData.task === 'salvage' ? 'salvage' : 'craft';
   const isWorking = !!active.isWorking;
   const workingSinceDate = active.workingSince ? new Date(active.workingSince) : null;
   const lastAttemptDate = active.lastProcessedAt ? new Date(active.lastProcessedAt) : null;
@@ -2743,9 +2998,17 @@ function renderJobActiveContent(container, status) {
 
   const shiftMessage = document.createElement('p');
   shiftMessage.className = 'job-shift-message';
-  shiftMessage.textContent = isWorking
-    ? 'Crafting runs in the background while materials are available. Clock out to take on adventures, matchmaking, or challenges.'
-    : 'Clock in to begin hourly crafting rolls. Stay off duty to freely adventure and battle opponents.';
+  if (isBlacksmith) {
+    shiftMessage.textContent = isWorking
+      ? blacksmithTask === 'salvage'
+        ? 'The forge crew is dismantling queued gear for raw materials each shift.'
+        : 'The forge crew is crafting weapons and armor from your catalog each shift.'
+      : 'Clock in and choose whether to salvage queued gear or forge new equipment.';
+  } else {
+    shiftMessage.textContent = isWorking
+      ? 'Crafting runs in the background while materials are available. Clock out to take on adventures, matchmaking, or challenges.'
+      : 'Clock in to begin hourly crafting rolls. Stay off duty to freely adventure and battle opponents.';
+  }
   shiftPanel.appendChild(shiftMessage);
 
   const shiftButton = document.createElement('button');
@@ -2812,6 +3075,13 @@ function renderJobActiveContent(container, status) {
     }
   }
   container.appendChild(statsGrid);
+
+  if (isBlacksmith) {
+    const blacksmithSection = createBlacksmithTaskSection(active, container);
+    if (blacksmithSection) {
+      container.appendChild(blacksmithSection);
+    }
+  }
 
   const totalsSection = document.createElement('div');
   totalsSection.className = 'job-output-section';
@@ -2889,7 +3159,7 @@ function renderJobActiveContent(container, status) {
   const recipeSection = document.createElement('div');
   recipeSection.className = 'job-recipe-section';
   const recipeTitle = document.createElement('h4');
-  recipeTitle.textContent = 'Available Recipes';
+  recipeTitle.textContent = isBlacksmith ? 'Forge Catalog' : 'Available Recipes';
   recipeSection.appendChild(recipeTitle);
   recipeSection.appendChild(createJobRecipeList(jobDef, { includeOwned: true }));
   container.appendChild(recipeSection);
@@ -2981,6 +3251,120 @@ async function handleJobShiftToggle(shouldStart, container, button) {
     renderJobDialogContent(container, responsePayload);
   } catch (err) {
     alert(err && err.message ? err.message : shouldStart ? 'Failed to start working' : 'Failed to stop working');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function handleSetBlacksmithTask(task, container, button) {
+  if (!currentPlayer || !currentCharacter) return;
+  if (button) button.disabled = true;
+  let responsePayload = null;
+  try {
+    const res = await fetch(`/characters/${currentCharacter.id}/job/blacksmith/task`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id, task }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : 'Failed to update task';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    try {
+      await refreshInventory(true);
+    } catch (err) {
+      console.error('inventory refresh failed', err);
+    }
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+  } catch (err) {
+    alert(err && err.message ? err.message : 'Failed to update task');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function handleAddBlacksmithQueueItem(itemId, container, button) {
+  if (!currentPlayer || !currentCharacter || !itemId) return;
+  if (button) button.disabled = true;
+  let responsePayload = null;
+  try {
+    const res = await fetch(`/characters/${currentCharacter.id}/job/blacksmith/salvage/add`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id, itemId }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : 'Failed to add item to queue';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    try {
+      await refreshInventory(true);
+    } catch (err) {
+      console.error('inventory refresh failed', err);
+    }
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+  } catch (err) {
+    alert(err && err.message ? err.message : 'Failed to add item to queue');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function handleRemoveBlacksmithQueueItem(itemId, container, button) {
+  if (!currentPlayer || !currentCharacter || !itemId) return;
+  if (button) button.disabled = true;
+  let responsePayload = null;
+  try {
+    const res = await fetch(`/characters/${currentCharacter.id}/job/blacksmith/salvage/remove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id, itemId }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : 'Failed to remove item from queue';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    try {
+      await refreshInventory(true);
+    } catch (err) {
+      console.error('inventory refresh failed', err);
+    }
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+  } catch (err) {
+    alert(err && err.message ? err.message : 'Failed to remove item from queue');
   } finally {
     if (button) button.disabled = false;
   }
