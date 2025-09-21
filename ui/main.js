@@ -3066,11 +3066,9 @@ function renderJobActiveContent(container, status) {
       button.textContent = mode.label || titleCase(mode.id);
       if (mode.isSelected) {
         button.classList.add('active');
-      }
-      if (isWorking || mode.isSelected) {
         button.disabled = true;
       }
-      button.addEventListener('click', () => handleSetJobShiftMode(mode.id, container, button));
+      button.addEventListener('click', () => handleSetJobShiftMode(mode.id, active, container, button));
       modeButtons.appendChild(button);
     });
     modeContainer.appendChild(modeButtons);
@@ -3382,13 +3380,26 @@ async function handleSetBlacksmithMode(modeId, container, button) {
   }
 }
 
-async function handleSetJobShiftMode(modeId, container, button) {
+async function handleSetJobShiftMode(modeId, fallbackActiveJob, container, button) {
   if (!modeId || !currentPlayer || !currentCharacter) return;
-  const activeJob = jobStatusCache && jobStatusCache.activeJob ? jobStatusCache.activeJob : null;
-  if (!activeJob) return;
-  if (activeJob.id === 'blacksmith') {
-    await handleSetBlacksmithMode(modeId, container, button);
+  let activeJob = jobStatusCache && jobStatusCache.activeJob ? jobStatusCache.activeJob : null;
+  if (!activeJob && fallbackActiveJob && fallbackActiveJob.id) {
+    activeJob = fallbackActiveJob;
   }
+  if (!activeJob) {
+    try {
+      const status = await loadJobStatus(true);
+      if (status && status.activeJob) {
+        activeJob = status.activeJob;
+      }
+    } catch (err) {
+      console.error('failed to refresh job status before switching modes', err);
+    }
+  }
+  if (!activeJob || activeJob.id !== 'blacksmith') {
+    return;
+  }
+  await handleSetBlacksmithMode(modeId, container, button);
 }
 
 async function handleAddBlacksmithQueueItem(itemId, container, button) {
@@ -7289,4 +7300,24 @@ function showLevelUpForm() {
   }
 
   updateDerived();
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    __testing: {
+      clearJobStatusCache,
+      handleSetJobShiftMode,
+      loadJobStatus,
+      setJobContext(player, character) {
+        currentPlayer = player;
+        currentCharacter = character;
+      },
+      setJobStatusCache(value) {
+        jobStatusCache = value;
+      },
+      getJobStatusCache() {
+        return jobStatusCache;
+      },
+    },
+  };
 }
