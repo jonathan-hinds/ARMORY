@@ -43,7 +43,24 @@
       "category": "Forging",
       "behavior": "blacksmith",
       "materialRecoveryEnabled": true,
-      "materialRecoveryChanceMultiplier": 1.5
+      "materialRecoveryChanceMultiplier": 1.5,
+      "shiftModes": [
+        {
+          "id": "forge",
+          "label": "Forge Gear",
+          "description": "Forge new weapons and armor while the crew is on duty.",
+          "task": "craft",
+          "default": true
+        },
+        {
+          "id": "salvage",
+          "label": "Salvage Gear",
+          "description": "Break down queued gear into raw materials until every piece is dismantled.",
+          "task": "salvage",
+          "requiresQueue": true,
+          "autoStopOnQueueEmpty": true
+        }
+      ]
     }
   ]
 }

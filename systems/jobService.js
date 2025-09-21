@@ -135,6 +135,46 @@ function normalizeJobItem(entry) {
   };
 }
 
+function normalizeShiftMode(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+  const idRaw = typeof entry.id === 'string' ? entry.id.trim().toLowerCase() : '';
+  if (!idRaw) {
+    return null;
+  }
+  const label = typeof entry.label === 'string' && entry.label.trim() ? entry.label.trim() : null;
+  const description = typeof entry.description === 'string' ? entry.description : '';
+  const taskRaw = typeof entry.task === 'string' ? entry.task.trim().toLowerCase() : '';
+  const task = taskRaw || null;
+  const requiresQueue = entry.requiresQueue != null ? !!entry.requiresQueue : false;
+  const autoStopSet = new Set();
+  if (Array.isArray(entry.autoStopConditions)) {
+    entry.autoStopConditions.forEach(condition => {
+      if (typeof condition === 'string' && condition.trim()) {
+        autoStopSet.add(condition.trim().toLowerCase());
+      }
+    });
+  }
+  if (entry.autoStopOnQueueEmpty) {
+    autoStopSet.add('queue-empty');
+  }
+  if (requiresQueue) {
+    autoStopSet.add('queue-empty');
+  }
+  const autoStopConditions = Array.from(autoStopSet);
+  const isDefault = !!entry.default;
+  return {
+    id: idRaw,
+    label: label || idRaw,
+    description,
+    task,
+    requiresQueue: !!requiresQueue,
+    autoStopConditions,
+    isDefault,
+  };
+}
+
 async function loadJobRecipes() {
   if (!recipeCache) {
     let raw;
@@ -208,6 +248,21 @@ function normalizeJob(entry, baseConfig, recipeItems = []) {
     itemsRaw = recipeItems;
   }
   const items = itemsRaw.map(normalizeJobItem).filter(Boolean);
+  const shiftModesRaw = Array.isArray(entry.shiftModes) ? entry.shiftModes : [];
+  const shiftModes = shiftModesRaw.map(normalizeShiftMode).filter(Boolean);
+  let defaultShiftModeId = null;
+  shiftModes.forEach(mode => {
+    if (mode.isDefault && !defaultShiftModeId) {
+      defaultShiftModeId = mode.id;
+    }
+  });
+  if (!defaultShiftModeId && shiftModes.length) {
+    defaultShiftModeId = shiftModes[0].id;
+  }
+  const normalizedShiftModes = shiftModes.map(mode => ({
+    ...mode,
+    isDefault: mode.id === defaultShiftModeId,
+  }));
   const hourSeconds = baseConfig.hourSeconds > 0 ? baseConfig.hourSeconds : DEFAULT_CONFIG.hourSeconds;
   const effectiveCraftsPerHour = craftsPerHour > 0 ? craftsPerHour : DEFAULT_CONFIG.craftsPerHour;
   const craftIntervalSeconds = hourSeconds / effectiveCraftsPerHour;
@@ -227,7 +282,118 @@ function normalizeJob(entry, baseConfig, recipeItems = []) {
     statGainChance,
     statGainAmount,
     craftIntervalSeconds,
+    shiftModes: normalizedShiftModes,
+    defaultShiftModeId,
   };
+}
+
+function sanitizeShiftSelectionMap(map) {
+  const result = {};
+  if (!map || typeof map !== 'object') {
+    return result;
+  }
+  Object.entries(map).forEach(([jobId, modeId]) => {
+    if (typeof jobId !== 'string' || typeof modeId !== 'string') {
+      return;
+    }
+    const jobKey = jobId.trim().toLowerCase();
+    const modeKey = modeId.trim().toLowerCase();
+    if (!jobKey || !modeKey) {
+      return;
+    }
+    result[jobKey] = modeKey;
+  });
+  return result;
+}
+
+function applyJobModeState(jobState, jobDef, mode) {
+  if (!jobState || !jobDef || !mode) {
+    return false;
+  }
+  let changed = false;
+  if (jobDef.id === 'blacksmith' || jobDef.behavior === 'blacksmith' || jobDef.isBlacksmith) {
+    if (!jobState.blacksmith || typeof jobState.blacksmith !== 'object') {
+      jobState.blacksmith = { task: 'craft', salvageQueue: [] };
+      changed = true;
+    }
+    if (!Array.isArray(jobState.blacksmith.salvageQueue)) {
+      jobState.blacksmith.salvageQueue = [];
+      changed = true;
+    } else {
+      const filtered = jobState.blacksmith.salvageQueue
+        .filter(id => typeof id === 'string' && id);
+      if (filtered.length !== jobState.blacksmith.salvageQueue.length) {
+        jobState.blacksmith.salvageQueue = filtered;
+        changed = true;
+      }
+    }
+    const desiredTask = mode.task === 'salvage' ? 'salvage' : 'craft';
+    if (jobState.blacksmith.task !== desiredTask) {
+      jobState.blacksmith.task = desiredTask;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function ensureShiftModeSelection(jobState, jobDef, options = {}) {
+  const requestedRaw = options && typeof options.requestedModeId === 'string'
+    ? options.requestedModeId.trim().toLowerCase()
+    : '';
+  const strict = options && options.strict ? !!options.strict : false;
+  if (!jobState || !jobDef || !Array.isArray(jobDef.shiftModes) || !jobDef.shiftModes.length) {
+    return { mode: null, changed: false };
+  }
+  if (!jobState.shiftSelections || typeof jobState.shiftSelections !== 'object') {
+    jobState.shiftSelections = {};
+  }
+  const map = jobState.shiftSelections;
+  let selection = null;
+  if (requestedRaw) {
+    selection = jobDef.shiftModes.find(mode => mode.id === requestedRaw) || null;
+    if (!selection && strict) {
+      throw new Error('invalid shift mode');
+    }
+  }
+  if (!selection) {
+    const storedRaw = typeof map[jobDef.id] === 'string' ? map[jobDef.id] : '';
+    const stored = storedRaw ? storedRaw.trim().toLowerCase() : '';
+    selection = jobDef.shiftModes.find(mode => mode.id === stored) || null;
+  }
+  if (!selection) {
+    const fallbackId = jobDef.defaultShiftModeId || (jobDef.shiftModes[0] && jobDef.shiftModes[0].id);
+    selection = jobDef.shiftModes.find(mode => mode.id === fallbackId) || jobDef.shiftModes[0] || null;
+  }
+  if (!selection) {
+    return { mode: null, changed: false };
+  }
+  let changed = false;
+  if (map[jobDef.id] !== selection.id) {
+    map[jobDef.id] = selection.id;
+    changed = true;
+  }
+  if (applyJobModeState(jobState, jobDef, selection)) {
+    changed = true;
+  }
+  return { mode: selection, changed };
+}
+
+function autoStopJob(jobState, timestamp) {
+  if (!jobState) {
+    return false;
+  }
+  const stopTime = timestamp ? new Date(timestamp) : new Date();
+  let changed = false;
+  if (jobState.isWorking) {
+    jobState.isWorking = false;
+    changed = true;
+  }
+  if (jobState.workingSince) {
+    jobState.workingSince = null;
+    changed = true;
+  }
+  jobState.lastProcessedAt = stopTime;
+  return changed;
 }
 
 function normalizeConfig(raw, recipesById = new Map()) {
@@ -336,6 +502,7 @@ function ensureJobState(characterDoc) {
   if (!Array.isArray(jobState.log)) {
     jobState.log = [];
   }
+  jobState.shiftSelections = sanitizeShiftSelectionMap(jobState.shiftSelections);
   if (!jobState.blacksmith || typeof jobState.blacksmith !== 'object') {
     jobState.blacksmith = { task: 'craft', salvageQueue: [] };
   } else {
@@ -553,9 +720,17 @@ async function processJobForCharacter(characterDoc, options = {}) {
   const jobAttribute = jobDef.attribute && jobDef.attribute.trim ? jobDef.attribute.trim() : null;
   const now = options.now ? new Date(options.now) : new Date();
   let jobChanged = false;
-  if (!jobState.isWorking) {
-    return { changed: false, job: jobDef, attempts: 0 };
+  const { mode: activeShiftMode, changed: shiftModeChanged } = ensureShiftModeSelection(jobState, jobDef);
+  if (shiftModeChanged) {
+    jobChanged = true;
   }
+  if (!jobState.isWorking) {
+    return { changed: jobChanged, job: jobDef, attempts: 0 };
+  }
+  const autoStopOnQueueEmpty = activeShiftMode && Array.isArray(activeShiftMode.autoStopConditions)
+    ? activeShiftMode.autoStopConditions.includes('queue-empty')
+    : false;
+  const activeTask = activeShiftMode && activeShiftMode.task ? activeShiftMode.task : null;
   if (!jobState.startedAt) {
     jobState.startedAt = now;
     jobChanged = true;
@@ -642,11 +817,15 @@ async function processJobForCharacter(characterDoc, options = {}) {
     return salvageEntries[salvageEntries.length - 1].material;
   };
 
+  let attemptsProcessed = 0;
   for (let i = 0; i < attempts; i += 1) {
     jobState.totalAttempts += 1;
+    attemptsProcessed += 1;
     const attemptTime = new Date(baseTime.getTime() + (i + 1) * interval * 1000);
     const blacksmithState = jobState.blacksmith || null;
-    const currentTask = isBlacksmith && blacksmithState && blacksmithState.task === 'salvage' ? 'salvage' : 'craft';
+    const currentTask = isBlacksmith && (activeTask === 'salvage' || (blacksmithState && blacksmithState.task === 'salvage'))
+      ? 'salvage'
+      : 'craft';
 
     if (isBlacksmith && currentTask === 'salvage') {
       const queue = blacksmithState ? blacksmithState.salvageQueue : [];
@@ -657,6 +836,12 @@ async function processJobForCharacter(characterDoc, options = {}) {
           logLimit
         );
         jobChanged = true;
+        if (autoStopOnQueueEmpty && jobState.isWorking) {
+          if (autoStopJob(jobState, attemptTime)) {
+            jobChanged = true;
+          }
+          break;
+        }
         continue;
       }
       const index = Math.floor(Math.random() * queue.length);
@@ -722,6 +907,12 @@ async function processJobForCharacter(characterDoc, options = {}) {
         }
       }
       recordJobEvent(jobState, event, logLimit);
+      if (autoStopOnQueueEmpty && (!queue || !queue.length) && jobState.isWorking) {
+        if (autoStopJob(jobState, attemptTime)) {
+          jobChanged = true;
+        }
+        break;
+      }
       continue;
     }
 
@@ -888,7 +1079,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
     recordJobEvent(jobState, event, logLimit);
     jobChanged = true;
   }
-  jobState.lastProcessedAt = new Date(baseTime.getTime() + attempts * interval * 1000);
+  jobState.lastProcessedAt = new Date(baseTime.getTime() + attemptsProcessed * interval * 1000);
   jobChanged = true;
   if (typeof characterDoc.markModified === 'function') {
     if (materialsChanged) characterDoc.markModified('materials');
@@ -900,7 +1091,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
   return {
     changed: materialsChanged || itemsChanged || attributesChanged || customItemsChanged || jobChanged,
     job: jobDef,
-    attempts,
+    attempts: attemptsProcessed,
   };
 }
 
@@ -1066,6 +1257,25 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
   const log = logEntries.slice(0, config.logLimit)
     .map(entry => sanitizeLogEntry(entry, equipmentMap))
     .filter(Boolean);
+  const shiftSelections = jobState.shiftSelections && typeof jobState.shiftSelections === 'object'
+    ? jobState.shiftSelections
+    : {};
+  const activeShiftModeId = typeof shiftSelections[jobDef.id] === 'string'
+    ? shiftSelections[jobDef.id]
+    : null;
+  const shiftModes = Array.isArray(jobDef.shiftModes)
+    ? jobDef.shiftModes.map(mode => ({
+        id: mode.id,
+        label: mode.label,
+        description: mode.description || '',
+        requiresQueue: !!mode.requiresQueue,
+        autoStopConditions: Array.isArray(mode.autoStopConditions)
+          ? mode.autoStopConditions.slice()
+          : [],
+        task: mode.task || null,
+        isSelected: mode.id === activeShiftModeId,
+      }))
+    : [];
   let blacksmith = null;
   if (jobDef.isBlacksmith) {
     const state = jobState.blacksmith || {};
@@ -1100,6 +1310,7 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
       task: state.task === 'salvage' ? 'salvage' : 'craft',
       salvageQueue: queueItems,
       inventory: inventoryItems,
+      modeId: activeShiftModeId,
     };
   }
   return {
@@ -1128,6 +1339,8 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
     isWorking,
     workingSince: workingSince && !Number.isNaN(workingSince.getTime()) ? workingSince.toISOString() : null,
     log,
+    shiftModes,
+    activeShiftModeId,
     blacksmith,
   };
 }
@@ -1167,7 +1380,12 @@ function ensureBlacksmithJob(jobState) {
   if (!Array.isArray(jobState.blacksmith.salvageQueue)) {
     jobState.blacksmith.salvageQueue = [];
   }
-  if (jobState.blacksmith.task !== 'salvage') {
+  const selection = jobState.shiftSelections && typeof jobState.shiftSelections === 'object'
+    ? jobState.shiftSelections[jobState.jobId]
+    : null;
+  if (selection === 'salvage') {
+    jobState.blacksmith.task = 'salvage';
+  } else if (jobState.blacksmith.task !== 'salvage') {
     jobState.blacksmith.task = 'craft';
   }
   return jobState.blacksmith;
@@ -1176,9 +1394,14 @@ function ensureBlacksmithJob(jobState) {
 async function setBlacksmithTask(playerId, characterId, task) {
   const pid = Number(playerId);
   const cid = Number(characterId);
-  const normalizedTask = task === 'salvage' ? 'salvage' : 'craft';
-  if (!Number.isFinite(pid) || !Number.isFinite(cid)) {
-    throw new Error('playerId and characterId required');
+  const requestedRaw = typeof task === 'string' ? task.trim().toLowerCase() : '';
+  const modeId = requestedRaw === 'salvage'
+    ? 'salvage'
+    : requestedRaw === 'forge' || requestedRaw === 'craft' || requestedRaw === 'forging'
+      ? 'forge'
+      : null;
+  if (!Number.isFinite(pid) || !Number.isFinite(cid) || !modeId) {
+    throw new Error('playerId, characterId and valid task required');
   }
   const config = await loadJobConfig();
   const characterDoc = await CharacterModel.findOne({ playerId: pid, characterId: cid });
@@ -1192,11 +1415,20 @@ async function setBlacksmithTask(playerId, characterId, task) {
   if (jobState.jobId !== 'blacksmith') {
     throw new Error('blacksmith profession required');
   }
+  if (jobState.isWorking) {
+    throw new Error('clock out before changing modes');
+  }
+  const jobDef = config.jobsById.get('blacksmith');
+  if (!jobDef) {
+    throw new Error('blacksmith configuration missing');
+  }
   const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config });
   let jobChanged = processedChanges;
-  const blacksmithState = ensureBlacksmithJob(jobState);
-  if (blacksmithState.task !== normalizedTask) {
-    blacksmithState.task = normalizedTask;
+  const selectionResult = ensureShiftModeSelection(jobState, jobDef, {
+    requestedModeId: modeId,
+    strict: true,
+  });
+  if (selectionResult.changed) {
     jobChanged = true;
   }
   if (jobChanged && typeof characterDoc.markModified === 'function') {
@@ -1347,8 +1579,13 @@ async function selectJob(playerId, characterId, jobId) {
     totalsByItem: {},
     log: [],
   };
+  const newJobState = ensureJobState(characterDoc);
+  const { changed: modeChanged } = ensureShiftModeSelection(newJobState, jobDef);
   if (typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('job');
+  }
+  if (modeChanged && typeof characterDoc.markModified === 'function') {
+    characterDoc.markModified('job.shiftSelections');
   }
   await characterDoc.save();
   return buildStatusForDoc(characterDoc, config);
@@ -1376,7 +1613,7 @@ async function ensureJobIdle(characterId) {
   ensureJobIdleForDoc(characterDoc);
 }
 
-async function setJobWorkingState(playerId, characterId, shouldWork) {
+async function setJobWorkingState(playerId, characterId, shouldWork, options = {}) {
   const pid = Number(playerId);
   const cid = Number(characterId);
   if (!Number.isFinite(pid) || !Number.isFinite(cid)) {
@@ -1392,8 +1629,27 @@ async function setJobWorkingState(playerId, characterId, shouldWork) {
   if (!jobState.jobId) {
     throw new Error('profession not selected');
   }
+  const jobDef = config.jobsById.get(jobState.jobId);
+  if (!jobDef) {
+    throw new Error('job configuration missing');
+  }
+  const modeIdRaw = options && typeof options.modeId === 'string' && options.modeId.trim()
+    ? options.modeId.trim().toLowerCase()
+    : null;
   const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config, now });
   let jobChanged = false;
+  let selectedMode = null;
+  const selectionResult = ensureShiftModeSelection(jobState, jobDef, {
+    requestedModeId: modeIdRaw,
+    strict: !!modeIdRaw,
+  });
+  selectedMode = selectionResult.mode;
+  if (selectionResult.changed) {
+    jobChanged = true;
+  }
+  if (shouldWork && Array.isArray(jobDef.shiftModes) && jobDef.shiftModes.length && !selectedMode) {
+    throw new Error('work mode unavailable');
+  }
   if (shouldWork) {
     if (!jobState.isWorking) {
       jobState.isWorking = true;
@@ -1419,12 +1675,12 @@ async function setJobWorkingState(playerId, characterId, shouldWork) {
   return buildStatusForDoc(characterDoc, config);
 }
 
-async function startJobWork(playerId, characterId) {
-  return setJobWorkingState(playerId, characterId, true);
+async function startJobWork(playerId, characterId, options = {}) {
+  return setJobWorkingState(playerId, characterId, true, options);
 }
 
-async function stopJobWork(playerId, characterId) {
-  return setJobWorkingState(playerId, characterId, false);
+async function stopJobWork(playerId, characterId, options = {}) {
+  return setJobWorkingState(playerId, characterId, false, options);
 }
 
 async function clearJobLog(playerId, characterId) {

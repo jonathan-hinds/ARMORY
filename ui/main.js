@@ -1651,7 +1651,9 @@ function createBlacksmithTaskSection(activeJob, container) {
   const data = activeJob.blacksmith || {};
   const queue = Array.isArray(data.salvageQueue) ? data.salvageQueue : [];
   const inventory = Array.isArray(data.inventory) ? data.inventory : [];
-  const task = data.task === 'salvage' ? 'salvage' : 'craft';
+  const modeId = data.modeId || activeJob.activeShiftModeId || null;
+  const task = data.task === 'salvage' ? 'salvage' : modeId === 'salvage' ? 'salvage' : 'craft';
+  const isSalvageMode = task === 'salvage';
 
   const section = document.createElement('div');
   section.className = 'blacksmith-section';
@@ -1660,36 +1662,15 @@ function createBlacksmithTaskSection(activeJob, container) {
   header.className = 'blacksmith-task-header';
 
   const title = document.createElement('h4');
-  title.textContent = 'Workshop Tasks';
+  title.textContent = 'Salvage Preparation';
   header.appendChild(title);
-
-  const buttons = document.createElement('div');
-  buttons.className = 'blacksmith-task-buttons';
-
-  const addTaskButton = (value, label) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'blacksmith-task-button';
-    button.textContent = label;
-    if (task === value) {
-      button.classList.add('active');
-      button.disabled = true;
-    }
-    button.addEventListener('click', () => handleSetBlacksmithTask(value, container, button));
-    buttons.appendChild(button);
-  };
-
-  addTaskButton('craft', 'Forge Gear');
-  addTaskButton('salvage', 'Salvage Gear');
-
-  header.appendChild(buttons);
   section.appendChild(header);
 
   const note = document.createElement('p');
   note.className = 'blacksmith-note';
-  note.textContent = task === 'salvage'
-    ? 'While salvaging, one queued item is dismantled each roll to recover random materials.'
-    : 'While forging, the workshop attempts to craft equipment from the forge catalog each roll.';
+  note.textContent = isSalvageMode
+    ? 'While salvaging, each queued item is dismantled until the list is empty—then the crew clocks out automatically.'
+    : 'Queue spare gear to prepare for your next Salvage shift. Add pieces from inventory on the right.';
   section.appendChild(note);
 
   const columns = document.createElement('div');
@@ -1699,7 +1680,7 @@ function createBlacksmithTaskSection(activeJob, container) {
     title: 'Salvage Queue',
     entries: queue,
     emptyText: 'No gear queued for salvage.',
-    className: task === 'salvage' ? 'salvage active' : 'salvage',
+    className: isSalvageMode ? 'salvage active' : 'salvage',
     actionType: 'remove',
     actionLabel: 'Remove from Queue',
     onAction: (instanceId, button) => handleRemoveBlacksmithQueueItem(instanceId, container, button),
@@ -1709,7 +1690,7 @@ function createBlacksmithTaskSection(activeJob, container) {
     title: 'Available Gear',
     entries: inventory,
     emptyText: 'No spare gear available to salvage.',
-    className: task === 'craft' ? 'inventory active' : 'inventory',
+    className: isSalvageMode ? 'inventory' : 'inventory active',
     actionType: 'add',
     actionLabel: 'Add to Queue',
     onAction: (instanceId, button) => handleAddBlacksmithQueueItem(instanceId, container, button),
@@ -2963,8 +2944,16 @@ function renderJobActiveContent(container, status) {
   const isBlacksmith = (jobDef && (jobDef.behavior === 'blacksmith' || jobDef.id === 'blacksmith'))
     || active.behavior === 'blacksmith'
     || active.id === 'blacksmith';
+  const shiftModes = Array.isArray(active.shiftModes) ? active.shiftModes : [];
+  const selectedShiftMode = shiftModes.find(mode => mode.isSelected) || null;
+  const activeShiftModeId = selectedShiftMode ? selectedShiftMode.id : active.activeShiftModeId || null;
   const blacksmithData = isBlacksmith && active.blacksmith ? active.blacksmith : null;
-  const blacksmithTask = blacksmithData && blacksmithData.task === 'salvage' ? 'salvage' : 'craft';
+  const blacksmithModeId = blacksmithData && blacksmithData.modeId ? blacksmithData.modeId : activeShiftModeId;
+  const blacksmithTask = blacksmithData && blacksmithData.task === 'salvage'
+    ? 'salvage'
+    : blacksmithModeId === 'salvage'
+      ? 'salvage'
+      : 'craft';
   const isWorking = !!active.isWorking;
   const workingSinceDate = active.workingSince ? new Date(active.workingSince) : null;
   const lastAttemptDate = active.lastProcessedAt ? new Date(active.lastProcessedAt) : null;
@@ -3003,13 +2992,51 @@ function renderJobActiveContent(container, status) {
       ? blacksmithTask === 'salvage'
         ? 'The forge crew is dismantling queued gear for raw materials each shift.'
         : 'The forge crew is crafting weapons and armor from your catalog each shift.'
-      : 'Clock in and choose whether to salvage queued gear or forge new equipment.';
+      : 'Choose a work mode, queue any salvage targets, and clock in to begin the next shift.';
   } else {
     shiftMessage.textContent = isWorking
       ? 'Crafting runs in the background while materials are available. Clock out to take on adventures, matchmaking, or challenges.'
       : 'Clock in to begin hourly crafting rolls. Stay off duty to freely adventure and battle opponents.';
   }
   shiftPanel.appendChild(shiftMessage);
+
+  if (shiftModes.length) {
+    const modeContainer = document.createElement('div');
+    modeContainer.className = 'job-shift-mode';
+
+    const modeLabel = document.createElement('div');
+    modeLabel.className = 'job-shift-mode-label';
+    modeLabel.textContent = 'Work Mode';
+    modeContainer.appendChild(modeLabel);
+
+    const modeButtons = document.createElement('div');
+    modeButtons.className = 'job-shift-mode-options';
+    shiftModes.forEach(mode => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'job-shift-mode-button';
+      button.textContent = mode.label || titleCase(mode.id);
+      if (mode.isSelected) {
+        button.classList.add('active');
+      }
+      if (isWorking || mode.isSelected) {
+        button.disabled = true;
+      }
+      button.addEventListener('click', () => handleSetJobShiftMode(mode.id, container, button));
+      modeButtons.appendChild(button);
+    });
+    modeContainer.appendChild(modeButtons);
+
+    const selectedDescription = selectedShiftMode && selectedShiftMode.description ? selectedShiftMode.description : null;
+    if (selectedDescription) {
+      const desc = document.createElement('p');
+      desc.className = 'job-shift-mode-description';
+      desc.textContent = selectedDescription;
+      modeContainer.appendChild(desc);
+    }
+
+    shiftPanel.appendChild(modeContainer);
+  }
 
   const shiftButton = document.createElement('button');
   shiftButton.className = 'job-shift-action';
@@ -3223,10 +3250,22 @@ async function handleJobShiftToggle(shouldStart, container, button) {
   let responsePayload = null;
   try {
     const endpoint = shouldStart ? 'start' : 'stop';
+    const payload = { playerId: currentPlayer.id };
+    if (shouldStart) {
+      const activeJob = jobStatusCache && jobStatusCache.activeJob ? jobStatusCache.activeJob : null;
+      const modeId = activeJob && activeJob.activeShiftModeId
+        ? activeJob.activeShiftModeId
+        : activeJob && activeJob.blacksmith && activeJob.blacksmith.modeId
+          ? activeJob.blacksmith.modeId
+          : null;
+      if (modeId) {
+        payload.modeId = modeId;
+      }
+    }
     const res = await fetch(`/characters/${currentCharacter.id}/job/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: currentPlayer.id }),
+      body: JSON.stringify(payload),
     });
     try {
       responsePayload = await res.json();
@@ -3256,15 +3295,16 @@ async function handleJobShiftToggle(shouldStart, container, button) {
   }
 }
 
-async function handleSetBlacksmithTask(task, container, button) {
+async function handleSetBlacksmithMode(modeId, container, button) {
   if (!currentPlayer || !currentCharacter) return;
+  if (!modeId) return;
   if (button) button.disabled = true;
   let responsePayload = null;
   try {
     const res = await fetch(`/characters/${currentCharacter.id}/job/blacksmith/task`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: currentPlayer.id, task }),
+      body: JSON.stringify({ playerId: currentPlayer.id, mode: modeId }),
     });
     try {
       responsePayload = await res.json();
@@ -3274,7 +3314,7 @@ async function handleSetBlacksmithTask(task, container, button) {
     if (!res.ok) {
       const message = responsePayload && responsePayload.error
         ? responsePayload.error
-        : 'Failed to update task';
+        : 'Failed to update mode';
       throw new Error(message);
     }
     jobStatusCache = responsePayload;
@@ -3288,9 +3328,18 @@ async function handleSetBlacksmithTask(task, container, button) {
     }
     renderJobDialogContent(container, responsePayload);
   } catch (err) {
-    alert(err && err.message ? err.message : 'Failed to update task');
+    alert(err && err.message ? err.message : 'Failed to update mode');
   } finally {
     if (button) button.disabled = false;
+  }
+}
+
+async function handleSetJobShiftMode(modeId, container, button) {
+  if (!modeId || !currentPlayer || !currentCharacter) return;
+  const activeJob = jobStatusCache && jobStatusCache.activeJob ? jobStatusCache.activeJob : null;
+  if (!activeJob) return;
+  if (activeJob.id === 'blacksmith') {
+    await handleSetBlacksmithMode(modeId, container, button);
   }
 }
 
