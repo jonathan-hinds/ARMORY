@@ -301,7 +301,11 @@ function sanitizeShiftSelectionMap(map) {
     if (typeof jobId !== 'string' || typeof modeId !== 'string') {
       return;
     }
-    const jobKey = jobId.trim().toLowerCase();
+    const trimmedJobId = jobId.trim();
+    if (!trimmedJobId || trimmedJobId.startsWith('$') || trimmedJobId.includes('.')) {
+      return;
+    }
+    const jobKey = trimmedJobId.toLowerCase();
     const modeKey = modeId.trim().toLowerCase();
     if (!jobKey || !modeKey) {
       return;
@@ -1776,13 +1780,34 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
   const modeIdRaw = options && typeof options.modeId === 'string' && options.modeId.trim()
     ? options.modeId.trim().toLowerCase()
     : null;
+  const hasExplicitModeRequest = !!modeIdRaw;
+  let requestedModeId = modeIdRaw;
+  if (jobDef.isBlacksmith) {
+    const selectionMap = jobState.shiftSelections && typeof jobState.shiftSelections === 'object'
+      ? jobState.shiftSelections
+      : null;
+    const storedSelectionRaw = selectionMap && typeof selectionMap[jobDef.id] === 'string'
+      ? selectionMap[jobDef.id]
+      : null;
+    const storedModeId = storedSelectionRaw ? storedSelectionRaw.trim().toLowerCase() : null;
+    if (storedModeId) {
+      if (!requestedModeId || storedModeId !== requestedModeId) {
+        requestedModeId = storedModeId;
+      }
+    } else if (!requestedModeId && jobState.blacksmith && typeof jobState.blacksmith === 'object') {
+      const stateModeId = normalizeBlacksmithModeId(jobState.blacksmith.modeId);
+      if (stateModeId) {
+        requestedModeId = stateModeId;
+      }
+    }
+  }
   const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config, now });
   let jobChanged = false;
   let selectedMode = null;
   let blacksmithChanged = false;
   const selectionResult = ensureShiftModeSelection(jobState, jobDef, {
-    requestedModeId: modeIdRaw,
-    strict: !!modeIdRaw,
+    requestedModeId,
+    strict: hasExplicitModeRequest,
   });
   selectedMode = selectionResult.mode;
   const shiftSelectionChanged = !!selectionResult.changed;
