@@ -1800,9 +1800,9 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 }
 
 .blacksmith-task-button {
-  background:#1c2531;
-  color:#d7e8ff;
-  border:1px solid #2f4057;
+  background:#151515;
+  color:#f0f0f0;
+  border:1px solid #3a3a3a;
   padding:6px 14px;
   border-radius:6px;
   font-weight:600;
@@ -1812,33 +1812,33 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 
 .blacksmith-task-button:hover,
 .blacksmith-task-button:focus {
-  background:#263445;
-  border-color:#3f5575;
+  background:#1f1f1f;
+  border-color:#5a5a5a;
 }
 
 .blacksmith-task-button.active {
-  background:linear-gradient(135deg,#3b82f6,#2563eb);
-  border-color:#1d4ed8;
-  color:#f8fafc;
+  background:#000;
+  border-color:#f5f5f5;
+  color:#f5f5f5;
   cursor:default;
   transform:translateY(-1px);
-  box-shadow:0 4px 12px rgba(37,99,235,0.35);
+  box-shadow:0 0 0 1px rgba(255,255,255,0.2);
 }
 
 .blacksmith-task-button.active:hover,
 .blacksmith-task-button.active:focus {
-  background:linear-gradient(135deg,#3b82f6,#2563eb);
-  border-color:#1d4ed8;
+  background:#000;
+  border-color:#f5f5f5;
 }
 
 .blacksmith-task-button:disabled {
-  opacity:0.85;
+  opacity:0.6;
 }
 
 .blacksmith-note {
   margin:0 0 18px;
   font-size:0.95rem;
-  color:#cbd5f5;
+  color:#d0d0d0;
 }
 
 .blacksmith-columns {
@@ -1848,8 +1848,8 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 }
 
 .blacksmith-column {
-  background:#11151d;
-  border:1px solid #1f2b3d;
+  background:#0b0b0b;
+  border:1px solid #1e1e1e;
   border-radius:10px;
   padding:14px;
   display:flex;
@@ -1860,20 +1860,20 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 }
 
 .blacksmith-column.active {
-  border-color:#3b82f6;
-  box-shadow:0 0 0 1px rgba(59,130,246,0.35);
+  border-color:#f5f5f5;
+  box-shadow:0 0 0 1px rgba(255,255,255,0.08);
 }
 
 .blacksmith-column h5 {
   margin:0;
   font-size:1rem;
   font-weight:600;
-  color:#e3e9ff;
+  color:#f0f0f0;
 }
 
 .blacksmith-empty {
   margin:0;
-  color:#8b9bbd;
+  color:#9b9b9b;
   font-size:0.9rem;
 }
 
@@ -1883,8 +1883,8 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 }
 
 .blacksmith-item-card {
-  background:#151b27;
-  border:1px solid #253044;
+  background:#101010;
+  border:1px solid #1f1f1f;
   border-radius:8px;
   padding:12px;
   display:flex;
@@ -1895,8 +1895,8 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 
 .blacksmith-item-card:hover,
 .blacksmith-item-card:focus-within {
-  border-color:#3b82f6;
-  box-shadow:0 4px 12px rgba(59,130,246,0.25);
+  border-color:#f2f2f2;
+  box-shadow:0 0 0 1px rgba(255,255,255,0.2);
 }
 
 .blacksmith-item-header {
@@ -1909,65 +1909,71 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .blacksmith-item-name {
   font-weight:600;
   font-size:1rem;
-  color:#f1f5ff;
+  color:#fafafa;
 }
 
 .blacksmith-item-rarity {
   font-size:0.85rem;
-  color:#9fb7ff;
+  color:#c8c8c8;
   text-transform:uppercase;
   letter-spacing:0.05em;
 }
 
-.blacksmith-item-meta {
-  font-size:0.85rem;
-  color:#a6b4d4;
-}
-
-.blacksmith-item-variant {
-  font-size:0.8rem;
-  color:#94a3c7;
-}
-
-.blacksmith-item-stats {
-  list-style:none;
-  margin:0;
-  padding:0;
+.blacksmith-item-tags {
   display:flex;
-  flex-direction:column;
-  gap:4px;
+  flex-wrap:wrap;
+  gap:6px;
 }
 
-.blacksmith-item-stat {
+.blacksmith-item-tag {
+  display:inline-flex;
+  align-items:center;
+  padding:2px 6px;
+  border-radius:4px;
+  border:1px solid #2a2a2a;
+  background:#141414;
+  color:#dedede;
+  font-size:0.75rem;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+}
+
+.blacksmith-item-amount {
   display:flex;
   justify-content:space-between;
+  align-items:center;
   gap:12px;
   font-size:0.85rem;
-  color:#d0dcff;
+  color:#dcdcdc;
+  padding-top:6px;
+  margin-top:4px;
+  border-top:1px solid #1f1f1f;
 }
 
-.blacksmith-item-stat .label {
+.blacksmith-item-amount .label {
   font-weight:600;
-  color:#94b4ff;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+  color:#bfbfbf;
 }
 
-.blacksmith-item-stat .value {
-  flex:1;
-  text-align:right;
-  color:#e4ecff;
+.blacksmith-item-amount .value {
+  font-weight:600;
+  color:#f0f0f0;
 }
 
 .blacksmith-item-actions {
   display:flex;
   justify-content:flex-end;
+  margin-top:4px;
 }
 
 .blacksmith-item-action {
   padding:6px 12px;
   border-radius:6px;
-  border:1px solid #2e3d52;
-  background:#1f2a3a;
-  color:#d4e4ff;
+  border:1px solid #333;
+  background:#151515;
+  color:#f3f3f3;
   font-weight:600;
   cursor:pointer;
   transition:background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
@@ -1975,19 +1981,19 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 
 .blacksmith-item-action:hover,
 .blacksmith-item-action:focus {
-  background:#2b3b50;
-  border-color:#3f5575;
+  background:#1f1f1f;
+  border-color:#555;
   transform:translateY(-1px);
 }
 
 .blacksmith-item-action.remove {
-  background:#3a1f2a;
-  border-color:#5a2538;
-  color:#f8d7e1;
+  background:#0b0b0b;
+  border-color:#4a4a4a;
+  color:#f5f5f5;
 }
 
 .blacksmith-item-action.remove:hover,
 .blacksmith-item-action.remove:focus {
-  background:#4c2836;
-  border-color:#7a3246;
+  background:#141414;
+  border-color:#6a6a6a;
 }
