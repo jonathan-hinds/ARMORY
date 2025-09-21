@@ -7,6 +7,9 @@ const {
   ensureEquipmentShape,
   EQUIPMENT_SLOTS,
   STATS,
+  findItemIndex,
+  countItems,
+  matchesItemId,
 } = require('../models/utils');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
@@ -1326,13 +1329,13 @@ async function runChallengeFight(characterId, send) {
     let modifiedUseables = false;
     let itemsModified = false;
     consumedByPlayer.forEach(entry => {
-      const idx = prep.characterDoc.items.indexOf(entry.itemId);
+      const idx = findItemIndex(prep.characterDoc.items, entry.itemId);
       if (idx !== -1) {
         prep.characterDoc.items.splice(idx, 1);
         itemsModified = true;
       }
-      if (prep.characterDoc.useables[entry.slot] === entry.itemId) {
-        const remaining = prep.characterDoc.items.filter(id => id === entry.itemId).length;
+      if (matchesItemId(prep.characterDoc.useables[entry.slot], entry.itemId)) {
+        const remaining = countItems(prep.characterDoc.items, entry.itemId);
         if (remaining <= 0) {
           prep.characterDoc.useables[entry.slot] = null;
           modifiedUseables = true;

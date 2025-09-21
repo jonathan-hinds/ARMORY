@@ -1,11 +1,18 @@
 const path = require('path');
 const CharacterModel = require('../models/Character');
-const { serializeCharacter, readMaterialCount } = require('../models/utils');
+const {
+  serializeCharacter,
+  readMaterialCount,
+  formatItemInstanceId,
+  parseItemInstanceId,
+} = require('../models/utils');
 const { readJSON } = require('../store/jsonStore');
 const { getEquipmentMap } = require('./equipmentService');
+const { getMaterialCatalog } = require('./materialService');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const JOB_CONFIG_FILE = path.join(DATA_DIR, 'jobConfig.json');
+const JOB_RECIPE_FILE = path.join(DATA_DIR, 'jobRecipes.json');
 
 const DEFAULT_CONFIG = {
   hourSeconds: 3600,
@@ -25,6 +32,7 @@ const DEFAULT_CONFIG = {
 };
 
 let configCache = null;
+let recipeCache = null;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value ?? null));
@@ -159,11 +167,9 @@ function normalizeJob(entry, baseConfig) {
     && materialRecoveryChanceMultiplierValue >= 0
     ? materialRecoveryChanceMultiplierValue
     : baseConfig.materialRecoveryChanceMultiplier;
+  const typeRaw = typeof entry.type === 'string' ? entry.type.trim().toLowerCase() : null;
   const itemsRaw = Array.isArray(entry.items) ? entry.items : [];
   const items = itemsRaw.map(normalizeJobItem).filter(Boolean);
-  if (!items.length) {
-    return null;
-  }
   const hourSeconds = baseConfig.hourSeconds > 0 ? baseConfig.hourSeconds : DEFAULT_CONFIG.hourSeconds;
   const effectiveCraftsPerHour = craftsPerHour > 0 ? craftsPerHour : DEFAULT_CONFIG.craftsPerHour;
   const craftIntervalSeconds = hourSeconds / effectiveCraftsPerHour;
@@ -173,6 +179,7 @@ function normalizeJob(entry, baseConfig) {
     attribute,
     description,
     category,
+    type: typeRaw || 'standard',
     items,
     rarityWeights,
     materialRecoveryEnabled,
@@ -238,6 +245,39 @@ function normalizeConfig(raw) {
   return { ...base, jobs };
 }
 
+function normalizeRecipeMap(raw) {
+  const map = new Map();
+  if (!raw || typeof raw !== 'object') {
+    return map;
+  }
+  const source = raw.recipes && typeof raw.recipes === 'object' ? raw.recipes : raw;
+  Object.entries(source).forEach(([jobId, entries]) => {
+    if (!jobId || !Array.isArray(entries)) {
+      return;
+    }
+    const key = String(jobId).trim().toLowerCase();
+    if (!key) {
+      return;
+    }
+    const list = entries.map(normalizeJobItem).filter(Boolean);
+    map.set(key, list);
+  });
+  return map;
+}
+
+async function loadJobRecipes() {
+  if (!recipeCache) {
+    let raw;
+    try {
+      raw = await readJSON(JOB_RECIPE_FILE);
+    } catch (err) {
+      raw = {};
+    }
+    recipeCache = normalizeRecipeMap(raw);
+  }
+  return recipeCache;
+}
+
 async function loadJobConfig() {
   if (!configCache) {
     let raw;
@@ -247,8 +287,19 @@ async function loadJobConfig() {
       raw = {};
     }
     const normalized = normalizeConfig(raw);
-    const jobsById = new Map(normalized.jobs.map(job => [job.id, job]));
-    configCache = { ...normalized, jobsById };
+    const recipes = await loadJobRecipes();
+    const mergedJobs = normalized.jobs
+      .map(job => {
+        const recipeList = recipes.get(job.id) || job.items || [];
+        const items = Array.isArray(recipeList) ? recipeList.map(normalizeJobItem).filter(Boolean) : [];
+        if (!items.length) {
+          return null;
+        }
+        return { ...job, items };
+      })
+      .filter(Boolean);
+    const jobsById = new Map(mergedJobs.map(job => [job.id, job]));
+    configCache = { ...normalized, jobs: mergedJobs, jobsById };
   }
   return configCache;
 }
@@ -297,7 +348,30 @@ function ensureJobState(characterDoc) {
   if (!Number.isFinite(jobState.totalStatGain)) {
     jobState.totalStatGain = 0;
   }
+  if (!jobState.blacksmith || typeof jobState.blacksmith !== 'object') {
+    jobState.blacksmith = { mode: 'craft', salvageQueue: [] };
+  }
+  if (jobState.blacksmith.mode !== 'salvage') {
+    jobState.blacksmith.mode = 'craft';
+  }
+  if (!Array.isArray(jobState.blacksmith.salvageQueue)) {
+    jobState.blacksmith.salvageQueue = [];
+  } else {
+    jobState.blacksmith.salvageQueue = jobState.blacksmith.salvageQueue
+      .map(entry => (typeof entry === 'string' ? entry : null))
+      .filter(Boolean);
+  }
   return jobState;
+}
+
+function isBlacksmithJob(jobDef) {
+  return jobDef && jobDef.type === 'blacksmith';
+}
+
+function getBlacksmithState(jobState) {
+  return jobState && typeof jobState === 'object' && jobState.blacksmith
+    ? jobState.blacksmith
+    : { mode: 'craft', salvageQueue: [] };
 }
 
 function setMaterialCount(container, id, value) {
@@ -383,6 +457,16 @@ function recordJobEvent(jobState, event, logLimit) {
           }))
           .filter(m => m.materialId && m.amount > 0)
       : undefined,
+    recoveredMaterials: Array.isArray(event.recoveredMaterials)
+      ? event.recoveredMaterials
+          .map(m => ({
+            materialId: typeof m.materialId === 'string' ? m.materialId : null,
+            amount: sanitizePositiveInteger(m.amount),
+          }))
+          .filter(m => m.materialId && m.amount > 0)
+      : undefined,
+    variantId: typeof event.variantId === 'string' ? event.variantId : null,
+    bonusAttributes: event.bonusAttributes ? sanitizeNumberMap(event.bonusAttributes) : undefined,
   };
   const chanceValue = Number(event.generationChance);
   if (Number.isFinite(chanceValue) && chanceValue >= 0) {
@@ -459,6 +543,25 @@ function pickJobItem(job, equipmentMap, config) {
   return entries[entries.length - 1];
 }
 
+function pickWeightedEntry(entries) {
+  if (!Array.isArray(entries) || !entries.length) {
+    return null;
+  }
+  const total = entries.reduce((sum, entry) => sum + (Number(entry.weight) || 0), 0);
+  if (!(total > 0)) {
+    return null;
+  }
+  let roll = Math.random() * total;
+  for (const entry of entries) {
+    const weight = Number(entry.weight) || 0;
+    roll -= weight;
+    if (roll <= 0) {
+      return entry;
+    }
+  }
+  return entries[entries.length - 1];
+}
+
 async function processJobForCharacter(characterDoc, options = {}) {
   if (!characterDoc) {
     return { changed: false, job: null, attempts: 0 };
@@ -524,9 +627,98 @@ async function processJobForCharacter(characterDoc, options = {}) {
   let materialsChanged = false;
   let itemsChanged = false;
   let attributesChanged = false;
+  let attemptsPerformed = 0;
+  let lastProcessedTime = baseTime;
+  const blacksmithJob = isBlacksmithJob(jobDef);
+  const blacksmithState = blacksmithJob ? getBlacksmithState(jobState) : null;
+  let salvagePool = null;
+
   for (let i = 0; i < attempts; i += 1) {
-    jobState.totalAttempts += 1;
     const attemptTime = new Date(baseTime.getTime() + (i + 1) * interval * 1000);
+
+    if (blacksmithJob && blacksmithState.mode === 'salvage') {
+      if (!blacksmithState.salvageQueue.length) {
+        jobState.isWorking = false;
+        jobState.workingSince = null;
+        jobState.lastProcessedAt = attemptTime;
+        jobChanged = true;
+        lastProcessedTime = attemptTime;
+        break;
+      }
+      attemptsPerformed += 1;
+      if (!salvagePool) {
+        const materialCatalog = await getMaterialCatalog();
+        const weightSource = {
+          ...(config.rarityWeights || {}),
+          ...(jobDef.rarityWeights || {}),
+        };
+        salvagePool = (Array.isArray(materialCatalog) ? materialCatalog : [])
+          .map(material => {
+            const rarity = material.rarity || 'Common';
+            const weight = weightSource[rarity] != null
+              ? Number(weightSource[rarity])
+              : 1;
+            if (!Number.isFinite(weight) || weight <= 0) {
+              return null;
+            }
+            return { material, weight };
+          })
+          .filter(Boolean);
+      }
+      const queueIndex = Math.floor(Math.random() * blacksmithState.salvageQueue.length);
+      const queuedId = blacksmithState.salvageQueue.splice(queueIndex, 1)[0];
+      const parsedQueued = parseItemInstanceId(queuedId);
+      const baseItemId = parsedQueued.itemId || queuedId;
+      const itemForLog = equipmentMap.get(queuedId) || equipmentMap.get(baseItemId) || null;
+      const event = {
+        timestamp: attemptTime,
+        type: 'salvaged',
+        itemId: baseItemId,
+        variantId: queuedId,
+        itemName: itemForLog ? itemForLog.name : null,
+        rarity: itemForLog ? itemForLog.rarity || null : null,
+        materials: {},
+      };
+      const recoveredCounts = new Map();
+      const drops = 2 + Math.floor(Math.random() * 3);
+      for (let drop = 0; drop < drops; drop += 1) {
+        const pick = pickWeightedEntry(salvagePool);
+        if (!pick || !pick.material || !pick.material.id) {
+          continue;
+        }
+        const materialId = pick.material.id;
+        const current = readMaterialCount(characterDoc.materials, materialId);
+        setMaterialCount(characterDoc.materials, materialId, current + 1);
+        materialsChanged = true;
+        recoveredCounts.set(materialId, (recoveredCounts.get(materialId) || 0) + 1);
+      }
+      if (recoveredCounts.size) {
+        event.recoveredMaterials = Array.from(recoveredCounts.entries()).map(([materialId, amount]) => ({ materialId, amount }));
+      }
+      const gainChance = jobDef.statGainChance != null ? jobDef.statGainChance : config.statGainChance;
+      const gainAmount = jobDef.statGainAmount != null ? jobDef.statGainAmount : config.statGainAmount;
+      if (jobAttribute && gainAmount > 0 && gainChance > 0 && Math.random() < gainChance) {
+        if (!characterDoc.attributes || typeof characterDoc.attributes !== 'object') {
+          characterDoc.attributes = {};
+        }
+        const current = Number.isFinite(characterDoc.attributes[jobAttribute]) ? characterDoc.attributes[jobAttribute] : 0;
+        characterDoc.attributes[jobAttribute] = current + gainAmount;
+        const statTotals = jobState.statGains;
+        const prevGain = Number.isFinite(statTotals[jobAttribute]) ? statTotals[jobAttribute] : 0;
+        statTotals[jobAttribute] = prevGain + gainAmount;
+        jobState.totalStatGain += gainAmount;
+        event.stat = jobAttribute;
+        event.statAmount = gainAmount;
+        attributesChanged = true;
+      }
+      recordJobEvent(jobState, event, logLimit);
+      jobChanged = true;
+      lastProcessedTime = attemptTime;
+      continue;
+    }
+
+    jobState.totalAttempts += 1;
+    attemptsPerformed += 1;
     const selection = pickJobItem(jobDef, equipmentMap, config);
     if (!selection) {
       recordJobEvent(
@@ -535,6 +727,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
         logLimit
       );
       jobChanged = true;
+      lastProcessedTime = attemptTime;
       continue;
     }
     const { jobItem, item } = selection;
@@ -582,8 +775,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
             const target = recoverable[Math.floor(Math.random() * recoverable.length)];
             const amount = 1;
             const current = readMaterialCount(characterDoc.materials, target.materialId);
-            const total = current + amount;
-            setMaterialCount(characterDoc.materials, target.materialId, total);
+            setMaterialCount(characterDoc.materials, target.materialId, current + amount);
             generatedMaterials = [{ materialId: target.materialId, amount }];
             generationSucceeded = true;
             materialsChanged = true;
@@ -628,6 +820,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
       }
       recordJobEvent(jobState, event, logLimit);
       jobChanged = true;
+      lastProcessedTime = attemptTime;
       continue;
     }
     if (generatedMaterials) {
@@ -642,15 +835,15 @@ async function processJobForCharacter(characterDoc, options = {}) {
       setMaterialCount(characterDoc.materials, materialId, remaining);
     });
     materialsChanged = true;
-    const craftedId = jobItem.itemId;
-    characterDoc.items.push(craftedId);
-    itemsChanged = true;
+    const craftedBaseId = jobItem.itemId;
+    let craftedId = craftedBaseId;
     jobState.totalCrafted += 1;
     const totals = jobState.totalsByItem;
-    const prev = Number.isFinite(totals[craftedId]) ? totals[craftedId] : 0;
-    totals[craftedId] = prev + 1;
+    const prevTotal = Number.isFinite(totals[craftedBaseId]) ? totals[craftedBaseId] : 0;
+    totals[craftedBaseId] = prevTotal + 1;
     const gainChance = jobDef.statGainChance != null ? jobDef.statGainChance : config.statGainChance;
     const gainAmount = jobDef.statGainAmount != null ? jobDef.statGainAmount : config.statGainAmount;
+    let gainedStat = false;
     if (gainAmount > 0 && gainChance > 0 && Math.random() < gainChance) {
       const stat = jobAttribute;
       if (stat) {
@@ -666,20 +859,52 @@ async function processJobForCharacter(characterDoc, options = {}) {
         event.stat = stat;
         event.statAmount = gainAmount;
         attributesChanged = true;
+        gainedStat = true;
       }
     }
+    if (blacksmithJob && gainedStat && item && item.attributeBonuses) {
+      const attributeOptions = Object.entries(item.attributeBonuses || {})
+        .filter(([, value]) => Number.isFinite(value) && value > 0)
+        .map(([key]) => key.toLowerCase());
+      if (attributeOptions.length) {
+        const chosen = attributeOptions[Math.floor(Math.random() * attributeOptions.length)];
+        const bonusAmount = 1 + Math.floor(Math.random() * 2);
+        const bonusAttributes = { [chosen]: bonusAmount };
+        const encoded = formatItemInstanceId(craftedBaseId, bonusAttributes);
+        if (encoded) {
+          craftedId = encoded;
+        }
+        event.bonusAttributes = bonusAttributes;
+        if (craftedId !== craftedBaseId) {
+          event.variantId = craftedId;
+        }
+      }
+    }
+    if (craftedId !== craftedBaseId && !event.variantId) {
+      event.variantId = craftedId;
+    }
+    characterDoc.items.push(craftedId);
+    itemsChanged = true;
     recordJobEvent(jobState, event, logLimit);
     jobChanged = true;
+    lastProcessedTime = attemptTime;
   }
-  jobState.lastProcessedAt = new Date(baseTime.getTime() + attempts * interval * 1000);
-  jobChanged = true;
+
+  if (lastProcessedTime) {
+    jobState.lastProcessedAt = lastProcessedTime;
+    jobChanged = true;
+  }
   if (typeof characterDoc.markModified === 'function') {
     if (materialsChanged) characterDoc.markModified('materials');
     if (itemsChanged) characterDoc.markModified('items');
     if (attributesChanged) characterDoc.markModified('attributes');
     if (jobChanged) characterDoc.markModified('job');
   }
-  return { changed: materialsChanged || itemsChanged || attributesChanged || jobChanged, job: jobDef, attempts };
+  return {
+    changed: materialsChanged || itemsChanged || attributesChanged || jobChanged,
+    job: jobDef,
+    attempts: attemptsPerformed,
+  };
 }
 
 function sanitizeNumberMap(map) {
@@ -702,10 +927,16 @@ function sanitizeLogEntry(entry, equipmentMap) {
   }
   const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
   const item = entry.itemId ? equipmentMap.get(entry.itemId) : null;
+  const type = entry.type === 'failed'
+    ? 'failed'
+    : entry.type === 'salvaged'
+    ? 'salvaged'
+    : 'crafted';
   return {
     timestamp: timestamp && !Number.isNaN(timestamp.getTime()) ? timestamp.toISOString() : null,
-    type: entry.type === 'failed' ? 'failed' : 'crafted',
+    type,
     itemId: entry.itemId || null,
+    variantId: entry.variantId || null,
     itemName: entry.itemName || (item ? item.name : null),
     rarity: entry.rarity || (item ? item.rarity || null : null),
     stat: entry.stat || null,
@@ -742,6 +973,15 @@ function sanitizeLogEntry(entry, equipmentMap) {
       ? Math.max(0, Math.min(1, entry.generationRoll))
       : null,
     generationAttribute: entry.generationAttribute || null,
+    recoveredMaterials: Array.isArray(entry.recoveredMaterials)
+      ? entry.recoveredMaterials
+          .map(m => ({
+            materialId: typeof m.materialId === 'string' ? m.materialId : null,
+            amount: Number.isFinite(m.amount) ? m.amount : 0,
+          }))
+          .filter(m => m.materialId && m.amount > 0)
+      : [],
+    bonusAttributes: sanitizeNumberMap(entry.bonusAttributes),
   };
 }
 
@@ -763,6 +1003,7 @@ function buildPublicJob(job, equipmentMap) {
     attribute: job.attribute,
     description: job.description,
     category: job.category,
+    type: job.type || 'standard',
     craftsPerHour: job.craftsPerHour,
     statGainChance: job.statGainChance,
     statGainAmount: job.statGainAmount,
@@ -772,7 +1013,134 @@ function buildPublicJob(job, equipmentMap) {
   };
 }
 
-function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config) {
+function countEquippedItems(characterDoc) {
+  const counts = new Map();
+  if (!characterDoc) {
+    return counts;
+  }
+  const record = rawId => {
+    if (!rawId || typeof rawId !== 'string') return;
+    const parsed = parseItemInstanceId(rawId);
+    const baseId = parsed.itemId || rawId;
+    if (!baseId) return;
+    counts.set(baseId, (counts.get(baseId) || 0) + 1);
+  };
+  const equipment = characterDoc.equipment || {};
+  Object.values(equipment).forEach(record);
+  const useables = characterDoc.useables || {};
+  Object.values(useables).forEach(record);
+  return counts;
+}
+
+function summarizeBlacksmithResources(characterDoc, blacksmithState, equipmentMap) {
+  const summary = { inventory: [], queue: [] };
+  if (!characterDoc) {
+    return summary;
+  }
+  const equippedCounts = countEquippedItems(characterDoc);
+  const items = Array.isArray(characterDoc.items) ? characterDoc.items : [];
+  const inventoryGroups = new Map();
+  const queueGroups = new Map();
+
+  const addToGroup = (map, rawId) => {
+    if (!rawId || typeof rawId !== 'string') return;
+    const parsed = parseItemInstanceId(rawId);
+    const baseId = parsed.itemId || rawId;
+    if (!baseId) return;
+    let group = map.get(baseId);
+    if (!group) {
+      group = {
+        count: 0,
+        augmented: false,
+        bonusTags: new Set(),
+        sampleId: rawId,
+      };
+      map.set(baseId, group);
+    }
+    group.count += 1;
+    if (parsed.isAugmented) {
+      group.augmented = true;
+      Object.entries(parsed.bonuses || {}).forEach(([stat, amount]) => {
+        const numeric = Number(amount);
+        if (!stat || !Number.isFinite(numeric) || numeric <= 0) {
+          return;
+        }
+        const label = stat.charAt(0).toUpperCase() + stat.slice(1);
+        group.bonusTags.add(`+${numeric} ${label}`.trim());
+      });
+    }
+  };
+
+  items.forEach(id => addToGroup(inventoryGroups, id));
+  const queueItems = Array.isArray(blacksmithState && blacksmithState.salvageQueue)
+    ? blacksmithState.salvageQueue
+    : [];
+  queueItems.forEach(id => addToGroup(queueGroups, id));
+
+  inventoryGroups.forEach((group, baseId) => {
+    const available = group.count - (equippedCounts.get(baseId) || 0);
+    if (!(available > 0)) {
+      return;
+    }
+    const item = equipmentMap.get(baseId) || equipmentMap.get(group.sampleId) || null;
+    if (!item || item.slot === 'useable' || item.slot === 'material') {
+      return;
+    }
+    const tags = new Set(group.bonusTags);
+    if (group.augmented) {
+      tags.add('Augmented');
+    }
+    summary.inventory.push({
+      itemId: baseId,
+      name: item ? item.name : baseId,
+      rarity: item ? item.rarity || null : null,
+      slot: item ? item.slot || null : null,
+      available,
+      total: group.count,
+      augmented: !!group.augmented,
+      tags: Array.from(tags),
+    });
+  });
+
+  queueGroups.forEach((group, baseId) => {
+    const item = equipmentMap.get(baseId) || equipmentMap.get(group.sampleId) || null;
+    if (!item || item.slot === 'useable' || item.slot === 'material') {
+      return;
+    }
+    const tags = new Set(group.bonusTags);
+    if (group.augmented) {
+      tags.add('Augmented');
+    }
+    summary.queue.push({
+      itemId: baseId,
+      name: item ? item.name : baseId,
+      rarity: item ? item.rarity || null : null,
+      slot: item ? item.slot || null : null,
+      count: group.count,
+      augmented: !!group.augmented,
+      tags: Array.from(tags),
+    });
+  });
+
+  summary.inventory.sort((a, b) => a.name.localeCompare(b.name));
+  summary.queue.sort((a, b) => a.name.localeCompare(b.name));
+  return summary;
+}
+
+function buildBlacksmithStatus(jobState, jobDef, characterDoc, equipmentMap) {
+  if (!isBlacksmithJob(jobDef)) {
+    return null;
+  }
+  const blacksmithState = getBlacksmithState(jobState);
+  const resources = summarizeBlacksmithResources(characterDoc, blacksmithState, equipmentMap);
+  return {
+    mode: blacksmithState.mode || 'craft',
+    inventory: resources.inventory,
+    salvageQueue: resources.queue,
+  };
+}
+
+function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config, characterDoc) {
   const isWorking = !!jobState.isWorking;
   const lastProcessed = jobState.lastProcessedAt ? new Date(jobState.lastProcessedAt) : null;
   const startedAt = jobState.startedAt ? new Date(jobState.startedAt) : null;
@@ -823,12 +1191,14 @@ function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config) {
   const log = logEntries.slice(0, config.logLimit)
     .map(entry => sanitizeLogEntry(entry, equipmentMap))
     .filter(Boolean);
+  const blacksmith = buildBlacksmithStatus(jobState, jobDef, characterDoc, equipmentMap);
   return {
     id: jobDef.id,
     name: jobDef.name,
     attribute: jobDef.attribute,
     description: jobDef.description,
     category: jobDef.category,
+    type: jobDef.type || 'standard',
     startedAt: startedAt && !Number.isNaN(startedAt.getTime()) ? startedAt.toISOString() : null,
     lastProcessedAt: lastProcessed && !Number.isNaN(lastProcessed.getTime()) ? lastProcessed.toISOString() : null,
     craftsPerHour: jobDef.craftsPerHour,
@@ -848,6 +1218,7 @@ function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config) {
     isWorking,
     workingSince: workingSince && !Number.isNaN(workingSince.getTime()) ? workingSince.toISOString() : null,
     log,
+    blacksmith,
   };
 }
 
@@ -857,7 +1228,9 @@ async function buildStatusForDoc(characterDoc, config) {
   const jobState = ensureJobState(characterDoc);
   const activeJobDef = jobState.jobId ? config.jobsById.get(jobState.jobId) : null;
   const jobs = config.jobs.map(job => buildPublicJob(job, equipmentMap));
-  const activeJob = activeJobDef ? buildActiveJobStatus(jobState, activeJobDef, now, equipmentMap, config) : null;
+  const activeJob = activeJobDef
+    ? buildActiveJobStatus(jobState, activeJobDef, now, equipmentMap, config, characterDoc)
+    : null;
   return {
     character: serializeCharacter(characterDoc),
     jobs,
@@ -927,6 +1300,7 @@ async function selectJob(playerId, characterId, jobId) {
     statGains: {},
     totalsByItem: {},
     log: [],
+    blacksmith: { mode: 'craft', salvageQueue: [] },
   };
   if (typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('job');
@@ -1008,6 +1382,181 @@ async function stopJobWork(playerId, characterId) {
   return setJobWorkingState(playerId, characterId, false);
 }
 
+async function setJobMode(playerId, characterId, mode) {
+  const pid = Number(playerId);
+  const cid = Number(characterId);
+  const normalizedMode = mode === 'salvage' ? 'salvage' : 'craft';
+  if (!Number.isFinite(pid) || !Number.isFinite(cid)) {
+    throw new Error('playerId and characterId required');
+  }
+  const config = await loadJobConfig();
+  const characterDoc = await CharacterModel.findOne({ playerId: pid, characterId: cid });
+  if (!characterDoc) {
+    throw new Error('character not found');
+  }
+  const { changed: processed } = await processJobForCharacter(characterDoc, { config });
+  const jobState = ensureJobState(characterDoc);
+  if (!jobState.jobId) {
+    throw new Error('profession not selected');
+  }
+  const jobDef = config.jobsById.get(jobState.jobId);
+  if (!isBlacksmithJob(jobDef)) {
+    throw new Error('profession cannot change modes');
+  }
+  const state = getBlacksmithState(jobState);
+  const modeChanged = state.mode !== normalizedMode;
+  if (modeChanged) {
+    state.mode = normalizedMode;
+    jobState.blacksmith = state;
+  }
+  if (modeChanged || processed) {
+    if (typeof characterDoc.markModified === 'function') {
+      if (modeChanged) characterDoc.markModified('job');
+    }
+    await characterDoc.save();
+  }
+  return buildStatusForDoc(characterDoc, config);
+}
+
+function findInventoryIndexForItem(characterDoc, baseItemId, { preferAugmented = false } = {}) {
+  if (!Array.isArray(characterDoc.items)) {
+    return -1;
+  }
+  const matches = [];
+  characterDoc.items.forEach((rawId, index) => {
+    if (typeof rawId !== 'string') return;
+    const parsed = parseItemInstanceId(rawId);
+    const baseId = parsed.itemId || rawId;
+    if (baseId === baseItemId) {
+      matches.push({ index, parsed, rawId });
+    }
+  });
+  if (!matches.length) {
+    return -1;
+  }
+  if (preferAugmented) {
+    const augmented = matches.find(match => match.parsed.isAugmented);
+    if (augmented) {
+      return augmented.index;
+    }
+  }
+  const normal = matches.find(match => !match.parsed.isAugmented);
+  return (normal || matches[0]).index;
+}
+
+function findQueueIndexForItem(queue, baseItemId, { preferAugmented = false } = {}) {
+  if (!Array.isArray(queue)) {
+    return -1;
+  }
+  let fallback = -1;
+  for (let i = queue.length - 1; i >= 0; i -= 1) {
+    const rawId = queue[i];
+    if (typeof rawId !== 'string') continue;
+    const parsed = parseItemInstanceId(rawId);
+    const baseId = parsed.itemId || rawId;
+    if (baseId !== baseItemId) {
+      continue;
+    }
+    if (preferAugmented && parsed.isAugmented) {
+      return i;
+    }
+    if (fallback === -1) {
+      fallback = i;
+    }
+  }
+  return fallback;
+}
+
+async function addToSalvageQueue(playerId, characterId, itemId) {
+  const pid = Number(playerId);
+  const cid = Number(characterId);
+  const baseItemId = typeof itemId === 'string' ? itemId.trim() : '';
+  if (!Number.isFinite(pid) || !Number.isFinite(cid) || !baseItemId) {
+    throw new Error('playerId, characterId and itemId required');
+  }
+  const config = await loadJobConfig();
+  const characterDoc = await CharacterModel.findOne({ playerId: pid, characterId: cid });
+  if (!characterDoc) {
+    throw new Error('character not found');
+  }
+  const { changed: processed } = await processJobForCharacter(characterDoc, { config });
+  const jobState = ensureJobState(characterDoc);
+  if (!jobState.jobId) {
+    throw new Error('profession not selected');
+  }
+  const jobDef = config.jobsById.get(jobState.jobId);
+  if (!isBlacksmithJob(jobDef)) {
+    throw new Error('profession cannot salvage equipment');
+  }
+  const blacksmithState = getBlacksmithState(jobState);
+  const inventory = Array.isArray(characterDoc.items) ? characterDoc.items : [];
+  const equippedCounts = countEquippedItems(characterDoc);
+  const ownedMatches = inventory.filter(rawId => {
+    const parsed = parseItemInstanceId(rawId);
+    const baseId = parsed.itemId || rawId;
+    return baseId === baseItemId;
+  });
+  const available = ownedMatches.length - (equippedCounts.get(baseItemId) || 0);
+  if (!(available > 0)) {
+    throw new Error('no unequipped copies available');
+  }
+  const index = findInventoryIndexForItem(characterDoc, baseItemId, { preferAugmented: false });
+  if (index === -1) {
+    throw new Error('item not available');
+  }
+  const [rawId] = characterDoc.items.splice(index, 1);
+  blacksmithState.salvageQueue.push(rawId);
+  jobState.blacksmith = blacksmithState;
+  if (typeof characterDoc.markModified === 'function') {
+    characterDoc.markModified('items');
+    characterDoc.markModified('job');
+  }
+  if (processed || rawId) {
+    await characterDoc.save();
+  }
+  return buildStatusForDoc(characterDoc, config);
+}
+
+async function removeFromSalvageQueue(playerId, characterId, itemId) {
+  const pid = Number(playerId);
+  const cid = Number(characterId);
+  const baseItemId = typeof itemId === 'string' ? itemId.trim() : '';
+  if (!Number.isFinite(pid) || !Number.isFinite(cid) || !baseItemId) {
+    throw new Error('playerId, characterId and itemId required');
+  }
+  const config = await loadJobConfig();
+  const characterDoc = await CharacterModel.findOne({ playerId: pid, characterId: cid });
+  if (!characterDoc) {
+    throw new Error('character not found');
+  }
+  const { changed: processed } = await processJobForCharacter(characterDoc, { config });
+  const jobState = ensureJobState(characterDoc);
+  if (!jobState.jobId) {
+    throw new Error('profession not selected');
+  }
+  const jobDef = config.jobsById.get(jobState.jobId);
+  if (!isBlacksmithJob(jobDef)) {
+    throw new Error('profession cannot salvage equipment');
+  }
+  const blacksmithState = getBlacksmithState(jobState);
+  const queue = blacksmithState.salvageQueue;
+  const index = findQueueIndexForItem(queue, baseItemId, { preferAugmented: true });
+  if (index === -1) {
+    throw new Error('item not in salvage queue');
+  }
+  const [rawId] = queue.splice(index, 1);
+  characterDoc.items.push(rawId);
+  jobState.blacksmith = blacksmithState;
+  if (typeof characterDoc.markModified === 'function') {
+    characterDoc.markModified('items');
+    characterDoc.markModified('job');
+  }
+  if (processed || rawId) {
+    await characterDoc.save();
+  }
+  return buildStatusForDoc(characterDoc, config);
+}
+
 async function clearJobLog(playerId, characterId) {
   const pid = Number(playerId);
   const cid = Number(characterId);
@@ -1044,4 +1593,7 @@ module.exports = {
   clearJobLog,
   ensureJobIdle,
   ensureJobIdleForDoc,
+  setJobMode,
+  addToSalvageQueue,
+  removeFromSalvageQueue,
 };

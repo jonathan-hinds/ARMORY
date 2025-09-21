@@ -2251,6 +2251,28 @@ function getJobLogInfo(entry) {
   if (!entry) return null;
   const itemName = entry.itemName
     || (entry.itemId ? titleCase(entry.itemId.replace(/^useable[_-]?/i, '').replace(/_/g, ' ')) : 'item');
+  if (entry.type === 'salvaged') {
+    const recoveredMaterials = Array.isArray(entry.recoveredMaterials)
+      ? entry.recoveredMaterials
+          .map(m => {
+            if (!m || !m.materialId) return null;
+            const amount = Math.max(1, Math.round(Number(m.amount) || 0));
+            return { materialId: m.materialId, name: describeMaterial(m.materialId), amount };
+          })
+          .filter(Boolean)
+      : [];
+    const statGain = entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0
+      ? { stat: statLabel(entry.stat), amount: entry.statAmount }
+      : null;
+    return {
+      itemName,
+      rarity: entry.rarity || null,
+      type: 'salvaged',
+      timestamp: entry.timestamp || null,
+      recoveredMaterials,
+      statGain,
+    };
+  }
   const chanceRaw = Number(entry.generationChance);
   const shareRaw = Number(entry.generationShare);
   const rollRaw = Number(entry.generationRoll);
@@ -2339,6 +2361,17 @@ function getJobLogInfo(entry) {
   const statGain = entry.stat && Number.isFinite(entry.statAmount) && entry.statAmount > 0
     ? { stat: statLabel(entry.stat), amount: entry.statAmount }
     : null;
+  const bonusAttributes = entry.bonusAttributes && typeof entry.bonusAttributes === 'object'
+    ? Object.entries(entry.bonusAttributes)
+        .map(([stat, amount]) => {
+          const numeric = Number(amount);
+          if (!stat || !Number.isFinite(numeric) || numeric <= 0) {
+            return null;
+          }
+          return `${statLabel(stat)} +${numeric}`;
+        })
+        .filter(Boolean)
+    : [];
   const succeeded = entry.generationSucceeded != null ? !!entry.generationSucceeded : entry.type === 'crafted';
   return {
     itemName,
@@ -2352,6 +2385,7 @@ function getJobLogInfo(entry) {
     generatedMaterials,
     missingMaterials,
     statGain,
+    bonusAttributes,
     creation: {
       hasChance,
       hasShare,
@@ -2500,6 +2534,10 @@ function createStandardJobLogCard(info, { hideGenerated = false } = {}) {
     addDetail('Stat Gain', `+${info.statGain.amount} ${info.statGain.stat}`);
   }
 
+  if (info.bonusAttributes && info.bonusAttributes.length) {
+    addDetail('Augmentation', info.bonusAttributes.join(', '));
+  }
+
   return li;
 }
 
@@ -2526,10 +2564,37 @@ function createDiscoveryLogCard(info) {
   return li;
 }
 
+function createSalvageLogCard(info) {
+  const { li, addDetail } = createJobLogEntryStructure({
+    className: 'log-salvaged',
+    titleText: info.itemName,
+    rarityText: info.rarity,
+    badgeText: 'Salvaged',
+    badgeClass: 'info',
+    timestamp: info.timestamp,
+  });
+
+  if (info.recoveredMaterials && info.recoveredMaterials.length) {
+    addDetail('Recovered Materials', info.recoveredMaterials.map(m => `${m.name} ×${m.amount}`).join(', '));
+  }
+  if (info.statGain) {
+    addDetail('Stat Gain', `+${info.statGain.amount} ${info.statGain.stat}`);
+  }
+
+  return li;
+}
+
 function buildJobLogListItem(entry) {
   const fragment = document.createDocumentFragment();
   const info = getJobLogInfo(entry);
   if (!info) {
+    return fragment;
+  }
+  if (info.type === 'salvaged') {
+    const card = createSalvageLogCard(info);
+    if (card) {
+      fragment.appendChild(card);
+    }
     return fragment;
   }
   const splitDiscovery = info.type !== 'crafted' && info.generatedMaterials.length > 0;
@@ -2705,12 +2770,132 @@ function renderJobSelectionContent(container, status) {
   container.appendChild(grid);
 }
 
+function createBlacksmithModeControls(active, container) {
+  const panel = document.createElement('div');
+  panel.className = 'blacksmith-mode-panel';
+  const label = document.createElement('span');
+  label.className = 'blacksmith-mode-label';
+  label.textContent = 'Active Task:';
+  panel.appendChild(label);
+
+  const createButton = (mode, text) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    const isActive = active.blacksmith?.mode === mode;
+    button.className = `blacksmith-mode-button${isActive ? ' active' : ''}`;
+    button.dataset.mode = mode;
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    button.textContent = text;
+    if (isActive) {
+      button.disabled = true;
+    } else {
+      button.addEventListener('click', () => handleBlacksmithModeChange(mode, container, button));
+    }
+    return button;
+  };
+
+  panel.appendChild(createButton('craft', 'Forge Gear'));
+  panel.appendChild(createButton('salvage', 'Salvage Gear'));
+  return panel;
+}
+
+function createBlacksmithItemCard(entry, { type, container }) {
+  const card = document.createElement('div');
+  card.className = 'blacksmith-item-card';
+  const header = document.createElement('div');
+  header.className = 'blacksmith-item-header';
+  const name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = entry.name || titleCase(entry.itemId.replace(/_/g, ' '));
+  header.appendChild(name);
+  if (entry.rarity) {
+    const rarity = document.createElement('span');
+    rarity.className = 'rarity';
+    rarity.textContent = entry.rarity;
+    header.appendChild(rarity);
+  }
+  card.appendChild(header);
+
+  const meta = document.createElement('div');
+  meta.className = 'blacksmith-item-meta';
+  if (type === 'inventory') {
+    meta.textContent = `Available ${entry.available || 0}${entry.total != null ? ` / ${entry.total}` : ''}`;
+  } else {
+    meta.textContent = `Queued ${entry.count || 0}`;
+  }
+  card.appendChild(meta);
+
+  if (Array.isArray(entry.tags) && entry.tags.length) {
+    const tags = document.createElement('div');
+    tags.className = 'blacksmith-tags';
+    entry.tags.forEach(tagText => {
+      if (!tagText) return;
+      const tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = tagText;
+      tags.appendChild(tag);
+    });
+    card.appendChild(tags);
+  }
+
+  const action = document.createElement('button');
+  action.type = 'button';
+  action.className = 'blacksmith-item-action';
+  if (type === 'inventory') {
+    action.textContent = 'Add to Queue';
+    if (!(entry.available > 0)) {
+      action.disabled = true;
+    }
+    action.addEventListener('click', () => handleAddToSalvageQueue(entry.itemId, container, action));
+  } else {
+    action.textContent = 'Remove';
+    if (!(entry.count > 0)) {
+      action.disabled = true;
+    }
+    action.addEventListener('click', () => handleRemoveFromSalvageQueue(entry.itemId, container, action));
+  }
+  card.appendChild(action);
+  return card;
+}
+
+function createBlacksmithColumn(title, entries, { type, container }) {
+  const column = document.createElement('div');
+  column.className = 'blacksmith-column';
+  const heading = document.createElement('h4');
+  heading.textContent = title;
+  column.appendChild(heading);
+  if (!Array.isArray(entries) || !entries.length) {
+    const empty = document.createElement('p');
+    empty.className = 'job-empty-text';
+    empty.textContent = type === 'inventory'
+      ? 'No equipment available to salvage.'
+      : 'No items queued for salvage.';
+    column.appendChild(empty);
+    return column;
+  }
+  entries.forEach(entry => {
+    column.appendChild(createBlacksmithItemCard(entry, { type, container }));
+  });
+  return column;
+}
+
+function createBlacksmithWorkspace(active, container) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'blacksmith-workspace';
+  const inventoryColumn = createBlacksmithColumn('Inventory', active.blacksmith?.inventory || [], { type: 'inventory', container });
+  const queueColumn = createBlacksmithColumn('Salvage Queue', active.blacksmith?.salvageQueue || [], { type: 'queue', container });
+  wrapper.appendChild(inventoryColumn);
+  wrapper.appendChild(queueColumn);
+  return wrapper;
+}
+
 function renderJobActiveContent(container, status) {
   container.innerHTML = '';
   const active = status.activeJob;
   const jobDef = status.jobs ? status.jobs.find(job => job.id === active.id) || active : active;
   const statName = active.attribute ? statLabel(active.attribute) : 'Attribute';
   const isWorking = !!active.isWorking;
+  const isBlacksmith = jobDef.type === 'blacksmith';
   const workingSinceDate = active.workingSince ? new Date(active.workingSince) : null;
   const lastAttemptDate = active.lastProcessedAt ? new Date(active.lastProcessedAt) : null;
 
@@ -2743,9 +2928,15 @@ function renderJobActiveContent(container, status) {
 
   const shiftMessage = document.createElement('p');
   shiftMessage.className = 'job-shift-message';
-  shiftMessage.textContent = isWorking
-    ? 'Crafting runs in the background while materials are available. Clock out to take on adventures, matchmaking, or challenges.'
-    : 'Clock in to begin hourly crafting rolls. Stay off duty to freely adventure and battle opponents.';
+  if (isBlacksmith) {
+    shiftMessage.textContent = isWorking
+      ? 'Working your current task. Swap modes at any time to forge new gear or salvage old equipment.'
+      : 'Choose whether to forge or salvage, then clock in to get the forge roaring.';
+  } else {
+    shiftMessage.textContent = isWorking
+      ? 'Crafting runs in the background while materials are available. Clock out to take on adventures, matchmaking, or challenges.'
+      : 'Clock in to begin hourly crafting rolls. Stay off duty to freely adventure and battle opponents.';
+  }
   shiftPanel.appendChild(shiftMessage);
 
   const shiftButton = document.createElement('button');
@@ -2756,6 +2947,10 @@ function renderJobActiveContent(container, status) {
 
   summary.appendChild(shiftPanel);
 
+  if (isBlacksmith) {
+    summary.appendChild(createBlacksmithModeControls(active, container));
+  }
+
   const restriction = document.createElement('p');
   restriction.className = 'job-restriction-note';
   restriction.textContent = isWorking
@@ -2764,6 +2959,10 @@ function renderJobActiveContent(container, status) {
   summary.appendChild(restriction);
 
   container.appendChild(summary);
+
+  if (isBlacksmith) {
+    container.appendChild(createBlacksmithWorkspace(active, container));
+  }
 
   const statsGrid = document.createElement('div');
   statsGrid.className = 'job-stats-grid';
@@ -2789,16 +2988,20 @@ function renderJobActiveContent(container, status) {
   }
   const craftsPerHour = active.craftsPerHour || status.config?.craftsPerHour || 0;
   addStat('Crafts / Hour', craftsPerHour);
-  addStat('Total Attempts', active.totalAttempts || 0);
-  addStat('Successful Crafts', active.totalCrafted || 0);
+  addStat(isBlacksmith ? 'Forge Attempts' : 'Total Attempts', active.totalAttempts || 0);
+  addStat(isBlacksmith ? 'Successful Forges' : 'Successful Crafts', active.totalCrafted || 0);
   const successRate = active.totalAttempts ? `${Math.round((active.totalCrafted / active.totalAttempts) * 100)}%` : '0%';
-  addStat('Success Rate', successRate);
+  addStat(isBlacksmith ? 'Forge Success Rate' : 'Success Rate', successRate);
   const chance = active.statGainChance != null ? active.statGainChance : status.config?.statGainChance;
   const amount = active.statGainAmount != null ? active.statGainAmount : status.config?.statGainAmount;
   addStat('Stat Gain Chance', `${formatPercent(chance || 0)} for +${amount || 0} ${statName}`);
   const creationInfo = calculateResourceCreationInfo(active, status);
   addStat('Resource Creation Chance', formatResourceCreationText(creationInfo));
   addStat('Total Stat Gains', `${active.totalStatGain || 0} ${statName}`);
+  if (isBlacksmith) {
+    const queuedItems = (active.blacksmith?.salvageQueue || []).reduce((sum, entry) => sum + (entry.count || 0), 0);
+    addStat('Queued for Salvage', queuedItems);
+  }
   const nextText = isWorking
     ? active.secondsUntilNext == null
       ? 'Processing...'
@@ -2889,7 +3092,7 @@ function renderJobActiveContent(container, status) {
   const recipeSection = document.createElement('div');
   recipeSection.className = 'job-recipe-section';
   const recipeTitle = document.createElement('h4');
-  recipeTitle.textContent = 'Available Recipes';
+  recipeTitle.textContent = isBlacksmith ? 'Forge Catalogue' : 'Available Recipes';
   recipeSection.appendChild(recipeTitle);
   recipeSection.appendChild(createJobRecipeList(jobDef, { includeOwned: true }));
   container.appendChild(recipeSection);
@@ -2984,6 +3187,128 @@ async function handleJobShiftToggle(shouldStart, container, button) {
   } finally {
     if (button) button.disabled = false;
   }
+}
+
+async function handleBlacksmithModeChange(mode, container, button) {
+  if (!currentPlayer || !currentCharacter || !container) return;
+  const normalizedMode = mode === 'salvage' ? 'salvage' : 'craft';
+  const currentMode = jobStatusCache?.activeJob?.blacksmith?.mode || null;
+  if (currentMode === normalizedMode) {
+    return;
+  }
+  const originalText = button ? button.textContent : null;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Switching...';
+  }
+  let responsePayload = null;
+  let succeeded = false;
+  try {
+    const res = await fetch(`/characters/${currentCharacter.id}/job/mode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id, mode: normalizedMode }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : 'Failed to update job mode';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    try {
+      await refreshInventory(true);
+    } catch (err) {
+      console.error('inventory refresh failed', err);
+    }
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+    succeeded = true;
+  } catch (err) {
+    alert(err && err.message ? err.message : 'Failed to update job mode');
+  } finally {
+    if (!succeeded && button) {
+      button.disabled = false;
+      if (originalText != null) {
+        button.textContent = originalText;
+      }
+    }
+  }
+}
+
+async function mutateBlacksmithSalvageQueue(action, itemId, container, button) {
+  if (!currentPlayer || !currentCharacter || !container) return;
+  const itemKey = typeof itemId === 'string' ? itemId : '';
+  if (!itemKey) {
+    return;
+  }
+  const endpoint = action === 'remove' ? 'remove' : 'add';
+  const pendingText = endpoint === 'add' ? 'Adding...' : 'Removing...';
+  const originalText = button ? button.textContent : null;
+  if (button) {
+    button.disabled = true;
+    button.textContent = pendingText;
+  }
+  let responsePayload = null;
+  let succeeded = false;
+  try {
+    const res = await fetch(`/characters/${currentCharacter.id}/job/salvage/${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: currentPlayer.id, itemId: itemKey }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch (err) {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : endpoint === 'add'
+          ? 'Failed to add item to salvage queue'
+          : 'Failed to remove item from salvage queue';
+      throw new Error(message);
+    }
+    jobStatusCache = responsePayload;
+    try {
+      await refreshInventory(true);
+    } catch (err) {
+      console.error('inventory refresh failed', err);
+    }
+    if (isTabActive('character')) {
+      renderCharacter();
+    }
+    renderJobDialogContent(container, responsePayload);
+    succeeded = true;
+  } catch (err) {
+    const fallback = endpoint === 'add'
+      ? 'Failed to add item to salvage queue'
+      : 'Failed to remove item from salvage queue';
+    alert(err && err.message ? err.message : fallback);
+  } finally {
+    if (!succeeded && button) {
+      button.disabled = false;
+      if (originalText != null) {
+        button.textContent = originalText;
+      }
+    }
+  }
+}
+
+async function handleAddToSalvageQueue(itemId, container, button) {
+  await mutateBlacksmithSalvageQueue('add', itemId, container, button);
+}
+
+async function handleRemoveFromSalvageQueue(itemId, container, button) {
+  await mutateBlacksmithSalvageQueue('remove', itemId, container, button);
 }
 
 function showJobConfirmDialog({

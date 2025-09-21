@@ -13,7 +13,17 @@ const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
 const { getChallengeStatus, runChallengeFight, startChallenge } = require("./systems/challengeGA");
-const { getJobStatus, selectJob, startJobWork, stopJobWork, ensureJobIdle, clearJobLog } = require("./systems/jobService");
+const {
+  getJobStatus,
+  selectJob,
+  startJobWork,
+  stopJobWork,
+  ensureJobIdle,
+  clearJobLog,
+  setJobMode,
+  addToSalvageQueue,
+  removeFromSalvageQueue,
+} = require("./systems/jobService");
 const {
   getAdventureStatus,
   startAdventure,
@@ -230,6 +240,54 @@ app.post("/characters/:characterId/job/stop", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message || "failed to stop job" });
+  }
+});
+
+app.post("/characters/:characterId/job/mode", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, mode } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId || !mode) {
+    return res.status(400).json({ error: "playerId, characterId and mode required" });
+  }
+  try {
+    const status = await setJobMode(pid, characterId, mode);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to update job mode" });
+  }
+});
+
+app.post("/characters/:characterId/job/salvage/add", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, itemId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId || !itemId) {
+    return res.status(400).json({ error: "playerId, characterId and itemId required" });
+  }
+  try {
+    const status = await addToSalvageQueue(pid, characterId, itemId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to add item to salvage queue" });
+  }
+});
+
+app.post("/characters/:characterId/job/salvage/remove", async (req, res) => {
+  const characterId = parseInt(req.params.characterId, 10);
+  const { playerId, itemId } = req.body || {};
+  const pid = parseInt(playerId, 10);
+  if (!pid || !characterId || !itemId) {
+    return res.status(400).json({ error: "playerId, characterId and itemId required" });
+  }
+  try {
+    const status = await removeFromSalvageQueue(pid, characterId, itemId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to remove item from salvage queue" });
   }
 });
 

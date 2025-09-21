@@ -5,6 +5,9 @@ const {
   STATS,
   readMaterialCount,
   writeMaterialCount,
+  findItemIndex,
+  countItems,
+  matchesItemId,
 } = require('../models/utils');
 const { readJSON } = require('../store/jsonStore');
 const {
@@ -824,13 +827,13 @@ async function resolveAdventureEvent(state, config, bundle, eventDef, timestamp)
       let modifiedUseables = false;
       let itemsModified = false;
       consumedByPlayer.forEach(entry => {
-        const idx = bundle.characterDoc.items.indexOf(entry.itemId);
+        const idx = findItemIndex(bundle.characterDoc.items, entry.itemId);
         if (idx !== -1) {
           bundle.characterDoc.items.splice(idx, 1);
           itemsModified = true;
         }
-        if (bundle.characterDoc.useables[entry.slot] === entry.itemId) {
-          const remaining = bundle.characterDoc.items.filter(id => id === entry.itemId).length;
+        if (matchesItemId(bundle.characterDoc.useables[entry.slot], entry.itemId)) {
+          const remaining = countItems(bundle.characterDoc.items, entry.itemId);
           if (remaining <= 0) {
             bundle.characterDoc.useables[entry.slot] = null;
             modifiedUseables = true;

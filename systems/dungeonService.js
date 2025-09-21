@@ -1,5 +1,5 @@
 const CharacterModel = require('../models/Character');
-const { serializeCharacter } = require('../models/utils');
+const { serializeCharacter, findItemIndex, countItems, matchesItemId } = require('../models/utils');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
 const { generateDungeonBoss } = require('./dungeonGA');
@@ -92,13 +92,13 @@ function applyUseableConsumption(entry, consumedMap, characterDoc) {
     characterDoc.items = [];
   }
   consumed.forEach(useable => {
-    const idx = characterDoc.items.indexOf(useable.itemId);
+    const idx = findItemIndex(characterDoc.items, useable.itemId);
     if (idx !== -1) {
       characterDoc.items.splice(idx, 1);
       itemsModified = true;
     }
-    if (characterDoc.useables[useable.slot] === useable.itemId) {
-      const remaining = characterDoc.items.filter(id => id === useable.itemId).length;
+    if (matchesItemId(characterDoc.useables[useable.slot], useable.itemId)) {
+      const remaining = countItems(characterDoc.items, useable.itemId);
       if (remaining <= 0) {
         characterDoc.useables[useable.slot] = null;
         modifiedUseables = true;
