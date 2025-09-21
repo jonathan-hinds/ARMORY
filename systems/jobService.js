@@ -1122,7 +1122,12 @@ async function processJobForCharacter(characterDoc, options = {}) {
     if (itemsChanged) characterDoc.markModified('items');
     if (attributesChanged) characterDoc.markModified('attributes');
     if (customItemsChanged) characterDoc.markModified('customItems');
-    if (jobChanged) characterDoc.markModified('job');
+    if (jobChanged) {
+      characterDoc.markModified('job');
+      if (shiftModeChanged) {
+        characterDoc.markModified('job.shiftSelections');
+      }
+    }
   }
   return {
     changed: materialsChanged || itemsChanged || attributesChanged || customItemsChanged || jobChanged,
@@ -1494,7 +1499,8 @@ async function setBlacksmithTask(playerId, characterId, task) {
     requestedModeId: modeId,
     strict: true,
   });
-  if (selectionResult.changed) {
+  const shiftSelectionChanged = !!selectionResult.changed;
+  if (shiftSelectionChanged) {
     jobChanged = true;
   }
   if (jobState.blacksmith && typeof jobState.blacksmith === 'object') {
@@ -1510,6 +1516,9 @@ async function setBlacksmithTask(playerId, characterId, task) {
   }
   if (jobChanged && typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('job');
+    if (shiftSelectionChanged) {
+      characterDoc.markModified('job.shiftSelections');
+    }
   }
   if (jobChanged) {
     await characterDoc.save();
@@ -1721,7 +1730,8 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
     strict: !!modeIdRaw,
   });
   selectedMode = selectionResult.mode;
-  if (selectionResult.changed) {
+  const shiftSelectionChanged = !!selectionResult.changed;
+  if (shiftSelectionChanged) {
     jobChanged = true;
   }
   if (jobDef.isBlacksmith && jobState.blacksmith && typeof jobState.blacksmith === 'object') {
@@ -1759,6 +1769,9 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
   }
   if (jobChanged && typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('job');
+    if (shiftSelectionChanged) {
+      characterDoc.markModified('job.shiftSelections');
+    }
   }
   if (jobChanged || processedChanges) {
     await characterDoc.save();
