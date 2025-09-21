@@ -175,6 +175,11 @@ function normalizeShiftMode(entry) {
   };
 }
 
+function normalizeBlacksmithModeId(value) {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return raw === 'salvage' ? 'salvage' : 'forge';
+}
+
 async function loadJobRecipes() {
   if (!recipeCache) {
     let raw;
@@ -313,7 +318,7 @@ function applyJobModeState(jobState, jobDef, mode) {
   let changed = false;
   if (jobDef.id === 'blacksmith' || jobDef.behavior === 'blacksmith' || jobDef.isBlacksmith) {
     if (!jobState.blacksmith || typeof jobState.blacksmith !== 'object') {
-      jobState.blacksmith = { task: 'craft', salvageQueue: [] };
+      jobState.blacksmith = { task: 'craft', salvageQueue: [], modeId: 'forge' };
       changed = true;
     }
     if (!Array.isArray(jobState.blacksmith.salvageQueue)) {
@@ -330,6 +335,11 @@ function applyJobModeState(jobState, jobDef, mode) {
     const desiredTask = mode.task === 'salvage' ? 'salvage' : 'craft';
     if (jobState.blacksmith.task !== desiredTask) {
       jobState.blacksmith.task = desiredTask;
+      changed = true;
+    }
+    const desiredModeId = typeof mode.id === 'string' && mode.id ? mode.id : desiredTask === 'salvage' ? 'salvage' : 'forge';
+    if (jobState.blacksmith.modeId !== desiredModeId) {
+      jobState.blacksmith.modeId = desiredModeId;
       changed = true;
     }
   }
@@ -504,17 +514,43 @@ function ensureJobState(characterDoc) {
   }
   jobState.shiftSelections = sanitizeShiftSelectionMap(jobState.shiftSelections);
   if (!jobState.blacksmith || typeof jobState.blacksmith !== 'object') {
-    jobState.blacksmith = { task: 'craft', salvageQueue: [] };
+    jobState.blacksmith = { task: 'craft', salvageQueue: [], modeId: 'forge' };
+  }
+  const blacksmithState = jobState.blacksmith;
+  if (!Array.isArray(blacksmithState.salvageQueue)) {
+    blacksmithState.salvageQueue = [];
   } else {
-    if (jobState.blacksmith.task !== 'salvage') {
-      jobState.blacksmith.task = 'craft';
-    }
-    if (!Array.isArray(jobState.blacksmith.salvageQueue)) {
-      jobState.blacksmith.salvageQueue = [];
+    blacksmithState.salvageQueue = blacksmithState.salvageQueue
+      .filter(id => typeof id === 'string' && id);
+  }
+  let modeId = normalizeBlacksmithModeId(blacksmithState.modeId);
+  blacksmithState.modeId = modeId;
+  if (blacksmithState.task === 'salvage' || modeId === 'salvage') {
+    blacksmithState.task = 'salvage';
+    modeId = 'salvage';
+  } else {
+    blacksmithState.task = 'craft';
+    modeId = 'forge';
+    blacksmithState.modeId = modeId;
+  }
+  const jobKey = typeof jobState.jobId === 'string' ? jobState.jobId.trim().toLowerCase() : '';
+  if (jobKey === 'blacksmith') {
+    const map = jobState.shiftSelections || {};
+    const storedRaw = typeof map[jobKey] === 'string' ? map[jobKey] : '';
+    const stored = storedRaw ? normalizeBlacksmithModeId(storedRaw) : '';
+    if (!stored) {
+      map[jobKey] = modeId;
     } else {
-      jobState.blacksmith.salvageQueue = jobState.blacksmith.salvageQueue
-        .filter(id => typeof id === 'string' && id);
+      if (map[jobKey] !== stored) {
+        map[jobKey] = stored;
+      }
+      if (modeId !== stored) {
+        blacksmithState.modeId = stored;
+        blacksmithState.task = stored === 'salvage' ? 'salvage' : 'craft';
+        modeId = stored;
+      }
     }
+    jobState.shiftSelections = map;
   }
   if (!Number.isFinite(jobState.totalAttempts)) {
     jobState.totalAttempts = 0;
@@ -1325,11 +1361,14 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
         inventoryItems.push({ instanceId: storedId, baseItemId, item: cloneItem });
       }
     }
+    const stateModeId = normalizeBlacksmithModeId(state.modeId);
+    const effectiveModeId = activeShiftModeId || stateModeId || null;
+    const effectiveTask = state.task === 'salvage' || effectiveModeId === 'salvage' ? 'salvage' : 'craft';
     blacksmith = {
-      task: state.task === 'salvage' ? 'salvage' : 'craft',
+      task: effectiveTask,
       salvageQueue: queueItems,
       inventory: inventoryItems,
-      modeId: activeShiftModeId,
+      modeId: effectiveModeId,
     };
   }
   return {
@@ -1394,7 +1433,7 @@ function ensureBlacksmithJob(jobState) {
     throw new Error('blacksmith profession required');
   }
   if (!jobState.blacksmith || typeof jobState.blacksmith !== 'object') {
-    jobState.blacksmith = { task: 'craft', salvageQueue: [] };
+    jobState.blacksmith = { task: 'craft', salvageQueue: [], modeId: 'forge' };
   }
   if (!Array.isArray(jobState.blacksmith.salvageQueue)) {
     jobState.blacksmith.salvageQueue = [];
@@ -1402,10 +1441,18 @@ function ensureBlacksmithJob(jobState) {
   const selection = jobState.shiftSelections && typeof jobState.shiftSelections === 'object'
     ? jobState.shiftSelections[jobState.jobId]
     : null;
-  if (selection === 'salvage') {
+  const selectedMode = normalizeBlacksmithModeId(selection);
+  if (selection && jobState.shiftSelections[jobState.jobId] !== selectedMode) {
+    jobState.shiftSelections[jobState.jobId] = selectedMode;
+  }
+  if (selectedMode === 'salvage') {
     jobState.blacksmith.task = 'salvage';
-  } else if (jobState.blacksmith.task !== 'salvage') {
+    jobState.blacksmith.modeId = 'salvage';
+  } else if (jobState.blacksmith.task === 'salvage') {
+    jobState.blacksmith.modeId = 'salvage';
+  } else {
     jobState.blacksmith.task = 'craft';
+    jobState.blacksmith.modeId = 'forge';
   }
   return jobState.blacksmith;
 }
@@ -1449,6 +1496,17 @@ async function setBlacksmithTask(playerId, characterId, task) {
   });
   if (selectionResult.changed) {
     jobChanged = true;
+  }
+  if (jobState.blacksmith && typeof jobState.blacksmith === 'object') {
+    const normalizedMode = normalizeBlacksmithModeId(modeId);
+    if (jobState.blacksmith.modeId !== normalizedMode) {
+      jobState.blacksmith.modeId = normalizedMode;
+    }
+    if (normalizedMode === 'salvage') {
+      jobState.blacksmith.task = 'salvage';
+    } else if (jobState.blacksmith.task !== 'salvage') {
+      jobState.blacksmith.task = 'craft';
+    }
   }
   if (jobChanged && typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('job');
@@ -1665,6 +1723,20 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
   selectedMode = selectionResult.mode;
   if (selectionResult.changed) {
     jobChanged = true;
+  }
+  if (jobDef.isBlacksmith && jobState.blacksmith && typeof jobState.blacksmith === 'object') {
+    const modeFromSelection = selectedMode ? normalizeBlacksmithModeId(selectedMode.id) : null;
+    if (modeFromSelection) {
+      if (jobState.blacksmith.modeId !== modeFromSelection) {
+        jobState.blacksmith.modeId = modeFromSelection;
+        jobChanged = true;
+      }
+      if (modeFromSelection === 'salvage') {
+        jobState.blacksmith.task = 'salvage';
+      } else if (jobState.blacksmith.task !== 'salvage') {
+        jobState.blacksmith.task = 'craft';
+      }
+    }
   }
   if (shouldWork && Array.isArray(jobDef.shiftModes) && jobDef.shiftModes.length && !selectedMode) {
     throw new Error('work mode unavailable');

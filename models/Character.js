@@ -93,6 +93,7 @@ const jobBlacksmithSchema = new mongoose.Schema(
   {
     task: { type: String, enum: ['craft', 'salvage'], default: 'craft' },
     salvageQueue: { type: [String], default: [] },
+    modeId: { type: String, default: 'forge' },
   },
   { _id: false }
 );
