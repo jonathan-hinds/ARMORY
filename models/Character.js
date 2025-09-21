@@ -55,7 +55,7 @@ const jobGeneratedMaterialSchema = new mongoose.Schema(
 const jobLogEntrySchema = new mongoose.Schema(
   {
     timestamp: { type: Date, default: Date.now },
-    type: { type: String, enum: ['crafted', 'failed'], required: true },
+    type: { type: String, enum: ['crafted', 'failed', 'salvaged'], required: true },
     itemId: { type: String, default: null },
     itemName: { type: String, default: null },
     rarity: { type: String, default: null },
@@ -65,6 +65,18 @@ const jobLogEntrySchema = new mongoose.Schema(
     missing: { type: [jobMissingSchema], default: undefined },
     materials: { type: materialsSchema, default: () => ({}) },
     generatedMaterials: { type: [jobGeneratedMaterialSchema], default: undefined },
+    producedMaterials: { type: [jobGeneratedMaterialSchema], default: undefined },
+    itemBonus: {
+      type: new mongoose.Schema(
+        {
+          stat: { type: String, default: null },
+          amount: { type: Number, default: 0 },
+          instanceId: { type: String, default: null },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     generationAttempted: { type: Boolean, default: false },
     generationSucceeded: { type: Boolean, default: false },
     generationChance: { type: Number, default: null },
@@ -72,6 +84,14 @@ const jobLogEntrySchema = new mongoose.Schema(
     generationMultiplier: { type: Number, default: null },
     generationRoll: { type: Number, default: null },
     generationAttribute: { type: String, default: null },
+  },
+  { _id: false }
+);
+
+const jobBlacksmithSchema = new mongoose.Schema(
+  {
+    task: { type: String, enum: ['craft', 'salvage'], default: 'craft' },
+    salvageQueue: { type: [String], default: [] },
   },
   { _id: false }
 );
@@ -89,8 +109,18 @@ const jobSchema = new mongoose.Schema(
     statGains: { type: flexibleNumberMapSchema, default: () => ({}) },
     totalsByItem: { type: flexibleNumberMapSchema, default: () => ({}) },
     log: { type: [jobLogEntrySchema], default: [] },
+    blacksmith: { type: jobBlacksmithSchema, default: undefined },
   },
   { _id: false }
+);
+
+const customItemSchema = new mongoose.Schema(
+  {
+    baseItemId: { type: String, required: true },
+    attributeBonuses: { type: flexibleNumberMapSchema, default: undefined },
+    createdAt: { type: Date, default: Date.now },
+  },
+  { _id: false, minimize: false }
 );
 
 const characterSchema = new mongoose.Schema(
@@ -108,6 +138,7 @@ const characterSchema = new mongoose.Schema(
     gold: { type: Number, default: 0 },
     items: { type: [String], default: [] },
     materials: { type: materialsSchema, default: () => ({}) },
+    customItems: { type: Map, of: customItemSchema, default: undefined },
     job: { type: jobSchema, default: () => ({}) },
   },
   { timestamps: true }

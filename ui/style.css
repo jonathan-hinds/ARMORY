@@ -1717,3 +1717,225 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   0%, 100% { box-shadow:0 0 0 0 rgba(0,0,0,0.4); transform:translateY(0); }
   50% { box-shadow:0 0 0 6px rgba(0,0,0,0.2); transform:translateY(-1px); }
 }
+
+.blacksmith-section {
+  margin-top:24px;
+  padding:16px;
+  border:1px solid #1f1f1f;
+  border-radius:10px;
+  background:#0e0e0e;
+  box-shadow:0 6px 16px rgba(0,0,0,0.35);
+}
+
+.blacksmith-task-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+  margin-bottom:12px;
+}
+
+.blacksmith-task-header h4 {
+  margin:0;
+  font-size:1.2rem;
+}
+
+.blacksmith-task-buttons {
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.blacksmith-task-button {
+  background:#1c2531;
+  color:#d7e8ff;
+  border:1px solid #2f4057;
+  padding:6px 14px;
+  border-radius:6px;
+  font-weight:600;
+  transition:background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  cursor:pointer;
+}
+
+.blacksmith-task-button:hover,
+.blacksmith-task-button:focus {
+  background:#263445;
+  border-color:#3f5575;
+}
+
+.blacksmith-task-button.active {
+  background:linear-gradient(135deg,#3b82f6,#2563eb);
+  border-color:#1d4ed8;
+  color:#f8fafc;
+  cursor:default;
+  transform:translateY(-1px);
+  box-shadow:0 4px 12px rgba(37,99,235,0.35);
+}
+
+.blacksmith-task-button.active:hover,
+.blacksmith-task-button.active:focus {
+  background:linear-gradient(135deg,#3b82f6,#2563eb);
+  border-color:#1d4ed8;
+}
+
+.blacksmith-task-button:disabled {
+  opacity:0.85;
+}
+
+.blacksmith-note {
+  margin:0 0 18px;
+  font-size:0.95rem;
+  color:#cbd5f5;
+}
+
+.blacksmith-columns {
+  display:grid;
+  gap:18px;
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+}
+
+.blacksmith-column {
+  background:#11151d;
+  border:1px solid #1f2b3d;
+  border-radius:10px;
+  padding:14px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  min-height:120px;
+  transition:border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.blacksmith-column.active {
+  border-color:#3b82f6;
+  box-shadow:0 0 0 1px rgba(59,130,246,0.35);
+}
+
+.blacksmith-column h5 {
+  margin:0;
+  font-size:1rem;
+  font-weight:600;
+  color:#e3e9ff;
+}
+
+.blacksmith-empty {
+  margin:0;
+  color:#8b9bbd;
+  font-size:0.9rem;
+}
+
+.blacksmith-item-list {
+  display:grid;
+  gap:12px;
+}
+
+.blacksmith-item-card {
+  background:#151b27;
+  border:1px solid #253044;
+  border-radius:8px;
+  padding:12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  transition:border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.blacksmith-item-card:hover,
+.blacksmith-item-card:focus-within {
+  border-color:#3b82f6;
+  box-shadow:0 4px 12px rgba(59,130,246,0.25);
+}
+
+.blacksmith-item-header {
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  align-items:baseline;
+}
+
+.blacksmith-item-name {
+  font-weight:600;
+  font-size:1rem;
+  color:#f1f5ff;
+}
+
+.blacksmith-item-rarity {
+  font-size:0.85rem;
+  color:#9fb7ff;
+  text-transform:uppercase;
+  letter-spacing:0.05em;
+}
+
+.blacksmith-item-meta {
+  font-size:0.85rem;
+  color:#a6b4d4;
+}
+
+.blacksmith-item-variant {
+  font-size:0.8rem;
+  color:#94a3c7;
+}
+
+.blacksmith-item-stats {
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.blacksmith-item-stat {
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  font-size:0.85rem;
+  color:#d0dcff;
+}
+
+.blacksmith-item-stat .label {
+  font-weight:600;
+  color:#94b4ff;
+}
+
+.blacksmith-item-stat .value {
+  flex:1;
+  text-align:right;
+  color:#e4ecff;
+}
+
+.blacksmith-item-actions {
+  display:flex;
+  justify-content:flex-end;
+}
+
+.blacksmith-item-action {
+  padding:6px 12px;
+  border-radius:6px;
+  border:1px solid #2e3d52;
+  background:#1f2a3a;
+  color:#d4e4ff;
+  font-weight:600;
+  cursor:pointer;
+  transition:background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.blacksmith-item-action:hover,
+.blacksmith-item-action:focus {
+  background:#2b3b50;
+  border-color:#3f5575;
+  transform:translateY(-1px);
+}
+
+.blacksmith-item-action.remove {
+  background:#3a1f2a;
+  border-color:#5a2538;
+  color:#f8d7e1;
+}
+
+.blacksmith-item-action.remove:hover,
+.blacksmith-item-action.remove:focus {
+  background:#4c2836;
+  border-color:#7a3246;
+}

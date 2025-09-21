@@ -57,6 +57,44 @@ function ensureMaterialShape(materials = {}) {
   return shaped;
 }
 
+function sanitizeCustomItems(map) {
+  if (!map || typeof map !== 'object') {
+    return {};
+  }
+  const result = {};
+  const entries = map instanceof Map ? Array.from(map.entries()) : Object.entries(map);
+  entries.forEach(([id, value]) => {
+    if (!id || !value || typeof value !== 'object') {
+      return;
+    }
+    const baseItemId = typeof value.baseItemId === 'string' ? value.baseItemId : null;
+    if (!baseItemId) {
+      return;
+    }
+    const bonuses = {};
+    if (value.attributeBonuses && typeof value.attributeBonuses === 'object') {
+      Object.entries(value.attributeBonuses).forEach(([stat, amount]) => {
+        const numeric = Number(amount);
+        if (Number.isFinite(numeric) && numeric !== 0) {
+          bonuses[stat] = numeric;
+        }
+      });
+    }
+    const entry = { baseItemId };
+    if (Object.keys(bonuses).length) {
+      entry.attributeBonuses = bonuses;
+    }
+    if (value.createdAt) {
+      const date = new Date(value.createdAt);
+      if (!Number.isNaN(date.getTime())) {
+        entry.createdAt = date.toISOString();
+      }
+    }
+    result[id] = entry;
+  });
+  return result;
+}
+
 function readMaterialCount(materials, id) {
   if (!materials || id == null) {
     return 0;
@@ -124,6 +162,7 @@ function serializeCharacter(doc) {
     items,
     materials,
     job,
+    customItems,
   } = plain;
   return {
     id: typeof characterId === 'number' ? characterId : null,
@@ -140,6 +179,7 @@ function serializeCharacter(doc) {
     items: Array.isArray(items) ? [...items] : [],
     materials: ensureMaterialShape(materials),
     job: serializeJobSummary(job),
+    customItems: sanitizeCustomItems(customItems),
   };
 }
 

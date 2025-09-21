@@ -3,6 +3,7 @@ const { getAction } = require('./rotationEngine');
 const { applyEffect, tick } = require('./effectsEngine');
 const { pushLog } = require('./log');
 const { USEABLE_SLOTS } = require('../models/utils');
+const { resolveItemSync } = require('./customItemService');
 
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
 const MAX_RESIST = 0.75;
@@ -39,11 +40,8 @@ function resolveEquipment(character, equipmentMap) {
   const resolved = {};
   EQUIPMENT_SLOTS.forEach(slot => {
     const itemId = character.equipment && character.equipment[slot];
-    if (itemId && equipmentMap && equipmentMap.has(itemId)) {
-      resolved[slot] = equipmentMap.get(itemId);
-    } else {
-      resolved[slot] = null;
-    }
+    const item = itemId ? resolveItemSync(character, itemId, equipmentMap) : null;
+    resolved[slot] = item || null;
   });
   return resolved;
 }
@@ -52,11 +50,8 @@ function resolveUseables(character, equipmentMap) {
   const resolved = {};
   USEABLE_SLOTS.forEach(slot => {
     const itemId = character.useables && character.useables[slot];
-    if (itemId && equipmentMap && equipmentMap.has(itemId)) {
-      resolved[slot] = equipmentMap.get(itemId);
-    } else {
-      resolved[slot] = null;
-    }
+    const item = itemId ? resolveItemSync(character, itemId, equipmentMap) : null;
+    resolved[slot] = item || null;
   });
   return resolved;
 }

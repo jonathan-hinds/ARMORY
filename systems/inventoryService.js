@@ -11,6 +11,7 @@ const { getEquipmentMap } = require('./equipmentService');
 const { getMaterialMap } = require('./materialService');
 const { compute } = require('./derivedStats');
 const { processJobForCharacter } = require('./jobService');
+const { resolveItem, getCustomDefinition } = require('./customItemService');
 
 function slotOrder(slot) {
   const order = [...EQUIPMENT_SLOTS, 'useable'];
@@ -42,34 +43,76 @@ async function getInventory(playerId, characterId) {
   const useableIds = ensureUseableShape(character.useables || {});
   const equippedItems = {};
   const equippedForCompute = {};
-  EQUIPMENT_SLOTS.forEach(slot => {
+  for (const slot of EQUIPMENT_SLOTS) {
     const id = equipmentIds[slot];
-    const item = id ? equipmentMap.get(id) : null;
-    equippedItems[slot] = item ? JSON.parse(JSON.stringify(item)) : null;
-    equippedForCompute[slot] = item || null;
-  });
+    const resolved = id ? await resolveItem(characterDoc, id, equipmentMap) : null;
+    if (resolved) {
+      const clone = JSON.parse(JSON.stringify(resolved));
+      const definition = getCustomDefinition(characterDoc, id);
+      const baseItemId = definition && definition.baseItemId ? definition.baseItemId : id;
+      clone.instanceId = id;
+      clone.baseItemId = baseItemId;
+      equippedItems[slot] = clone;
+      equippedForCompute[slot] = resolved;
+    } else {
+      equippedItems[slot] = null;
+      equippedForCompute[slot] = null;
+    }
+  }
 
   const equippedUseables = {};
-  USEABLE_SLOTS.forEach(slot => {
+  for (const slot of USEABLE_SLOTS) {
     const id = useableIds[slot];
-    const item = id ? equipmentMap.get(id) : null;
-    equippedUseables[slot] = item ? JSON.parse(JSON.stringify(item)) : null;
-  });
+    const resolved = id ? await resolveItem(characterDoc, id, equipmentMap) : null;
+    if (resolved) {
+      const clone = JSON.parse(JSON.stringify(resolved));
+      const definition = getCustomDefinition(characterDoc, id);
+      const baseItemId = definition && definition.baseItemId ? definition.baseItemId : id;
+      clone.instanceId = id;
+      clone.baseItemId = baseItemId;
+      equippedUseables[slot] = clone;
+    } else {
+      equippedUseables[slot] = null;
+    }
+  }
 
   const derived = compute(character, equippedForCompute);
 
   const counts = new Map();
-  (Array.isArray(character.items) ? character.items : []).forEach(id => {
-    if (!counts.has(id)) counts.set(id, 0);
-    counts.set(id, counts.get(id) + 1);
-  });
+  const aggregateItems = new Map();
+  const customEntries = [];
+  const rawItems = Array.isArray(characterDoc.items) ? characterDoc.items : [];
+  for (const storedId of rawItems) {
+    if (!storedId) continue;
+    const resolved = await resolveItem(characterDoc, storedId, equipmentMap);
+    if (!resolved) continue;
+    const definition = getCustomDefinition(characterDoc, storedId);
+    const baseItemId = definition && definition.baseItemId ? definition.baseItemId : storedId;
+    if (definition) {
+      const clone = JSON.parse(JSON.stringify(resolved));
+      clone.instanceId = storedId;
+      clone.baseItemId = baseItemId;
+      customEntries.push({ item: clone, count: 1 });
+    } else {
+      const current = counts.get(baseItemId) || 0;
+      counts.set(baseItemId, current + 1);
+      if (!aggregateItems.has(baseItemId)) {
+        const clone = JSON.parse(JSON.stringify(resolved));
+        clone.baseItemId = baseItemId;
+        aggregateItems.set(baseItemId, clone);
+      }
+    }
+  }
 
   const inventory = [];
   counts.forEach((count, id) => {
-    const item = equipmentMap.get(id);
+    const item = aggregateItems.get(id);
     if (!item) return;
-    const plain = JSON.parse(JSON.stringify(item));
-    inventory.push({ item: plain, count });
+    inventory.push({ item, count });
+  });
+
+  customEntries.forEach(entry => {
+    inventory.push(entry);
   });
 
   inventory.sort((a, b) => {
@@ -85,6 +128,11 @@ async function getInventory(playerId, characterId) {
   const ownedCounts = {};
   counts.forEach((count, id) => {
     ownedCounts[id] = count;
+  });
+  customEntries.forEach(entry => {
+    if (entry && entry.item && entry.item.instanceId) {
+      ownedCounts[entry.item.instanceId] = 1;
+    }
   });
 
   const materialCounts = ensureMaterialShape(character.materials || {});
@@ -174,14 +222,15 @@ async function setEquipment(playerId, characterId, slot, itemId) {
   });
 
   let useablesChanged = false;
+  let equipmentChanged = false;
 
   if (itemId) {
-    const item = equipmentMap.get(itemId);
-    if (!item) {
+    const resolved = await resolveItem(characterDoc, itemId, equipmentMap);
+    if (!resolved) {
       throw new Error('item not found');
     }
     if (USEABLE_SLOTS.includes(slot)) {
-      if (item.slot !== 'useable') {
+      if (resolved.slot !== 'useable') {
         throw new Error('item cannot be equipped in this slot');
       }
       USEABLE_SLOTS.forEach(other => {
@@ -190,7 +239,7 @@ async function setEquipment(playerId, characterId, slot, itemId) {
           useablesChanged = true;
         }
       });
-    } else if (item.slot !== slot) {
+    } else if (resolved.slot !== slot) {
       throw new Error('item cannot be equipped in this slot');
     }
     const owned = (Array.isArray(character.items) ? character.items : []).filter(id => id === itemId).length;
@@ -204,11 +253,15 @@ async function setEquipment(playerId, characterId, slot, itemId) {
       character.useables[slot] = itemId || null;
       useablesChanged = true;
     }
-  } else {
+  } else if (character.equipment[slot] !== (itemId || null)) {
     character.equipment[slot] = itemId || null;
+    equipmentChanged = true;
   }
-  if (useablesChanged) {
+  if (useablesChanged && typeof character.markModified === 'function') {
     character.markModified('useables');
+  }
+  if (equipmentChanged && typeof character.markModified === 'function') {
+    character.markModified('equipment');
   }
   await character.save();
 

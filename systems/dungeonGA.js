@@ -3,6 +3,7 @@ const path = require('path');
 const { ensureEquipmentShape, EQUIPMENT_SLOTS, STATS } = require('../models/utils');
 const { compute } = require('./derivedStats');
 const { runDungeonCombat } = require('./combatEngine');
+const { resolveItemSync } = require('./customItemService');
 
 const CONFIG_FILE = path.join(__dirname, '..', 'data', 'dungeonConfig.json');
 
@@ -994,7 +995,7 @@ function computePartyProfile(party, equipmentMap) {
     const resolved = {};
     EQUIPMENT_SLOTS.forEach(slot => {
       const id = equipment[slot];
-      const item = id ? equipmentMap.get(id) : null;
+      const item = id ? resolveItemSync(character, id, equipmentMap) : null;
       const cost = item && typeof item.cost === 'number' ? item.cost : 0;
       resolved[slot] = item || null;
       totalGear += cost;
@@ -1188,7 +1189,7 @@ function buildBossPreview(character, equipmentMap, metrics) {
   const resolved = {};
   EQUIPMENT_SLOTS.forEach(slot => {
     const id = equipment[slot];
-    resolved[slot] = id && equipmentMap.has(id) ? equipmentMap.get(id) : null;
+    resolved[slot] = id ? resolveItemSync(character, id, equipmentMap) : null;
   });
   const derived = compute(character, resolved);
   const negationDetails = character && character.bossNegation ? applyBossNegationToDerived(derived, character.bossNegation) : null;
