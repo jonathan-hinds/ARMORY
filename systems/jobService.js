@@ -1521,9 +1521,6 @@ async function setBlacksmithTask(playerId, characterId, task) {
   if (jobState.jobId !== 'blacksmith') {
     throw new Error('blacksmith profession required');
   }
-  if (jobState.isWorking) {
-    throw new Error('clock out before changing modes');
-  }
   const jobDef = config.jobsById.get('blacksmith');
   if (!jobDef) {
     throw new Error('blacksmith configuration missing');
