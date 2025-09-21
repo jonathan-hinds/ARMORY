@@ -108,9 +108,10 @@ function startMatch(a, b) {
           sendSafe(a, { type: 'start', you: event.a, opponent: event.b });
           sendSafe(b, { type: 'start', you: event.b, opponent: event.a });
         } else if (event.type === 'update') {
-          const payload = { type: 'update', you: event.a, opponent: event.b, log: event.log };
-          sendSafe(a, payload);
-          sendSafe(b, payload);
+          const payloadA = { type: 'update', you: event.a, opponent: event.b, log: event.log };
+          const payloadB = { type: 'update', you: event.b, opponent: event.a, log: event.log };
+          sendSafe(a, payloadA);
+          sendSafe(b, payloadB);
         }
       });
     })
