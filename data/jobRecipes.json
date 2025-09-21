@@ -1,0 +1,151 @@
+{
+  "recipes": {
+    "craftsman": [
+      {
+        "itemId": "useable_first_aid_kit",
+        "materials": {
+          "material_heart_stone": 2,
+          "material_iron_silk": 1
+        }
+      },
+      {
+        "itemId": "useable_toxins",
+        "materials": {
+          "material_rune_dust": 1,
+          "material_runic_sigil": 1,
+          "material_heart_stone": 1
+        }
+      },
+      {
+        "itemId": "useable_vanishing_powder",
+        "materials": {
+          "material_rune_dust": 2,
+          "material_metallic_feather": 1
+        }
+      },
+      {
+        "itemId": "useable_thieving_tools",
+        "materials": {
+          "material_iron_silk": 2,
+          "material_metallic_feather": 1
+        }
+      }
+    ],
+    "enchanter": [
+      {
+        "itemId": "useable_ice_scroll",
+        "materials": {
+          "material_runic_sigil": 1,
+          "material_iron_silk": 1,
+          "material_rune_dust": 1
+        }
+      },
+      {
+        "itemId": "useable_fire_scroll",
+        "materials": {
+          "material_runic_sigil": 1,
+          "material_rune_shard": 1,
+          "material_metallic_feather": 1
+        }
+      },
+      {
+        "itemId": "useable_mana_scroll",
+        "materials": {
+          "material_runic_sigil": 2,
+          "material_rune_dust": 1
+        }
+      },
+      {
+        "itemId": "useable_mana_steal_scroll",
+        "materials": {
+          "material_runic_sigil": 1,
+          "material_metallic_feather": 1,
+          "material_troll_skull": 1
+        }
+      }
+    ],
+    "apothecary": [
+      {
+        "itemId": "useable_healing_potion",
+        "materials": {
+          "material_heart_stone": 1,
+          "material_rune_shard": 1
+        }
+      },
+      {
+        "itemId": "useable_mana_potion",
+        "materials": {
+          "material_rune_shard": 1,
+          "material_rune_dust": 1
+        }
+      },
+      {
+        "itemId": "useable_stamina_potion",
+        "materials": {
+          "material_heart_stone": 1,
+          "material_iron_silk": 1
+        }
+      },
+      {
+        "itemId": "useable_critical_potion",
+        "materials": {
+          "material_runic_sigil": 1,
+          "material_metallic_feather": 1,
+          "material_troll_skull": 1
+        }
+      }
+    ],
+    "blacksmith": [
+      {
+        "itemId": "weapon_rusted_shortsword",
+        "materials": {
+          "material_heart_stone": 3,
+          "material_iron_silk": 1
+        },
+        "weight": 6
+      },
+      {
+        "itemId": "weapon_militia_spear",
+        "materials": {
+          "material_heart_stone": 2,
+          "material_rune_shard": 2
+        },
+        "weight": 5
+      },
+      {
+        "itemId": "weapon_brutal_battleaxe",
+        "materials": {
+          "material_iron_silk": 3,
+          "material_metallic_feather": 2
+        },
+        "weight": 3
+      },
+      {
+        "itemId": "armor_padded_hood",
+        "materials": {
+          "material_iron_silk": 2,
+          "material_rune_dust": 2
+        },
+        "weight": 5
+      },
+      {
+        "itemId": "armor_guardian_cuirass",
+        "materials": {
+          "material_heart_stone": 2,
+          "material_iron_silk": 2,
+          "material_metallic_feather": 2
+        },
+        "weight": 2
+      },
+      {
+        "itemId": "armor_tempest_greaves",
+        "materials": {
+          "material_runic_sigil": 2,
+          "material_metallic_feather": 2,
+          "material_troll_skull": 1
+        },
+        "weight": 1
+      }
+    ]
+  }
+}

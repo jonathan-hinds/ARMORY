@@ -19,116 +19,33 @@
       "name": "Craftsman",
       "attribute": "agility",
       "description": "Refines tools and contraptions to keep adventurers ahead of danger.",
-      "category": "Tools",
-      "items": [
-        {
-          "itemId": "useable_first_aid_kit",
-          "materials": {
-            "material_heart_stone": 2,
-            "material_iron_silk": 1
-          }
-        },
-        {
-          "itemId": "useable_toxins",
-          "materials": {
-            "material_rune_dust": 1,
-            "material_runic_sigil": 1,
-            "material_heart_stone": 1
-          }
-        },
-        {
-          "itemId": "useable_vanishing_powder",
-          "materials": {
-            "material_rune_dust": 2,
-            "material_metallic_feather": 1
-          }
-        },
-        {
-          "itemId": "useable_thieving_tools",
-          "materials": {
-            "material_iron_silk": 2,
-            "material_metallic_feather": 1
-          }
-        }
-      ]
+      "category": "Tools"
     },
     {
       "id": "enchanter",
       "name": "Enchanter",
       "attribute": "intellect",
       "description": "Infuses scrolls with arcane force for precise battlefield control.",
-      "category": "Scrolls",
-      "items": [
-        {
-          "itemId": "useable_ice_scroll",
-          "materials": {
-            "material_runic_sigil": 1,
-            "material_iron_silk": 1,
-            "material_rune_dust": 1
-          }
-        },
-        {
-          "itemId": "useable_fire_scroll",
-          "materials": {
-            "material_runic_sigil": 1,
-            "material_rune_shard": 1,
-            "material_metallic_feather": 1
-          }
-        },
-        {
-          "itemId": "useable_mana_scroll",
-          "materials": {
-            "material_runic_sigil": 2,
-            "material_rune_dust": 1
-          }
-        },
-        {
-          "itemId": "useable_mana_steal_scroll",
-          "materials": {
-            "material_runic_sigil": 1,
-            "material_metallic_feather": 1,
-            "material_troll_skull": 1
-          }
-        }
-      ]
+      "category": "Scrolls"
     },
     {
       "id": "apothecary",
       "name": "Apothecary",
       "attribute": "wisdom",
       "description": "Distills restorative draughts and potent elixirs from rare reagents.",
-      "category": "Potions",
-      "items": [
-        {
-          "itemId": "useable_healing_potion",
-          "materials": {
-            "material_heart_stone": 1,
-            "material_rune_shard": 1
-          }
-        },
-        {
-          "itemId": "useable_mana_potion",
-          "materials": {
-            "material_rune_shard": 1,
-            "material_rune_dust": 1
-          }
-        },
-        {
-          "itemId": "useable_stamina_potion",
-          "materials": {
-            "material_heart_stone": 1,
-            "material_iron_silk": 1
-          }
-        },
-        {
-          "itemId": "useable_critical_potion",
-          "materials": {
-            "material_runic_sigil": 1,
-            "material_metallic_feather": 1,
-            "material_troll_skull": 1
-          }
-        }
-      ]
+      "category": "Potions"
+    },
+    {
+      "id": "blacksmith",
+      "name": "Blacksmith",
+      "attribute": "strength",
+      "description": "Breaks unwanted arms into raw stock and reforges legends at the anvil.",
+      "category": "Forge",
+      "type": "blacksmith",
+      "materialRecoveryEnabled": true,
+      "materialRecoveryChanceMultiplier": 1.5,
+      "statGainChance": 0.07,
+      "statGainAmount": 1
     }
   ]
 }

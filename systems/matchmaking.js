@@ -1,5 +1,5 @@
 const CharacterModel = require('../models/Character');
-const { serializeCharacter } = require('../models/utils');
+const { serializeCharacter, findItemIndex, countItems, matchesItemId } = require('../models/utils');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
 const { runCombat } = require('./combatEngine');
@@ -142,13 +142,13 @@ function startMatch(a, b) {
           characterDoc.items = [];
         }
         consumed.forEach(entry => {
-          const idx = characterDoc.items.indexOf(entry.itemId);
+          const idx = findItemIndex(characterDoc.items, entry.itemId);
           if (idx !== -1) {
             characterDoc.items.splice(idx, 1);
             itemsModified = true;
           }
-          if (characterDoc.useables[entry.slot] === entry.itemId) {
-            const remaining = characterDoc.items.filter(id => id === entry.itemId).length;
+          if (matchesItemId(characterDoc.useables[entry.slot], entry.itemId)) {
+            const remaining = countItems(characterDoc.items, entry.itemId);
             if (remaining <= 0) {
               characterDoc.useables[entry.slot] = null;
               modifiedUseables = true;

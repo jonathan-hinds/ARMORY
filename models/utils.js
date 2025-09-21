@@ -1,6 +1,7 @@
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
 const USEABLE_SLOTS = ['useable1', 'useable2'];
 const STATS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
+const ITEM_AUGMENT_SEPARATOR = '::bs::';
 
 function normalizeDate(value) {
   if (!value) return null;
@@ -143,6 +144,97 @@ function serializeCharacter(doc) {
   };
 }
 
+function parseItemInstanceId(raw) {
+  if (!raw || typeof raw !== 'string') {
+    return { rawId: raw || null, itemId: null, bonuses: {}, isAugmented: false };
+  }
+  const idx = raw.indexOf(ITEM_AUGMENT_SEPARATOR);
+  if (idx === -1) {
+    return { rawId: raw, itemId: raw, bonuses: {}, isAugmented: false };
+  }
+  const itemId = raw.slice(0, idx) || null;
+  const bonusPart = raw.slice(idx + ITEM_AUGMENT_SEPARATOR.length);
+  const bonuses = {};
+  if (bonusPart) {
+    bonusPart.split(',').forEach(segment => {
+      const trimmed = segment.trim();
+      if (!trimmed) return;
+      const match = trimmed.match(/^([a-zA-Z]+)\+(\d+)$/);
+      if (!match) return;
+      const stat = match[1].toLowerCase();
+      const amount = parseInt(match[2], 10);
+      if (STATS.includes(stat) && Number.isFinite(amount) && amount > 0) {
+        bonuses[stat] = (bonuses[stat] || 0) + amount;
+      }
+    });
+  }
+  return {
+    rawId: raw,
+    itemId,
+    bonuses,
+    isAugmented: Object.keys(bonuses).length > 0,
+  };
+}
+
+function formatItemInstanceId(itemId, bonuses) {
+  if (!itemId) return null;
+  const entries = Object.entries(bonuses || {})
+    .map(([stat, amount]) => {
+      const normalizedStat = stat ? stat.toLowerCase() : null;
+      const numeric = Number(amount);
+      if (!normalizedStat || !Number.isFinite(numeric) || numeric <= 0) {
+        return null;
+      }
+      return `${normalizedStat}+${Math.round(numeric)}`;
+    })
+    .filter(Boolean);
+  if (!entries.length) {
+    return itemId;
+  }
+  return `${itemId}${ITEM_AUGMENT_SEPARATOR}${entries.join(',')}`;
+}
+
+function combineAttributeBonuses(base = {}, addition = {}) {
+  const merged = { ...base };
+  Object.entries(addition).forEach(([stat, amount]) => {
+    const normalizedStat = stat ? stat.toLowerCase() : null;
+    const numeric = Number(amount);
+    if (!normalizedStat || !Number.isFinite(numeric) || numeric === 0) {
+      return;
+    }
+    merged[normalizedStat] = (merged[normalizedStat] || 0) + numeric;
+  });
+  return merged;
+}
+
+function matchesItemId(rawId, itemId) {
+  if (!rawId || !itemId) {
+    return false;
+  }
+  const parsed = parseItemInstanceId(rawId);
+  const base = parsed.itemId || rawId;
+  return base === itemId;
+}
+
+function findItemIndex(items, itemId) {
+  if (!Array.isArray(items)) {
+    return -1;
+  }
+  for (let i = 0; i < items.length; i += 1) {
+    if (matchesItemId(items[i], itemId)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function countItems(items, itemId) {
+  if (!Array.isArray(items)) {
+    return 0;
+  }
+  return items.reduce((count, rawId) => (matchesItemId(rawId, itemId) ? count + 1 : count), 0);
+}
+
 function serializeJobSummary(job) {
   if (!job || typeof job !== 'object') {
     return { jobId: null, startedAt: null, lastProcessedAt: null, isWorking: false, workingSince: null };
@@ -171,4 +263,10 @@ module.exports = {
   serializePlayer,
   serializeJobSummary,
   toPlainObject,
+  parseItemInstanceId,
+  formatItemInstanceId,
+  combineAttributeBonuses,
+  matchesItemId,
+  findItemIndex,
+  countItems,
 };

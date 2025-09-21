@@ -1443,6 +1443,165 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   letter-spacing:1px;
   color:#222;
 }
+.blacksmith-mode-panel {
+  margin:12px 0 0;
+  padding:10px 12px;
+  border:2px solid #000;
+  background:#fff;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  box-shadow:3px 3px 0 #000;
+}
+.blacksmith-mode-label {
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:2px;
+  font-weight:bold;
+}
+.blacksmith-mode-button {
+  font-family:'Courier New', monospace;
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  padding:6px 14px;
+  border:2px solid #000;
+  background:#fff;
+  color:#000;
+  box-shadow:3px 3px 0 #000;
+  cursor:pointer;
+  transition:background 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+.blacksmith-mode-button:not([disabled]):hover,
+.blacksmith-mode-button:not([disabled]):focus {
+  background:#000;
+  color:#fff;
+  transform:translate(-1px, -1px);
+}
+.blacksmith-mode-button.active {
+  background:#000;
+  color:#fff;
+  cursor:default;
+}
+.blacksmith-mode-button[disabled]:not(.active) {
+  background:#f1f1f1;
+  color:#777;
+  border-color:#777;
+  box-shadow:3px 3px 0 #999;
+  cursor:not-allowed;
+}
+.blacksmith-workspace {
+  margin:18px 0;
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
+  gap:16px;
+}
+.blacksmith-column {
+  border:3px solid #000;
+  background:#fff;
+  color:#000;
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  box-shadow:6px 6px 0 #000;
+}
+.blacksmith-column h4 {
+  margin:0;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:15px;
+}
+.blacksmith-column .job-empty-text {
+  border-color:rgba(0,0,0,0.4);
+  background:rgba(0,0,0,0.05);
+  color:#000;
+}
+.blacksmith-item-card {
+  border:2px solid #000;
+  background:#fff;
+  color:#000;
+  padding:10px 12px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  box-shadow:3px 3px 0 #000;
+  transition:transform 0.12s ease, box-shadow 0.12s ease;
+}
+.blacksmith-item-card:hover,
+.blacksmith-item-card:focus-within {
+  transform:translate(-2px, -2px);
+  box-shadow:5px 5px 0 #000;
+}
+.blacksmith-item-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:8px;
+}
+.blacksmith-item-header .name {
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:13px;
+}
+.blacksmith-item-header .rarity {
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  border:1px solid #000;
+  padding:2px 6px;
+  background:#000;
+  color:#fff;
+}
+.blacksmith-item-meta {
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-family:'Courier New', monospace;
+  color:#111;
+}
+.blacksmith-tags {
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+.blacksmith-tags .tag {
+  border:1px dashed #000;
+  padding:2px 6px;
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  background:#fff;
+  color:#000;
+}
+.blacksmith-item-action {
+  align-self:flex-start;
+  font-family:'Courier New', monospace;
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  padding:4px 12px;
+  border:2px solid #000;
+  background:#fff;
+  color:#000;
+  box-shadow:3px 3px 0 #000;
+  transition:background 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+.blacksmith-item-action:not([disabled]):hover,
+.blacksmith-item-action:not([disabled]):focus {
+  background:#000;
+  color:#fff;
+  transform:translate(-1px, -1px);
+}
+.blacksmith-item-action[disabled] {
+  background:#f2f2f2;
+  color:#777;
+  border-color:#777;
+  box-shadow:3px 3px 0 #999;
+  cursor:not-allowed;
+}
 .job-stats-grid {
   display:grid;
   grid-template-columns:repeat(auto-fit, minmax(190px,1fr));
@@ -1590,6 +1749,25 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .job-log-entry.log-crafted .job-log-detail .value,
 .job-log-entry.log-crafted .job-log-footer {
   color:#000;
+}
+.job-log-entry.log-salvaged {
+  background:repeating-linear-gradient(135deg, #fff 0px, #fff 12px, #f7f7f7 12px, #f7f7f7 24px);
+  color:#000;
+  border:2px dashed #000;
+  box-shadow:4px 4px 0 #000;
+}
+.job-log-entry.log-salvaged .job-log-rarity,
+.job-log-entry.log-salvaged .job-log-detail .label,
+.job-log-entry.log-salvaged .job-log-detail .value,
+.job-log-entry.log-salvaged .job-log-footer {
+  color:#000;
+}
+.job-log-entry.log-salvaged .job-log-detail .value {
+  font-weight:bold;
+}
+.job-log-entry.log-salvaged .job-log-badge {
+  border-style:dashed;
+  background:#fff;
 }
 .job-log-entry.log-failed {
   background:#000;
