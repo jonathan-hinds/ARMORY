@@ -34,6 +34,7 @@ const attributesSchema = new mongoose.Schema(
 const materialsSchema = new mongoose.Schema({}, { _id: false, strict: false });
 
 const flexibleNumberMapSchema = new mongoose.Schema({}, { _id: false, strict: false });
+const shiftSelectionSchema = new mongoose.Schema({}, { _id: false, strict: false, minimize: false });
 
 const jobMissingSchema = new mongoose.Schema(
   {
@@ -109,6 +110,7 @@ const jobSchema = new mongoose.Schema(
     statGains: { type: flexibleNumberMapSchema, default: () => ({}) },
     totalsByItem: { type: flexibleNumberMapSchema, default: () => ({}) },
     log: { type: [jobLogEntrySchema], default: [] },
+    shiftSelections: { type: shiftSelectionSchema, default: undefined },
     blacksmith: { type: jobBlacksmithSchema, default: undefined },
   },
   { _id: false }
