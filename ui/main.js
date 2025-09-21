@@ -4425,6 +4425,7 @@ function updateRotationVisualization() {
 }
 
 
+
 function renderRotationVisualization() {
   const summaryContainer = document.getElementById('rotation-visualize-summary');
   const timelineSvg = document.getElementById('rotation-timeline');
@@ -4485,13 +4486,34 @@ function renderRotationVisualization() {
     })
     .filter(Boolean);
 
+  const trackMap = new Map();
+  const tracks = [];
+  abilityEntries.forEach(entry => {
+    const abilityId = entry.ability.id;
+    if (!trackMap.has(abilityId)) {
+      const trackInfo = {
+        id: abilityId,
+        ability: entry.ability,
+        index: tracks.length,
+        entries: [],
+      };
+      trackMap.set(abilityId, trackInfo);
+      tracks.push(trackInfo);
+    }
+    const trackInfo = trackMap.get(abilityId);
+    entry.track = trackInfo.index;
+    trackInfo.entries.push(entry);
+  });
+
+  addSummary('Ability Tracks', tracks.length);
+
   const svgNS = 'http://www.w3.org/2000/svg';
   const create = tag => document.createElementNS(svgNS, tag);
   const title = create('title');
   title.textContent = 'Rotation visualization';
   timelineSvg.appendChild(title);
   const desc = create('desc');
-  desc.textContent = 'Timeline showing ability order, cooldowns, and resource usage.';
+  desc.textContent = 'Timeline showing ability tracks, cooldowns, and resource usage.';
   timelineSvg.appendChild(desc);
 
   const setDefaultViewport = () => {
@@ -4523,19 +4545,29 @@ function renderRotationVisualization() {
 
   const baseInterval = attackInterval > 0 ? attackInterval : 1;
   const slotWidth = 120;
-  const timelinePadding = 48;
+  const timelinePadding = 32;
+  const labelWidth = 140;
+  const trackSpacing = 12;
+  const trackAreaTop = 32;
+  const blockInnerPadding = 6;
+  const blockHeight = 40;
   const blockWidth = slotWidth - 16;
-  const blockHeight = 44;
-  const blockY = 40;
-  const cooldownY = blockY + blockHeight + 28;
-  const warningY = cooldownY + 20;
-  const resourceTop = cooldownY + 40;
-  const resourceHeight = 96;
+  const blockOffset = (slotWidth - blockWidth) / 2;
+  const cooldownGap = 12;
+  const warningGap = 12;
+  const trackHeight = blockInnerPadding + blockHeight + cooldownGap + warningGap + 12;
+  const timelineStartX = timelinePadding + labelWidth;
 
   const rotationDuration = abilityEntries.length * baseInterval;
   const maxCooldownEnd = abilityEntries.reduce((acc, entry) => Math.max(acc, entry.start + entry.cooldown), rotationDuration);
   const displayDuration = Math.max(baseInterval, rotationDuration, maxCooldownEnd);
-  const totalWidth = timelinePadding * 2 + (displayDuration / baseInterval) * slotWidth;
+  const totalWidth = timelinePadding * 2 + labelWidth + (displayDuration / baseInterval) * slotWidth;
+  const timelineEndX = timelineStartX + (displayDuration / baseInterval) * slotWidth;
+  const abilityAreaBottom = tracks.length
+    ? trackAreaTop + tracks.length * trackHeight + (tracks.length - 1) * trackSpacing
+    : trackAreaTop;
+  const resourceTop = abilityAreaBottom + 56;
+  const resourceHeight = 104;
   const totalHeight = resourceTop + resourceHeight + 48;
 
   timelineSvg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
@@ -4556,17 +4588,85 @@ function renderRotationVisualization() {
 
   appendBackground(totalWidth, totalHeight);
 
-  const timeToX = time => timelinePadding + (time / baseInterval) * slotWidth;
+  const timeToX = time => timelineStartX + (time / baseInterval) * slotWidth;
 
   const resourceKeys = ['mana', 'stamina'];
   const resourceState = {};
   const resourceHistory = {};
+  const resourceCaps = {};
   resourceKeys.forEach(key => {
     const value = Number.isFinite(derived[key]) ? derived[key] : null;
     if (value != null) {
       resourceState[key] = value;
       resourceHistory[key] = [{ time: 0, value }];
+      resourceCaps[key] = value;
     }
+  });
+
+  tracks.forEach(trackInfo => {
+    const top = trackAreaTop + trackInfo.index * (trackHeight + trackSpacing);
+    const bottom = top + trackHeight;
+    const blockY = top + blockInnerPadding;
+    const cooldownY = blockY + blockHeight + cooldownGap;
+    const warningY = cooldownY + warningGap;
+    trackInfo.top = top;
+    trackInfo.bottom = bottom;
+    trackInfo.blockY = blockY;
+    trackInfo.cooldownY = cooldownY;
+    trackInfo.warningY = warningY;
+
+    const labelBox = create('rect');
+    labelBox.setAttribute('x', timelinePadding + 4);
+    labelBox.setAttribute('y', top + 2);
+    labelBox.setAttribute('width', Math.max(0, labelWidth - 16));
+    labelBox.setAttribute('height', blockHeight + cooldownGap + 8);
+    labelBox.setAttribute('fill', '#000');
+    labelBox.setAttribute('stroke', '#fff');
+    labelBox.setAttribute('stroke-width', '1');
+    labelBox.setAttribute('stroke-dasharray', '4 4');
+    timelineSvg.appendChild(labelBox);
+
+    const labelText = create('text');
+    labelText.setAttribute('x', timelinePadding + labelWidth - 10);
+    labelText.setAttribute('y', blockY + blockHeight / 2 + 4);
+    labelText.setAttribute('text-anchor', 'end');
+    labelText.setAttribute('fill', '#fff');
+    labelText.setAttribute('font-size', '11');
+    labelText.setAttribute('font-weight', 'bold');
+    labelText.textContent = trackInfo.ability.name;
+    timelineSvg.appendChild(labelText);
+
+    const connector = create('line');
+    connector.setAttribute('x1', timelinePadding + labelWidth - 6);
+    connector.setAttribute('x2', timelineStartX);
+    connector.setAttribute('y1', blockY + blockHeight / 2);
+    connector.setAttribute('y2', blockY + blockHeight / 2);
+    connector.setAttribute('stroke', '#fff');
+    connector.setAttribute('stroke-width', '1');
+    connector.setAttribute('stroke-dasharray', '4 6');
+    timelineSvg.appendChild(connector);
+
+    if (trackInfo.index === 0) {
+      const topLine = create('line');
+      topLine.setAttribute('x1', timelineStartX);
+      topLine.setAttribute('x2', timelineEndX);
+      topLine.setAttribute('y1', top);
+      topLine.setAttribute('y2', top);
+      topLine.setAttribute('stroke', '#fff');
+      topLine.setAttribute('stroke-width', '1');
+      topLine.setAttribute('stroke-dasharray', '6 6');
+      timelineSvg.appendChild(topLine);
+    }
+
+    const bottomLine = create('line');
+    bottomLine.setAttribute('x1', timelineStartX);
+    bottomLine.setAttribute('x2', timelineEndX);
+    bottomLine.setAttribute('y1', bottom);
+    bottomLine.setAttribute('y2', bottom);
+    bottomLine.setAttribute('stroke', '#fff');
+    bottomLine.setAttribute('stroke-width', '1');
+    bottomLine.setAttribute('stroke-dasharray', '6 6');
+    timelineSvg.appendChild(bottomLine);
   });
 
   const lastUsage = new Map();
@@ -4589,6 +4689,14 @@ function renderRotationVisualization() {
       history.push({ time: entry.start, value: currentValue });
       const cost = Number.isFinite(entry.costs[key]) ? entry.costs[key] : 0;
       const nextValue = currentValue - cost;
+      if (!entry.resourceSnapshot) {
+        entry.resourceSnapshot = {};
+      }
+      entry.resourceSnapshot[key] = {
+        before: currentValue,
+        after: nextValue,
+        cap: resourceCaps[key],
+      };
       resourceState[key] = nextValue;
       history.push({ time: entry.start, value: nextValue });
       if (nextValue < 0 && !entry.warnings.includes(key)) {
@@ -4611,6 +4719,9 @@ function renderRotationVisualization() {
   const resourceRange = Math.max(1, maxResourceValue - minResourceValue);
   const valueToY = value => resourceTop + resourceHeight - ((value - minResourceValue) / resourceRange) * resourceHeight;
 
+  const gridTop = trackAreaTop - 16;
+  const gridBottom = resourceTop + resourceHeight;
+
   const stepCount = Math.max(1, Math.ceil(displayDuration / baseInterval));
   for (let i = 0; i <= stepCount; i += 1) {
     const time = Math.min(displayDuration, i * baseInterval);
@@ -4618,8 +4729,8 @@ function renderRotationVisualization() {
     const marker = create('line');
     marker.setAttribute('x1', x);
     marker.setAttribute('x2', x);
-    marker.setAttribute('y1', blockY - 20);
-    marker.setAttribute('y2', resourceTop + resourceHeight);
+    marker.setAttribute('y1', gridTop);
+    marker.setAttribute('y2', gridBottom);
     marker.setAttribute('stroke', '#fff');
     marker.setAttribute('stroke-width', '1');
     marker.setAttribute('stroke-dasharray', '2 12');
@@ -4633,6 +4744,24 @@ function renderRotationVisualization() {
     label.textContent = `${time.toFixed(1)}s`;
     timelineSvg.appendChild(label);
   }
+
+  const leftAxis = create('line');
+  leftAxis.setAttribute('x1', timelineStartX);
+  leftAxis.setAttribute('x2', timelineStartX);
+  leftAxis.setAttribute('y1', gridTop);
+  leftAxis.setAttribute('y2', gridBottom);
+  leftAxis.setAttribute('stroke', '#fff');
+  leftAxis.setAttribute('stroke-width', '2');
+  timelineSvg.appendChild(leftAxis);
+
+  const rightAxis = create('line');
+  rightAxis.setAttribute('x1', timelineEndX);
+  rightAxis.setAttribute('x2', timelineEndX);
+  rightAxis.setAttribute('y1', gridTop);
+  rightAxis.setAttribute('y2', gridBottom);
+  rightAxis.setAttribute('stroke', '#fff');
+  rightAxis.setAttribute('stroke-width', '1');
+  timelineSvg.appendChild(rightAxis);
 
   if (resourceValues.length) {
     const baseline = create('line');
@@ -4674,9 +4803,12 @@ function renderRotationVisualization() {
     return value % 1 === 0 ? `${value.toFixed(0)}s` : `${value.toFixed(1)}s`;
   };
 
+  const resourceOrder = resourceKeys.filter(key => resourceCaps[key] != null);
   abilityEntries.forEach(entry => {
-    const centerOffset = (slotWidth - blockWidth) / 2;
-    const blockX = timeToX(entry.start) + centerOffset;
+    const trackInfo = tracks[entry.track];
+    if (!trackInfo) return;
+    const blockX = timeToX(entry.start) + blockOffset;
+    const blockY = trackInfo.blockY;
     const rect = create('rect');
     rect.setAttribute('x', blockX);
     rect.setAttribute('y', blockY);
@@ -4712,7 +4844,7 @@ function renderRotationVisualization() {
     const centerX = blockX + blockWidth / 2;
     const nameText = create('text');
     nameText.setAttribute('x', centerX);
-    nameText.setAttribute('y', blockY + 16);
+    nameText.setAttribute('y', blockY + 14);
     nameText.setAttribute('text-anchor', 'middle');
     nameText.setAttribute('fill', '#000');
     nameText.setAttribute('font-size', '12');
@@ -4720,10 +4852,40 @@ function renderRotationVisualization() {
     nameText.textContent = entry.ability.name;
     timelineSvg.appendChild(nameText);
 
-    const costString = describeRotationCosts(entry.costs) || 'No Cost';
+    const snapshot = entry.resourceSnapshot || {};
+    const resourceStrings = resourceOrder
+      .map(key => {
+        const data = snapshot[key];
+        if (!data) return null;
+        const cap = Number.isFinite(data.cap) ? Math.round(data.cap) : null;
+        const afterRaw = Number.isFinite(data.after) ? Math.round(data.after) : null;
+        if (afterRaw == null) return null;
+        const afterValue = Math.max(0, afterRaw);
+        const label = rotationResourceLabel(key);
+        let textValue = cap != null && cap > 0 ? `${label} ${afterValue}/${Math.round(cap)}` : `${label} ${afterValue}`;
+        if (afterRaw < 0) {
+          textValue += '!';
+        }
+        return textValue;
+      })
+      .filter(Boolean);
+
+    if (resourceStrings.length) {
+      const resourceText = create('text');
+      resourceText.setAttribute('x', centerX);
+      resourceText.setAttribute('y', blockY + 26);
+      resourceText.setAttribute('text-anchor', 'middle');
+      resourceText.setAttribute('fill', '#000');
+      resourceText.setAttribute('font-size', '10');
+      resourceText.textContent = resourceStrings.join(' • ');
+      timelineSvg.appendChild(resourceText);
+    }
+
+    const rawCost = describeRotationCosts(entry.costs);
+    const costString = rawCost ? `Cost: ${rawCost}` : 'No Cost';
     const costText = create('text');
     costText.setAttribute('x', centerX);
-    costText.setAttribute('y', blockY + blockHeight - 8);
+    costText.setAttribute('y', blockY + blockHeight - 6);
     costText.setAttribute('text-anchor', 'middle');
     costText.setAttribute('fill', '#000');
     costText.setAttribute('font-size', '10');
@@ -4736,8 +4898,8 @@ function renderRotationVisualization() {
       const cooldownLine = create('line');
       cooldownLine.setAttribute('x1', startX);
       cooldownLine.setAttribute('x2', endX);
-      cooldownLine.setAttribute('y1', cooldownY);
-      cooldownLine.setAttribute('y2', cooldownY);
+      cooldownLine.setAttribute('y1', trackInfo.cooldownY);
+      cooldownLine.setAttribute('y2', trackInfo.cooldownY);
       cooldownLine.setAttribute('stroke', '#fff');
       cooldownLine.setAttribute('stroke-width', entry.cooldownConflict ? '3' : '2');
       cooldownLine.setAttribute('stroke-dasharray', entry.cooldownConflict ? '4 4' : '8 6');
@@ -4746,8 +4908,8 @@ function renderRotationVisualization() {
       const startTick = create('line');
       startTick.setAttribute('x1', startX);
       startTick.setAttribute('x2', startX);
-      startTick.setAttribute('y1', cooldownY - 6);
-      startTick.setAttribute('y2', cooldownY + 6);
+      startTick.setAttribute('y1', trackInfo.cooldownY - 6);
+      startTick.setAttribute('y2', trackInfo.cooldownY + 6);
       startTick.setAttribute('stroke', '#fff');
       startTick.setAttribute('stroke-width', '2');
       timelineSvg.appendChild(startTick);
@@ -4755,15 +4917,15 @@ function renderRotationVisualization() {
       const endTick = create('line');
       endTick.setAttribute('x1', endX);
       endTick.setAttribute('x2', endX);
-      endTick.setAttribute('y1', cooldownY - 6);
-      endTick.setAttribute('y2', cooldownY + 6);
+      endTick.setAttribute('y1', trackInfo.cooldownY - 6);
+      endTick.setAttribute('y2', trackInfo.cooldownY + 6);
       endTick.setAttribute('stroke', '#fff');
       endTick.setAttribute('stroke-width', '2');
       timelineSvg.appendChild(endTick);
 
       const cooldownLabel = create('text');
       cooldownLabel.setAttribute('x', (startX + endX) / 2);
-      cooldownLabel.setAttribute('y', cooldownY - 10);
+      cooldownLabel.setAttribute('y', trackInfo.cooldownY - 10);
       cooldownLabel.setAttribute('text-anchor', 'middle');
       cooldownLabel.setAttribute('fill', '#fff');
       cooldownLabel.setAttribute('font-size', '10');
@@ -4773,7 +4935,7 @@ function renderRotationVisualization() {
       if (entry.cooldownConflict && entry.cooldownReadyAt != null) {
         const readyLabel = create('text');
         readyLabel.setAttribute('x', endX);
-        readyLabel.setAttribute('y', cooldownY + 18);
+        readyLabel.setAttribute('y', trackInfo.cooldownY + 18);
         readyLabel.setAttribute('text-anchor', 'end');
         readyLabel.setAttribute('fill', '#fff');
         readyLabel.setAttribute('font-size', '10');
@@ -4785,7 +4947,7 @@ function renderRotationVisualization() {
 
     if (entry.warnings.length) {
       const markerSize = 8;
-      const centerY = warningY;
+      const centerY = trackInfo.warningY;
       const marker = create('path');
       marker.setAttribute('d', `M ${centerX} ${centerY - markerSize} L ${centerX + markerSize} ${centerY} L ${centerX} ${centerY + markerSize} L ${centerX - markerSize} ${centerY} Z`);
       marker.setAttribute('fill', '#fff');
@@ -4810,7 +4972,6 @@ function renderRotationVisualization() {
     }
   });
 }
-
 function getRotationAbilityCosts(ability) {
   if (!ability || typeof ability !== 'object') return {};
   const rawCosts = Array.isArray(ability.costs) && ability.costs.length
