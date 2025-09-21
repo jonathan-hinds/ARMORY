@@ -753,13 +753,17 @@ async function processJobForCharacter(characterDoc, options = {}) {
   if (!jobDef) {
     return { changed: false, job: null, attempts: 0 };
   }
+  const isBlacksmith = !!jobDef.isBlacksmith;
   const jobAttribute = jobDef.attribute && jobDef.attribute.trim ? jobDef.attribute.trim() : null;
   const now = options.now ? new Date(options.now) : new Date();
   let jobChanged = false;
-  const { mode: activeShiftMode, changed: shiftModeChanged } = ensureShiftModeSelection(jobState, jobDef);
+  const selectionResult = ensureShiftModeSelection(jobState, jobDef);
+  const activeShiftMode = selectionResult.mode;
+  const shiftModeChanged = !!selectionResult.changed;
   if (shiftModeChanged) {
     jobChanged = true;
   }
+  let blacksmithChanged = isBlacksmith && shiftModeChanged;
   if (!jobState.isWorking) {
     return { changed: jobChanged, job: jobDef, attempts: 0 };
   }
@@ -813,7 +817,6 @@ async function processJobForCharacter(characterDoc, options = {}) {
   let itemsChanged = false;
   let attributesChanged = false;
   let customItemsChanged = false;
-  const isBlacksmith = !!jobDef.isBlacksmith;
   const gainChanceBase = jobDef.statGainChance != null ? jobDef.statGainChance : config.statGainChance;
   const gainAmountBase = jobDef.statGainAmount != null ? jobDef.statGainAmount : config.statGainAmount;
   let salvageEntries = null;
@@ -883,6 +886,7 @@ async function processJobForCharacter(characterDoc, options = {}) {
       const index = Math.floor(Math.random() * queue.length);
       const queuedId = queue.splice(index, 1)[0];
       jobChanged = true;
+      blacksmithChanged = true;
       let baseItemId = queuedId;
       const customDefinition = getCustomDefinition(characterDoc, queuedId);
       if (customDefinition && customDefinition.baseItemId) {
@@ -1122,7 +1126,15 @@ async function processJobForCharacter(characterDoc, options = {}) {
     if (itemsChanged) characterDoc.markModified('items');
     if (attributesChanged) characterDoc.markModified('attributes');
     if (customItemsChanged) characterDoc.markModified('customItems');
-    if (jobChanged) characterDoc.markModified('job');
+    if (jobChanged) {
+      characterDoc.markModified('job');
+      if (shiftModeChanged) {
+        characterDoc.markModified('job.shiftSelections');
+      }
+      if (blacksmithChanged) {
+        characterDoc.markModified('job.blacksmith');
+      }
+    }
   }
   return {
     changed: materialsChanged || itemsChanged || attributesChanged || customItemsChanged || jobChanged,
@@ -1296,9 +1308,10 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
   const shiftSelections = jobState.shiftSelections && typeof jobState.shiftSelections === 'object'
     ? jobState.shiftSelections
     : {};
-  const activeShiftModeId = typeof shiftSelections[jobDef.id] === 'string'
+  const storedShiftModeId = typeof shiftSelections[jobDef.id] === 'string'
     ? shiftSelections[jobDef.id]
     : null;
+  let effectiveShiftModeId = storedShiftModeId;
   const shiftModes = Array.isArray(jobDef.shiftModes)
     ? jobDef.shiftModes.map(mode => ({
         id: mode.id,
@@ -1309,7 +1322,7 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
           ? mode.autoStopConditions.slice()
           : [],
         task: mode.task || null,
-        isSelected: mode.id === activeShiftModeId,
+        isSelected: mode.id === effectiveShiftModeId,
       }))
     : [];
   let blacksmith = null;
@@ -1362,7 +1375,13 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
       }
     }
     const stateModeId = normalizeBlacksmithModeId(state.modeId);
-    const effectiveModeId = activeShiftModeId || stateModeId || null;
+    if (!effectiveShiftModeId || !shiftModes.some(mode => mode.id === effectiveShiftModeId)) {
+      effectiveShiftModeId = stateModeId || effectiveShiftModeId;
+    }
+    shiftModes.forEach(mode => {
+      mode.isSelected = mode.id === effectiveShiftModeId;
+    });
+    const effectiveModeId = effectiveShiftModeId || stateModeId || null;
     const effectiveTask = state.task === 'salvage' || effectiveModeId === 'salvage' ? 'salvage' : 'craft';
     blacksmith = {
       task: effectiveTask,
@@ -1371,6 +1390,7 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
       modeId: effectiveModeId,
     };
   }
+  const activeShiftModeId = effectiveShiftModeId;
   return {
     id: jobDef.id,
     name: jobDef.name,
@@ -1432,29 +1452,45 @@ function ensureBlacksmithJob(jobState) {
   if (!jobState || jobState.jobId !== 'blacksmith') {
     throw new Error('blacksmith profession required');
   }
+  let stateChanged = false;
+  let selectionChanged = false;
   if (!jobState.blacksmith || typeof jobState.blacksmith !== 'object') {
     jobState.blacksmith = { task: 'craft', salvageQueue: [], modeId: 'forge' };
+    stateChanged = true;
   }
-  if (!Array.isArray(jobState.blacksmith.salvageQueue)) {
-    jobState.blacksmith.salvageQueue = [];
+  const state = jobState.blacksmith;
+  if (!Array.isArray(state.salvageQueue)) {
+    state.salvageQueue = [];
+    stateChanged = true;
   }
-  const selection = jobState.shiftSelections && typeof jobState.shiftSelections === 'object'
-    ? jobState.shiftSelections[jobState.jobId]
-    : null;
-  const selectedMode = normalizeBlacksmithModeId(selection);
-  if (selection && jobState.shiftSelections[jobState.jobId] !== selectedMode) {
-    jobState.shiftSelections[jobState.jobId] = selectedMode;
+  if (!jobState.shiftSelections || typeof jobState.shiftSelections !== 'object') {
+    jobState.shiftSelections = {};
   }
-  if (selectedMode === 'salvage') {
-    jobState.blacksmith.task = 'salvage';
-    jobState.blacksmith.modeId = 'salvage';
-  } else if (jobState.blacksmith.task === 'salvage') {
-    jobState.blacksmith.modeId = 'salvage';
-  } else {
-    jobState.blacksmith.task = 'craft';
-    jobState.blacksmith.modeId = 'forge';
+  const rawSelection = jobState.shiftSelections[jobState.jobId];
+  const normalizedSelection = rawSelection ? normalizeBlacksmithModeId(rawSelection) : null;
+  if (rawSelection && normalizedSelection !== rawSelection) {
+    jobState.shiftSelections[jobState.jobId] = normalizedSelection;
+    selectionChanged = true;
   }
-  return jobState.blacksmith;
+  const expectedMode = normalizedSelection
+    ? normalizedSelection
+    : state.modeId === 'salvage'
+      ? 'salvage'
+      : 'forge';
+  const expectedTask = expectedMode === 'salvage' ? 'salvage' : 'craft';
+  if (!normalizedSelection && jobState.shiftSelections[jobState.jobId] !== expectedMode) {
+    jobState.shiftSelections[jobState.jobId] = expectedMode;
+    selectionChanged = true;
+  }
+  if (state.modeId !== expectedMode) {
+    state.modeId = expectedMode;
+    stateChanged = true;
+  }
+  if (state.task !== expectedTask) {
+    state.task = expectedTask;
+    stateChanged = true;
+  }
+  return { state, changed: stateChanged, selectionChanged };
 }
 
 async function setBlacksmithTask(playerId, characterId, task) {
@@ -1490,26 +1526,38 @@ async function setBlacksmithTask(playerId, characterId, task) {
   }
   const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config });
   let jobChanged = processedChanges;
+  let blacksmithChanged = false;
   const selectionResult = ensureShiftModeSelection(jobState, jobDef, {
     requestedModeId: modeId,
     strict: true,
   });
-  if (selectionResult.changed) {
+  const shiftSelectionChanged = !!selectionResult.changed;
+  if (shiftSelectionChanged) {
     jobChanged = true;
   }
   if (jobState.blacksmith && typeof jobState.blacksmith === 'object') {
     const normalizedMode = normalizeBlacksmithModeId(modeId);
     if (jobState.blacksmith.modeId !== normalizedMode) {
       jobState.blacksmith.modeId = normalizedMode;
+      blacksmithChanged = true;
     }
-    if (normalizedMode === 'salvage') {
-      jobState.blacksmith.task = 'salvage';
-    } else if (jobState.blacksmith.task !== 'salvage') {
-      jobState.blacksmith.task = 'craft';
+    const expectedTask = normalizedMode === 'salvage' ? 'salvage' : 'craft';
+    if (jobState.blacksmith.task !== expectedTask) {
+      jobState.blacksmith.task = expectedTask;
+      blacksmithChanged = true;
     }
+  }
+  if (blacksmithChanged) {
+    jobChanged = true;
   }
   if (jobChanged && typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('job');
+    if (shiftSelectionChanged) {
+      characterDoc.markModified('job.shiftSelections');
+    }
+    if (blacksmithChanged) {
+      characterDoc.markModified('job.blacksmith');
+    }
   }
   if (jobChanged) {
     await characterDoc.save();
@@ -1550,11 +1598,19 @@ async function addBlacksmithQueueItem(playerId, characterId, itemId) {
     throw new Error('item cannot be salvaged');
   }
   const [removed] = characterDoc.items.splice(inventoryIndex, 1);
-  ensureBlacksmithJob(jobState).salvageQueue.push(removed);
+  const { state: blacksmithState, changed: blacksmithChanged, selectionChanged } = ensureBlacksmithJob(jobState);
+  blacksmithState.salvageQueue.push(removed);
   docChanged = true;
+  if (blacksmithChanged) {
+    docChanged = true;
+  }
   if (typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('items');
     characterDoc.markModified('job');
+    characterDoc.markModified('job.blacksmith');
+    if (selectionChanged) {
+      characterDoc.markModified('job.shiftSelections');
+    }
   }
   if (docChanged) {
     await characterDoc.save();
@@ -1580,7 +1636,7 @@ async function removeBlacksmithQueueItem(playerId, characterId, itemId) {
   }
   const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config });
   let docChanged = processedChanges;
-  const blacksmithState = ensureBlacksmithJob(jobState);
+  const { state: blacksmithState, changed: blacksmithChanged, selectionChanged } = ensureBlacksmithJob(jobState);
   const queue = Array.isArray(blacksmithState.salvageQueue) ? blacksmithState.salvageQueue : [];
   const queueIndex = queue.indexOf(targetId);
   if (queueIndex === -1) {
@@ -1592,9 +1648,16 @@ async function removeBlacksmithQueueItem(playerId, characterId, itemId) {
   }
   characterDoc.items.push(queued);
   docChanged = true;
+  if (blacksmithChanged) {
+    docChanged = true;
+  }
   if (typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('items');
     characterDoc.markModified('job');
+    characterDoc.markModified('job.blacksmith');
+    if (selectionChanged) {
+      characterDoc.markModified('job.shiftSelections');
+    }
   }
   if (docChanged) {
     await characterDoc.save();
@@ -1716,12 +1779,14 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
   const { changed: processedChanges } = await processJobForCharacter(characterDoc, { config, now });
   let jobChanged = false;
   let selectedMode = null;
+  let blacksmithChanged = false;
   const selectionResult = ensureShiftModeSelection(jobState, jobDef, {
     requestedModeId: modeIdRaw,
     strict: !!modeIdRaw,
   });
   selectedMode = selectionResult.mode;
-  if (selectionResult.changed) {
+  const shiftSelectionChanged = !!selectionResult.changed;
+  if (shiftSelectionChanged) {
     jobChanged = true;
   }
   if (jobDef.isBlacksmith && jobState.blacksmith && typeof jobState.blacksmith === 'object') {
@@ -1730,11 +1795,13 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
       if (jobState.blacksmith.modeId !== modeFromSelection) {
         jobState.blacksmith.modeId = modeFromSelection;
         jobChanged = true;
+        blacksmithChanged = true;
       }
-      if (modeFromSelection === 'salvage') {
-        jobState.blacksmith.task = 'salvage';
-      } else if (jobState.blacksmith.task !== 'salvage') {
-        jobState.blacksmith.task = 'craft';
+      const expectedTask = modeFromSelection === 'salvage' ? 'salvage' : 'craft';
+      if (jobState.blacksmith.task !== expectedTask) {
+        jobState.blacksmith.task = expectedTask;
+        jobChanged = true;
+        blacksmithChanged = true;
       }
     }
   }
@@ -1759,6 +1826,12 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
   }
   if (jobChanged && typeof characterDoc.markModified === 'function') {
     characterDoc.markModified('job');
+    if (shiftSelectionChanged) {
+      characterDoc.markModified('job.shiftSelections');
+    }
+    if (blacksmithChanged) {
+      characterDoc.markModified('job.blacksmith');
+    }
   }
   if (jobChanged || processedChanges) {
     await characterDoc.save();
