@@ -2838,6 +2838,53 @@ function createBlacksmithItemCard(entry, { type, container }) {
     card.appendChild(tags);
   }
 
+  const controls = document.createElement('div');
+  controls.className = 'blacksmith-item-controls';
+
+  let quantityInput = null;
+  if (type === 'inventory') {
+    const quantityField = document.createElement('div');
+    quantityField.className = 'blacksmith-quantity-field';
+    const quantityId = `blacksmith-qty-${entry.itemId}`;
+    const quantityLabel = document.createElement('label');
+    quantityLabel.className = 'blacksmith-quantity-label';
+    quantityLabel.setAttribute('for', quantityId);
+    quantityLabel.textContent = 'Qty';
+    quantityInput = document.createElement('input');
+    quantityInput.type = 'number';
+    quantityInput.id = quantityId;
+    quantityInput.className = 'blacksmith-quantity-input';
+    quantityInput.min = '1';
+    if (entry.available > 0) {
+      quantityInput.value = '1';
+      quantityInput.max = String(entry.available);
+    } else {
+      quantityInput.value = '0';
+      quantityInput.disabled = true;
+    }
+    const enforceQuantityBounds = () => {
+      const raw = parseInt(quantityInput.value, 10);
+      if (!Number.isFinite(raw)) {
+        return;
+      }
+      const max = entry.available > 0 ? entry.available : 1;
+      if (raw < 1) {
+        quantityInput.value = entry.available > 0 ? '1' : '0';
+        return;
+      }
+      if (raw > max) {
+        quantityInput.value = String(max);
+        return;
+      }
+      quantityInput.value = String(raw);
+    };
+    quantityInput.addEventListener('change', enforceQuantityBounds);
+    quantityInput.addEventListener('blur', enforceQuantityBounds);
+    quantityField.appendChild(quantityLabel);
+    quantityField.appendChild(quantityInput);
+    controls.appendChild(quantityField);
+  }
+
   const action = document.createElement('button');
   action.type = 'button';
   action.className = 'blacksmith-item-action';
@@ -2846,7 +2893,26 @@ function createBlacksmithItemCard(entry, { type, container }) {
     if (!(entry.available > 0)) {
       action.disabled = true;
     }
-    action.addEventListener('click', () => handleAddToSalvageQueue(entry.itemId, container, action));
+    action.addEventListener('click', () => {
+      if (!quantityInput) {
+        handleAddToSalvageQueue(entry.itemId, 1, container, action);
+        return;
+      }
+      enforceQuantityBounds();
+      const raw = parseInt(quantityInput.value, 10);
+      const max = entry.available > 0 ? entry.available : 1;
+      let requested = Number.isFinite(raw) ? raw : 1;
+      if (requested < 1) {
+        requested = 1;
+      }
+      if (requested > max) {
+        requested = max;
+      }
+      if (!(requested > 0)) {
+        return;
+      }
+      handleAddToSalvageQueue(entry.itemId, requested, container, action);
+    });
   } else {
     action.textContent = 'Remove';
     if (!(entry.count > 0)) {
@@ -2854,7 +2920,8 @@ function createBlacksmithItemCard(entry, { type, container }) {
     }
     action.addEventListener('click', () => handleRemoveFromSalvageQueue(entry.itemId, container, action));
   }
-  card.appendChild(action);
+  controls.appendChild(action);
+  card.appendChild(controls);
   return card;
 }
 
@@ -3243,7 +3310,7 @@ async function handleBlacksmithModeChange(mode, container, button) {
   }
 }
 
-async function mutateBlacksmithSalvageQueue(action, itemId, container, button) {
+async function mutateBlacksmithSalvageQueue(action, itemId, container, button, options = {}) {
   if (!currentPlayer || !currentCharacter || !container) return;
   const itemKey = typeof itemId === 'string' ? itemId : '';
   if (!itemKey) {
@@ -3259,10 +3326,16 @@ async function mutateBlacksmithSalvageQueue(action, itemId, container, button) {
   let responsePayload = null;
   let succeeded = false;
   try {
+    const payload = { playerId: currentPlayer.id, itemId: itemKey };
+    if (endpoint === 'add') {
+      const provided = Number(options.count);
+      const normalized = Number.isFinite(provided) ? Math.floor(provided) : 1;
+      payload.count = normalized > 0 ? normalized : 1;
+    }
     const res = await fetch(`/characters/${currentCharacter.id}/job/salvage/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: currentPlayer.id, itemId: itemKey }),
+      body: JSON.stringify(payload),
     });
     try {
       responsePayload = await res.json();
@@ -3303,8 +3376,11 @@ async function mutateBlacksmithSalvageQueue(action, itemId, container, button) {
   }
 }
 
-async function handleAddToSalvageQueue(itemId, container, button) {
-  await mutateBlacksmithSalvageQueue('add', itemId, container, button);
+async function handleAddToSalvageQueue(itemId, count, container, button) {
+  const provided = Number(count);
+  const normalized = Number.isFinite(provided) ? Math.floor(provided) : 1;
+  const quantity = normalized > 0 ? normalized : 1;
+  await mutateBlacksmithSalvageQueue('add', itemId, container, button, { count: quantity });
 }
 
 async function handleRemoveFromSalvageQueue(itemId, container, button) {

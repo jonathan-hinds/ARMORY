@@ -261,13 +261,15 @@ app.post("/characters/:characterId/job/mode", async (req, res) => {
 
 app.post("/characters/:characterId/job/salvage/add", async (req, res) => {
   const characterId = parseInt(req.params.characterId, 10);
-  const { playerId, itemId } = req.body || {};
+  const { playerId, itemId, count } = req.body || {};
   const pid = parseInt(playerId, 10);
   if (!pid || !characterId || !itemId) {
     return res.status(400).json({ error: "playerId, characterId and itemId required" });
   }
+  const parsedCount = parseInt(count, 10);
+  const normalizedCount = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 1;
   try {
-    const status = await addToSalvageQueue(pid, characterId, itemId);
+    const status = await addToSalvageQueue(pid, characterId, itemId, normalizedCount);
     res.json(status);
   } catch (err) {
     console.error(err);
