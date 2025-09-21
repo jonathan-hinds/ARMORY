@@ -326,5 +326,75 @@
         "target": "self"
       }
     ]
+  },
+  {
+    "id": 21,
+    "name": "Lightning Strike",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 25,
+    "cooldown": 15,
+    "scaling": ["intellect"],
+    "effects": [
+      { "type": "MagicDamage", "value": 6, "scaling": { "intellect": 0.5 } },
+      { "type": "Stun", "attacks": 1, "chance": 0.15 },
+      {
+        "type": "NextAbilityDamage",
+        "value": 12,
+        "scaling": { "intellect": 1.0 },
+        "appliesTo": "any",
+        "bonusEffects": [
+          { "type": "Stun", "attacks": 1, "chance": 0.15 }
+        ],
+        "triggerLabel": "lightning rod discharges",
+        "target": "self"
+      }
+    ]
+  },
+  {
+    "id": 22,
+    "name": "Frost Shield",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 17,
+    "cooldown": 18,
+    "scaling": ["intellect"],
+    "effects": [
+      {
+        "type": "ResistShield",
+        "amount": 0.12,
+        "scaling": { "intellect": 0.0025 },
+        "durationType": "selfAttackIntervals",
+        "durationCountMin": 2,
+        "durationCountMax": 4,
+        "attackCount": 99,
+        "damageType": "any",
+        "target": "self",
+        "reflectNegatedDamage": true,
+        "retaliateDamageType": "physical",
+        "retaliateLogLabel": "frost shield"
+      }
+    ]
+  },
+  {
+    "id": 23,
+    "name": "Frost Nova",
+    "school": "magical",
+    "costType": "mana",
+    "costValue": 19,
+    "cooldown": 12,
+    "scaling": ["intellect"],
+    "effects": [
+      { "type": "MagicDamage", "value": 7, "scaling": { "intellect": 0.6 } },
+      {
+        "type": "AttackIntervalDebuff",
+        "value": 0.4,
+        "scaling": { "intellect": 0.01 },
+        "attacks": 2,
+        "durationType": "enemyAttackIntervals",
+        "durationCount": 2,
+        "target": "enemy"
+      }
+    ]
   }
 ]
