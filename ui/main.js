@@ -3382,21 +3382,10 @@ async function handleSetBlacksmithMode(modeId, container, button) {
 
 async function handleSetJobShiftMode(modeId, fallbackActiveJob, container, button) {
   if (!modeId || !currentPlayer || !currentCharacter) return;
-  let activeJob = jobStatusCache && jobStatusCache.activeJob ? jobStatusCache.activeJob : null;
-  if (!activeJob && fallbackActiveJob && fallbackActiveJob.id) {
-    activeJob = fallbackActiveJob;
-  }
-  if (!activeJob) {
-    try {
-      const status = await loadJobStatus(true);
-      if (status && status.activeJob) {
-        activeJob = status.activeJob;
-      }
-    } catch (err) {
-      console.error('failed to refresh job status before switching modes', err);
-    }
-  }
-  if (!activeJob || activeJob.id !== 'blacksmith') {
+  const activeJobId = (fallbackActiveJob && fallbackActiveJob.id)
+    || (jobStatusCache && jobStatusCache.activeJob ? jobStatusCache.activeJob.id : null);
+  if (activeJobId && activeJobId !== 'blacksmith') {
+    console.warn('Unhandled shift mode update for job', activeJobId);
     return;
   }
   await handleSetBlacksmithMode(modeId, container, button);
