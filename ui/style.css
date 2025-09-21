@@ -232,44 +232,253 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 }
 
 #rotation-container {
-  margin-top:8px;
+  margin-top:12px;
   display:flex;
   flex-direction:column;
-  align-items:center;
+  gap:16px;
+  border:2px solid #000;
+  background:#fff;
+  padding:16px;
+  box-shadow:6px 6px 0 #000;
 }
-#rotation-container .rotation-settings {
-  width:100%;
+
+.rotation-header {
   display:flex;
   align-items:center;
-  justify-content:center;
-  gap:8px;
+  justify-content:space-between;
+  flex-wrap:wrap;
+  gap:16px;
 }
+
+.rotation-title {
+  font-size:20px;
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:2px;
+}
+
+#rotation-container .rotation-settings {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+
 #rotation-container .rotation-settings label {
   font-weight:bold;
 }
-#rotation-container .lists {
+
+#rotation-container .rotation-settings select {
+  border:1px solid #000;
+  background:#fff;
+  padding:4px 8px;
+  font-family:'Courier New', monospace;
+  text-transform:uppercase;
+}
+
+.rotation-body {
   display:flex;
-  gap:32px;
+  flex-wrap:wrap;
+  gap:16px;
   align-items:flex-start;
-  justify-content:center;
 }
-#rotation-container .pool {
-  max-width:400px;
+
+.rotation-pool,
+.rotation-active {
+  flex:1 1 320px;
+  border:2px solid #000;
+  background:#fff;
+  padding:12px;
+  box-shadow:4px 4px 0 #000;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
 }
-#rotation-container .ability-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(100px,1fr)); gap:8px; margin-bottom:16px; }
-#rotation-container .ability-card { border:1px solid #000; padding:8px; text-align:center; cursor:move; }
-#rotation-container ul { list-style:none; padding:0 0 8px; margin:0; border:1px solid #000; min-width:150px; min-height:200px; max-height:300px; overflow-y:auto; }
-#rotation-container li { border-bottom:1px solid #000; padding:4px; cursor:move; }
-#rotation-container li:last-child { border-bottom:none; }
-#rotation-error { margin-top:8px; }
+
+.panel-title {
+  text-transform:uppercase;
+  font-weight:bold;
+  letter-spacing:1px;
+  border-bottom:1px solid #000;
+  padding-bottom:4px;
+}
+
+.panel-hint {
+  margin:0;
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  color:#333;
+}
+
+.ability-groups {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.ability-group {
+  border:1px solid #000;
+  padding:10px;
+  background:repeating-linear-gradient(90deg, #fff 0px, #fff 6px, #f5f5f5 6px, #f5f5f5 12px);
+  box-shadow:inset 0 0 0 2px #fff;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.ability-group-header {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+}
+
+.ability-group-header .badge {
+  border:1px solid #000;
+  padding:2px 6px;
+  background:#000;
+  color:#fff;
+  font-size:11px;
+  letter-spacing:1px;
+}
+
+.ability-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));
+  gap:8px;
+}
+
+.ability-card {
+  border:1px solid #000;
+  background:#fff;
+  padding:8px;
+  cursor:move;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  box-shadow:2px 2px 0 #000;
+  text-align:left;
+}
+
+.ability-card .ability-name {
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-size:13px;
+}
+
+.ability-card .ability-meta {
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  color:#444;
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+
+.ability-card .ability-actions {
+  display:flex;
+  gap:6px;
+}
+
+.rotation-actions {
+  display:flex;
+  gap:6px;
+}
+
+.ability-card button {
+  font-size:11px;
+  padding:2px 6px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+
+.rotation-list {
+  list-style:none;
+  margin:0;
+  padding:8px;
+  border:2px solid #000;
+  background:#fff;
+  min-height:260px;
+  max-height:360px;
+  overflow-y:auto;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.rotation-entry {
+  border:1px solid #000;
+  background:#fff;
+  padding:8px;
+  cursor:move;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  box-shadow:2px 2px 0 #000;
+}
+
+.rotation-entry .rotation-order {
+  min-width:28px;
+  text-align:center;
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  background:#000;
+  color:#fff;
+  padding:2px 4px;
+}
+
+.rotation-entry .rotation-name {
+  flex:1;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+  font-size:13px;
+}
+
+.rotation-entry button {
+  font-size:11px;
+  padding:2px 6px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
 
 #rotation-delete {
-  border:1px dashed #000;
-  padding:8px;
-  min-height:40px;
-  margin-top:8px;
+  border:2px dashed #000;
+  padding:12px;
   text-align:center;
+  text-transform:uppercase;
+  letter-spacing:1px;
   color:#a00;
+  background:#fff;
+  box-shadow:inset 0 0 0 2px #fff;
+}
+
+.rotation-footer {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:16px;
+  flex-wrap:wrap;
+}
+
+#rotation-error {
+  margin:0;
+  font-weight:bold;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+
+@media (max-width: 700px) {
+  .rotation-body {
+    flex-direction:column;
+  }
 }
 
 #name-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; }

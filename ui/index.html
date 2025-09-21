@@ -161,28 +161,33 @@
       </div>
       <div id="rotation" class="tab-pane">
         <div id="rotation-container">
-          <div class="rotation-settings">
-            <label for="rotation-damage-type">Damage Type</label>
-            <select id="rotation-damage-type">
-              <option value="melee">Melee</option>
-              <option value="magic">Magic</option>
-            </select>
-          </div>
-          <div class="lists">
-            <div class="pool">
-              <h3>Physical Abilities</h3>
-              <div id="physical-abilities" class="ability-grid"></div>
-              <h3>Magical Abilities</h3>
-              <div id="magical-abilities" class="ability-grid"></div>
+          <div class="rotation-header">
+            <div class="rotation-title">Rotation Planner</div>
+            <div class="rotation-settings">
+              <label for="rotation-damage-type">Damage Type</label>
+              <select id="rotation-damage-type">
+                <option value="melee">Melee</option>
+                <option value="magic">Magic</option>
+              </select>
             </div>
-            <div>
-              <h3>Rotation</h3>
-              <ul id="rotation-list" class="drop-zone"></ul>
+          </div>
+          <div class="rotation-body">
+            <div class="rotation-pool">
+              <div class="panel-title">Ability Codex</div>
+              <p class="panel-hint">Groupings show which hero stat empowers the ability.</p>
+              <div id="ability-groups" class="ability-groups"></div>
+            </div>
+            <div class="rotation-active">
+              <div class="panel-title">Active Rotation</div>
+              <p class="panel-hint">Drag to reorder or use quick actions.</p>
+              <ul id="rotation-list" class="rotation-list drop-zone"></ul>
               <div id="rotation-delete" class="drop-zone delete-zone">Drop here to remove</div>
             </div>
           </div>
-          <button id="save-rotation">Save Rotation</button>
-          <div id="rotation-error" class="hidden"></div>
+          <div class="rotation-footer">
+            <button id="save-rotation">Save Rotation</button>
+            <div id="rotation-error" class="hidden"></div>
+          </div>
         </div>
       </div>
     </section>

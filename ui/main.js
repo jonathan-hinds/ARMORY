@@ -4032,38 +4032,118 @@ async function initRotation() {
   document.getElementById('save-rotation').addEventListener('click', saveRotation);
 }
 
+const ROTATION_STAT_ORDER = ['strength', 'agility', 'intellect', 'wisdom', 'stamina', 'weapon', 'unscaled'];
+
+function rotationStatGroupLabel(stat) {
+  if (stat === 'weapon') return 'Weapon Damage';
+  if (stat === 'unscaled') return 'No Scaling';
+  return `${statLabel(stat)} Scaling`;
+}
+
 function renderAbilityPool() {
-  const phys = document.getElementById('physical-abilities');
-  const mag = document.getElementById('magical-abilities');
-  phys.innerHTML = '';
-  mag.innerHTML = '';
-  const appendCard = (container, ability) => {
-    const card = document.createElement('div');
-    card.textContent = ability.name;
-    card.className = 'ability-card';
-    card.dataset.id = ability.id;
-    card.draggable = true;
-    card.addEventListener('dragstart', handleDragStart);
-    attachTooltip(card, () => abilityTooltip(ability, { basicType: rotationDamageType }));
-    container.appendChild(card);
+  const groupContainer = document.getElementById('ability-groups');
+  if (!groupContainer) return;
+  groupContainer.innerHTML = '';
+  const groups = new Map();
+  const ensureGroup = stat => {
+    if (!groups.has(stat)) {
+      groups.set(stat, []);
+    }
+    return groups.get(stat);
   };
-  abilityCatalog.forEach(ab => {
-    if (!ab) return;
-    if (ab.isBasicAttack) {
-      appendCard(phys, ab);
-      appendCard(mag, ab);
-      return;
+  abilityCatalog.forEach(ability => {
+    if (!ability) return;
+    let stats = [];
+    if (ability.isBasicAttack) {
+      stats = ['weapon'];
+    } else if (Array.isArray(ability.scaling) && ability.scaling.length) {
+      stats = ability.scaling;
+    } else {
+      stats = ['unscaled'];
     }
-    if (ab.school === 'physical') {
-      appendCard(phys, ab);
-    } else if (ab.school === 'magical') {
-      appendCard(mag, ab);
-    }
+    stats.forEach(stat => {
+      ensureGroup(stat).push(ability);
+    });
   });
+  const statOrder = [
+    ...ROTATION_STAT_ORDER,
+    ...Array.from(groups.keys()).filter(stat => !ROTATION_STAT_ORDER.includes(stat)).sort(),
+  ];
+  statOrder.forEach(stat => {
+    const abilities = groups.get(stat);
+    if (!abilities || !abilities.length) return;
+    const group = document.createElement('div');
+    group.className = 'ability-group';
+    const header = document.createElement('div');
+    header.className = 'ability-group-header';
+    const title = document.createElement('div');
+    title.textContent = rotationStatGroupLabel(stat);
+    header.appendChild(title);
+    const badge = document.createElement('div');
+    badge.className = 'badge';
+    badge.textContent = abilities.length;
+    header.appendChild(badge);
+    group.appendChild(header);
+    const grid = document.createElement('div');
+    grid.className = 'ability-grid';
+    abilities
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(ability => {
+        grid.appendChild(createAbilityCard(ability));
+      });
+    group.appendChild(grid);
+    groupContainer.appendChild(group);
+  });
+}
+
+function createAbilityCard(ability) {
+  const card = document.createElement('div');
+  card.className = 'ability-card';
+  card.dataset.id = ability.id;
+  card.draggable = true;
+  card.addEventListener('dragstart', handleDragStart);
+  const name = document.createElement('div');
+  name.className = 'ability-name';
+  name.textContent = ability.name;
+  card.appendChild(name);
+  const metaParts = [];
+  if (ability.school) {
+    metaParts.push(titleCase(ability.school));
+  }
+  if (Number.isFinite(ability.cooldown)) {
+    metaParts.push(`${ability.cooldown}s CD`);
+  }
+  const costText = formatAbilityCost(ability);
+  if (costText && costText !== 'None') {
+    metaParts.push(costText);
+  }
+  if (metaParts.length) {
+    const meta = document.createElement('div');
+    meta.className = 'ability-meta';
+    meta.textContent = metaParts.join(' • ');
+    card.appendChild(meta);
+  }
+  const actions = document.createElement('div');
+  actions.className = 'ability-actions';
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button';
+  addBtn.textContent = 'Add';
+  addBtn.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    addAbilityToRotation(ability.id);
+  });
+  addBtn.addEventListener('mousedown', e => e.stopPropagation());
+  actions.appendChild(addBtn);
+  card.appendChild(actions);
+  attachTooltip(card, () => abilityTooltip(ability, { basicType: rotationDamageType }));
+  return card;
 }
 
 function renderRotationList() {
   const list = document.getElementById('rotation-list');
+  if (!list) return;
   const atBottom = list.scrollTop + list.clientHeight >= list.scrollHeight;
   const prevScroll = list.scrollTop;
   list.innerHTML = '';
@@ -4071,22 +4151,55 @@ function renderRotationList() {
     const ability = abilityCatalog.find(a => a.id === id);
     if (!ability) return;
     const li = document.createElement('li');
-    li.textContent = ability.name;
+    li.className = 'rotation-entry';
     li.dataset.id = id;
     li.dataset.index = idx;
     li.draggable = true;
     li.addEventListener('dragstart', handleDragStart);
     li.addEventListener('dblclick', () => {
       const i = parseInt(li.dataset.index, 10);
-      if (i >= 0) {
-        rotation.splice(i, 1);
-        renderRotationList();
-      }
+      removeAbilityAt(i);
     });
+    const order = document.createElement('div');
+    order.className = 'rotation-order';
+    order.textContent = idx + 1;
+    li.appendChild(order);
+    const name = document.createElement('div');
+    name.className = 'rotation-name';
+    name.textContent = ability.name;
+    li.appendChild(name);
+    const actions = document.createElement('div');
+    actions.className = 'rotation-actions ability-actions';
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.textContent = 'Remove';
+    removeBtn.addEventListener('click', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeAbilityAt(idx);
+    });
+    removeBtn.addEventListener('mousedown', e => e.stopPropagation());
+    actions.appendChild(removeBtn);
+    li.appendChild(actions);
     attachTooltip(li, () => abilityTooltip(ability, { basicType: rotationDamageType }));
     list.appendChild(li);
   });
   list.scrollTop = atBottom ? list.scrollHeight : prevScroll;
+}
+
+function addAbilityToRotation(abilityId) {
+  const numericId = Number.parseInt(abilityId, 10);
+  if (!Number.isFinite(numericId)) return;
+  if (!abilityCatalog.some(ab => ab && ab.id === numericId)) return;
+  rotation.push(numericId);
+  renderRotationList();
+}
+
+function removeAbilityAt(index) {
+  const numericIndex = Number.parseInt(index, 10);
+  if (!Number.isFinite(numericIndex) || numericIndex < 0 || numericIndex >= rotation.length) return;
+  rotation.splice(numericIndex, 1);
+  renderRotationList();
 }
 
 function handleDragStart(e) {
@@ -4138,8 +4251,7 @@ function handleDropRemove(e) {
   e.preventDefault();
   const data = JSON.parse(e.dataTransfer.getData('text/plain'));
   if (data.from === 'rotation') {
-    rotation.splice(data.index, 1);
-    renderRotationList();
+    removeAbilityAt(data.index);
   }
 }
 
