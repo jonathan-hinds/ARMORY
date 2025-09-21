@@ -171,22 +171,96 @@
               </select>
             </div>
           </div>
-          <div class="rotation-body">
-            <div class="rotation-pool">
-              <div class="panel-title">Ability Codex</div>
-              <p class="panel-hint">Groupings show which hero stat empowers the ability.</p>
-              <div id="ability-groups" class="ability-groups"></div>
+          <div class="rotation-tabs" role="tablist" aria-label="Rotation views">
+            <button
+              type="button"
+              class="rotation-tab-button active"
+              data-view="planner"
+              role="tab"
+              aria-selected="true"
+            >
+              Planner
+            </button>
+            <button
+              type="button"
+              class="rotation-tab-button"
+              data-view="visualize"
+              role="tab"
+              aria-selected="false"
+            >
+              Visualize
+            </button>
+          </div>
+          <div id="rotation-planner" class="rotation-view" role="tabpanel" aria-label="Planner view">
+            <div class="rotation-body">
+              <div class="rotation-pool">
+                <div class="panel-title">Ability Codex</div>
+                <p class="panel-hint">Groupings show which hero stat empowers the ability.</p>
+                <div id="ability-groups" class="ability-groups"></div>
+              </div>
+              <div class="rotation-active">
+                <div class="panel-title">Active Rotation</div>
+                <p class="panel-hint">Drag to reorder or use quick actions.</p>
+                <ul id="rotation-list" class="rotation-list drop-zone"></ul>
+                <div id="rotation-delete" class="drop-zone delete-zone">Drop here to remove</div>
+              </div>
             </div>
-            <div class="rotation-active">
-              <div class="panel-title">Active Rotation</div>
-              <p class="panel-hint">Drag to reorder or use quick actions.</p>
-              <ul id="rotation-list" class="rotation-list drop-zone"></ul>
-              <div id="rotation-delete" class="drop-zone delete-zone">Drop here to remove</div>
+            <div class="rotation-footer">
+              <button id="save-rotation">Save Rotation</button>
+              <div id="rotation-error" class="hidden"></div>
             </div>
           </div>
-          <div class="rotation-footer">
-            <button id="save-rotation">Save Rotation</button>
-            <div id="rotation-error" class="hidden"></div>
+          <div
+            id="rotation-visualizer"
+            class="rotation-view hidden"
+            role="tabpanel"
+            aria-label="Visualize view"
+          >
+            <div id="rotation-visualize" class="rotation-visualize">
+              <div id="rotation-visualize-summary" class="visualize-summary"></div>
+              <div class="visualize-legend" aria-hidden="true">
+                <div class="legend-item">
+                  <span class="legend-swatch legend-ability"></span>
+                  <span>Ability execution</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-swatch legend-cooldown"></span>
+                  <span>Cooldown span</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-swatch legend-resource legend-mana"></span>
+                  <span>Mana track</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-swatch legend-resource legend-stamina"></span>
+                  <span>Stamina track</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-swatch legend-conflict"></span>
+                  <span>Cooldown clash</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-swatch legend-deficit"></span>
+                  <span>Resource exhausted</span>
+                </div>
+              </div>
+              <div class="visualize-timeline-scroll">
+                <svg
+                  id="rotation-timeline"
+                  class="rotation-timeline"
+                  xmlns="http://www.w3.org/2000/svg"
+                  role="img"
+                  aria-labelledby="rotation-timeline-title rotation-timeline-desc"
+                ></svg>
+                <div id="rotation-timeline-title" class="visually-hidden">Rotation timeline</div>
+                <div id="rotation-timeline-desc" class="visually-hidden">
+                  Visual schedule of ability usage, cooldowns, and resource levels.
+                </div>
+              </div>
+              <div id="rotation-visualize-empty" class="visualize-empty hidden">
+                Add abilities to the rotation to visualize their timing and costs.
+              </div>
+            </div>
           </div>
         </div>
       </div>

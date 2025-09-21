@@ -6,6 +6,8 @@ let abilityCatalogPromise = null;
 let rotation = [];
 let rotationInitialized = false;
 let rotationDamageType = 'melee';
+let rotationViewMode = 'planner';
+let rotationTabsInitialized = false;
 
 const rotationDamageTypeSelect = document.getElementById('rotation-damage-type');
 
@@ -4110,6 +4112,20 @@ async function initRotation() {
   del.addEventListener('dragover', e => e.preventDefault());
   del.addEventListener('drop', handleDropRemove);
   document.getElementById('save-rotation').addEventListener('click', saveRotation);
+  if (!rotationTabsInitialized) {
+    const buttons = Array.from(document.querySelectorAll('.rotation-tab-button'));
+    if (buttons.length) {
+      buttons.forEach(button => {
+        button.addEventListener('click', () => {
+          const view = button.dataset.view === 'visualize' ? 'visualize' : 'planner';
+          showRotationView(view);
+        });
+      });
+      rotationTabsInitialized = true;
+    }
+  }
+  showRotationView(rotationViewMode);
+  renderRotationVisualization();
 }
 
 const ROTATION_STAT_ORDER = ['strength', 'agility', 'intellect', 'wisdom', 'stamina', 'weapon', 'unscaled'];
@@ -4265,6 +4281,488 @@ function renderRotationList() {
     list.appendChild(li);
   });
   list.scrollTop = atBottom ? list.scrollHeight : prevScroll;
+  updateRotationVisualization();
+}
+
+function showRotationView(mode) {
+  const normalized = mode === 'visualize' ? 'visualize' : 'planner';
+  rotationViewMode = normalized;
+  const plannerPanel = document.getElementById('rotation-planner');
+  const visualizePanel = document.getElementById('rotation-visualizer');
+  if (plannerPanel) {
+    plannerPanel.classList.toggle('hidden', normalized !== 'planner');
+    plannerPanel.setAttribute('aria-hidden', normalized === 'planner' ? 'false' : 'true');
+  }
+  if (visualizePanel) {
+    visualizePanel.classList.toggle('hidden', normalized !== 'visualize');
+    visualizePanel.setAttribute('aria-hidden', normalized === 'visualize' ? 'false' : 'true');
+  }
+  document.querySelectorAll('.rotation-tab-button').forEach(button => {
+    const view = button.dataset.view === 'visualize' ? 'visualize' : 'planner';
+    const active = view === normalized;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', active ? 'true' : 'false');
+    button.setAttribute('tabindex', active ? '0' : '-1');
+  });
+  if (normalized === 'visualize') {
+    renderRotationVisualization();
+  }
+  return normalized;
+}
+
+function updateRotationVisualization() {
+  if (!rotationInitialized) return;
+  if (rotationViewMode === 'visualize') {
+    renderRotationVisualization();
+  }
+}
+
+
+function renderRotationVisualization() {
+  const summaryContainer = document.getElementById('rotation-visualize-summary');
+  const timelineSvg = document.getElementById('rotation-timeline');
+  const emptyState = document.getElementById('rotation-visualize-empty');
+  if (!summaryContainer || !timelineSvg) return;
+
+  summaryContainer.innerHTML = '';
+  const addSummary = (label, value) => {
+    if (!label || value == null) return;
+    const item = document.createElement('div');
+    item.className = 'summary-item';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    item.appendChild(labelSpan);
+    const valueSpan = document.createElement('span');
+    valueSpan.className = 'value';
+    valueSpan.textContent = value;
+    item.appendChild(valueSpan);
+    summaryContainer.appendChild(item);
+  };
+
+  while (timelineSvg.firstChild) {
+    timelineSvg.removeChild(timelineSvg.firstChild);
+  }
+
+  const defaultWidth = 640;
+  const defaultHeight = 260;
+  const derived = getActiveDerivedStats() || {};
+  const attackInterval = Number.isFinite(derived.attackIntervalSeconds) && derived.attackIntervalSeconds > 0
+    ? derived.attackIntervalSeconds
+    : 2;
+
+  addSummary('Abilities', rotation.length);
+  addSummary('Attack Interval', `${attackInterval.toFixed(2)}s`);
+  if (rotation.length) {
+    addSummary('Rotation Length', `${(rotation.length * attackInterval).toFixed(2)}s`);
+  }
+  if (Number.isFinite(derived.mana)) {
+    addSummary('Mana', Math.round(derived.mana));
+  }
+  if (Number.isFinite(derived.stamina)) {
+    addSummary('Stamina', Math.round(derived.stamina));
+  }
+
+  const abilityEntries = rotation
+    .map((id, index) => {
+      const ability = abilityCatalog.find(entry => entry.id === id);
+      if (!ability) return null;
+      const cooldown = Number.isFinite(ability.cooldown) && ability.cooldown > 0 ? ability.cooldown : 0;
+      return {
+        ability,
+        index,
+        start: index * attackInterval,
+        cooldown,
+        costs: getRotationAbilityCosts(ability),
+        warnings: [],
+      };
+    })
+    .filter(Boolean);
+
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const create = tag => document.createElementNS(svgNS, tag);
+  const title = create('title');
+  title.textContent = 'Rotation visualization';
+  timelineSvg.appendChild(title);
+  const desc = create('desc');
+  desc.textContent = 'Timeline showing ability order, cooldowns, and resource usage.';
+  timelineSvg.appendChild(desc);
+
+  const setDefaultViewport = () => {
+    timelineSvg.setAttribute('viewBox', `0 0 ${defaultWidth} ${defaultHeight}`);
+    timelineSvg.setAttribute('width', defaultWidth);
+    timelineSvg.setAttribute('height', defaultHeight);
+    timelineSvg.style.width = `${defaultWidth}px`;
+    timelineSvg.style.height = `${defaultHeight}px`;
+  };
+
+  if (!abilityEntries.length) {
+    setDefaultViewport();
+    const background = create('rect');
+    background.setAttribute('x', 0);
+    background.setAttribute('y', 0);
+    background.setAttribute('width', defaultWidth);
+    background.setAttribute('height', defaultHeight);
+    background.setAttribute('fill', '#000');
+    timelineSvg.appendChild(background);
+    if (emptyState) {
+      emptyState.classList.remove('hidden');
+    }
+    return;
+  }
+
+  if (emptyState) {
+    emptyState.classList.add('hidden');
+  }
+
+  const baseInterval = attackInterval > 0 ? attackInterval : 1;
+  const slotWidth = 120;
+  const timelinePadding = 48;
+  const blockWidth = slotWidth - 16;
+  const blockHeight = 44;
+  const blockY = 40;
+  const cooldownY = blockY + blockHeight + 28;
+  const warningY = cooldownY + 20;
+  const resourceTop = cooldownY + 40;
+  const resourceHeight = 96;
+
+  const rotationDuration = abilityEntries.length * baseInterval;
+  const maxCooldownEnd = abilityEntries.reduce((acc, entry) => Math.max(acc, entry.start + entry.cooldown), rotationDuration);
+  const displayDuration = Math.max(baseInterval, rotationDuration, maxCooldownEnd);
+  const totalWidth = timelinePadding * 2 + (displayDuration / baseInterval) * slotWidth;
+  const totalHeight = resourceTop + resourceHeight + 48;
+
+  timelineSvg.setAttribute('viewBox', `0 0 ${totalWidth} ${totalHeight}`);
+  timelineSvg.setAttribute('width', totalWidth);
+  timelineSvg.setAttribute('height', totalHeight);
+  timelineSvg.style.width = `${totalWidth}px`;
+  timelineSvg.style.height = `${totalHeight}px`;
+
+  const appendBackground = (width, height) => {
+    const rect = create('rect');
+    rect.setAttribute('x', 0);
+    rect.setAttribute('y', 0);
+    rect.setAttribute('width', width);
+    rect.setAttribute('height', height);
+    rect.setAttribute('fill', '#000');
+    timelineSvg.appendChild(rect);
+  };
+
+  appendBackground(totalWidth, totalHeight);
+
+  const timeToX = time => timelinePadding + (time / baseInterval) * slotWidth;
+
+  const resourceKeys = ['mana', 'stamina'];
+  const resourceState = {};
+  const resourceHistory = {};
+  resourceKeys.forEach(key => {
+    const value = Number.isFinite(derived[key]) ? derived[key] : null;
+    if (value != null) {
+      resourceState[key] = value;
+      resourceHistory[key] = [{ time: 0, value }];
+    }
+  });
+
+  const lastUsage = new Map();
+  abilityEntries.forEach(entry => {
+    if (entry.cooldown > 0) {
+      const previous = lastUsage.get(entry.ability.id);
+      if (previous != null) {
+        const readyAt = previous + entry.cooldown;
+        if (entry.start < readyAt) {
+          entry.cooldownConflict = true;
+          entry.cooldownReadyAt = readyAt;
+        }
+      }
+    }
+    lastUsage.set(entry.ability.id, entry.start);
+
+    Object.keys(resourceHistory).forEach(key => {
+      const currentValue = resourceState[key];
+      const history = resourceHistory[key];
+      history.push({ time: entry.start, value: currentValue });
+      const cost = Number.isFinite(entry.costs[key]) ? entry.costs[key] : 0;
+      const nextValue = currentValue - cost;
+      resourceState[key] = nextValue;
+      history.push({ time: entry.start, value: nextValue });
+      if (nextValue < 0 && !entry.warnings.includes(key)) {
+        entry.warnings.push(key);
+      }
+    });
+  });
+
+  Object.keys(resourceHistory).forEach(key => {
+    resourceHistory[key].push({ time: displayDuration, value: resourceState[key] });
+  });
+
+  const resourceValues = [];
+  Object.values(resourceHistory).forEach(points => {
+    points.forEach(point => resourceValues.push(point.value));
+  });
+
+  const minResourceValue = resourceValues.length ? Math.min(0, ...resourceValues) : 0;
+  const maxResourceValue = resourceValues.length ? Math.max(0, ...resourceValues) : 1;
+  const resourceRange = Math.max(1, maxResourceValue - minResourceValue);
+  const valueToY = value => resourceTop + resourceHeight - ((value - minResourceValue) / resourceRange) * resourceHeight;
+
+  const stepCount = Math.max(1, Math.ceil(displayDuration / baseInterval));
+  for (let i = 0; i <= stepCount; i += 1) {
+    const time = Math.min(displayDuration, i * baseInterval);
+    const x = timeToX(time);
+    const marker = create('line');
+    marker.setAttribute('x1', x);
+    marker.setAttribute('x2', x);
+    marker.setAttribute('y1', blockY - 20);
+    marker.setAttribute('y2', resourceTop + resourceHeight);
+    marker.setAttribute('stroke', '#fff');
+    marker.setAttribute('stroke-width', '1');
+    marker.setAttribute('stroke-dasharray', '2 12');
+    timelineSvg.appendChild(marker);
+    const label = create('text');
+    label.setAttribute('x', x);
+    label.setAttribute('y', resourceTop + resourceHeight + 18);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('fill', '#fff');
+    label.setAttribute('font-size', '10');
+    label.textContent = `${time.toFixed(1)}s`;
+    timelineSvg.appendChild(label);
+  }
+
+  if (resourceValues.length) {
+    const baseline = create('line');
+    baseline.setAttribute('x1', timeToX(0));
+    baseline.setAttribute('x2', timeToX(displayDuration));
+    baseline.setAttribute('y1', resourceTop + resourceHeight);
+    baseline.setAttribute('y2', resourceTop + resourceHeight);
+    baseline.setAttribute('stroke', '#fff');
+    baseline.setAttribute('stroke-width', '2');
+    timelineSvg.appendChild(baseline);
+
+    const zeroLine = create('line');
+    zeroLine.setAttribute('x1', timeToX(0));
+    zeroLine.setAttribute('x2', timeToX(displayDuration));
+    zeroLine.setAttribute('y1', valueToY(0));
+    zeroLine.setAttribute('y2', valueToY(0));
+    zeroLine.setAttribute('stroke', '#fff');
+    zeroLine.setAttribute('stroke-width', '1');
+    zeroLine.setAttribute('stroke-dasharray', '4 8');
+    timelineSvg.appendChild(zeroLine);
+
+    Object.entries(resourceHistory).forEach(([key, points]) => {
+      const pathData = buildRotationResourcePath(points, timeToX, valueToY);
+      if (!pathData) return;
+      const path = create('path');
+      path.setAttribute('d', pathData);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', '#fff');
+      path.setAttribute('stroke-width', '2');
+      if (key === 'stamina') {
+        path.setAttribute('stroke-dasharray', '6 4');
+      }
+      timelineSvg.appendChild(path);
+    });
+  }
+
+  const formatSeconds = value => {
+    if (!Number.isFinite(value)) return '';
+    return value % 1 === 0 ? `${value.toFixed(0)}s` : `${value.toFixed(1)}s`;
+  };
+
+  abilityEntries.forEach(entry => {
+    const centerOffset = (slotWidth - blockWidth) / 2;
+    const blockX = timeToX(entry.start) + centerOffset;
+    const rect = create('rect');
+    rect.setAttribute('x', blockX);
+    rect.setAttribute('y', blockY);
+    rect.setAttribute('width', blockWidth);
+    rect.setAttribute('height', blockHeight);
+    rect.setAttribute('fill', '#fff');
+    rect.setAttribute('stroke', '#000');
+    rect.setAttribute('stroke-width', entry.cooldownConflict ? '3' : '2');
+    if (entry.cooldownConflict) {
+      rect.setAttribute('stroke-dasharray', '4 2');
+    }
+    timelineSvg.appendChild(rect);
+
+    if (entry.cooldownConflict) {
+      const crossOne = create('line');
+      crossOne.setAttribute('x1', blockX + 4);
+      crossOne.setAttribute('y1', blockY + 4);
+      crossOne.setAttribute('x2', blockX + blockWidth - 4);
+      crossOne.setAttribute('y2', blockY + blockHeight - 4);
+      crossOne.setAttribute('stroke', '#000');
+      crossOne.setAttribute('stroke-width', '2');
+      timelineSvg.appendChild(crossOne);
+      const crossTwo = create('line');
+      crossTwo.setAttribute('x1', blockX + blockWidth - 4);
+      crossTwo.setAttribute('y1', blockY + 4);
+      crossTwo.setAttribute('x2', blockX + 4);
+      crossTwo.setAttribute('y2', blockY + blockHeight - 4);
+      crossTwo.setAttribute('stroke', '#000');
+      crossTwo.setAttribute('stroke-width', '2');
+      timelineSvg.appendChild(crossTwo);
+    }
+
+    const centerX = blockX + blockWidth / 2;
+    const nameText = create('text');
+    nameText.setAttribute('x', centerX);
+    nameText.setAttribute('y', blockY + 16);
+    nameText.setAttribute('text-anchor', 'middle');
+    nameText.setAttribute('fill', '#000');
+    nameText.setAttribute('font-size', '12');
+    nameText.setAttribute('font-weight', 'bold');
+    nameText.textContent = entry.ability.name;
+    timelineSvg.appendChild(nameText);
+
+    const costString = describeRotationCosts(entry.costs) || 'No Cost';
+    const costText = create('text');
+    costText.setAttribute('x', centerX);
+    costText.setAttribute('y', blockY + blockHeight - 8);
+    costText.setAttribute('text-anchor', 'middle');
+    costText.setAttribute('fill', '#000');
+    costText.setAttribute('font-size', '10');
+    costText.textContent = costString;
+    timelineSvg.appendChild(costText);
+
+    if (entry.cooldown > 0) {
+      const startX = timeToX(entry.start);
+      const endX = timeToX(entry.start + entry.cooldown);
+      const cooldownLine = create('line');
+      cooldownLine.setAttribute('x1', startX);
+      cooldownLine.setAttribute('x2', endX);
+      cooldownLine.setAttribute('y1', cooldownY);
+      cooldownLine.setAttribute('y2', cooldownY);
+      cooldownLine.setAttribute('stroke', '#fff');
+      cooldownLine.setAttribute('stroke-width', entry.cooldownConflict ? '3' : '2');
+      cooldownLine.setAttribute('stroke-dasharray', entry.cooldownConflict ? '4 4' : '8 6');
+      timelineSvg.appendChild(cooldownLine);
+
+      const startTick = create('line');
+      startTick.setAttribute('x1', startX);
+      startTick.setAttribute('x2', startX);
+      startTick.setAttribute('y1', cooldownY - 6);
+      startTick.setAttribute('y2', cooldownY + 6);
+      startTick.setAttribute('stroke', '#fff');
+      startTick.setAttribute('stroke-width', '2');
+      timelineSvg.appendChild(startTick);
+
+      const endTick = create('line');
+      endTick.setAttribute('x1', endX);
+      endTick.setAttribute('x2', endX);
+      endTick.setAttribute('y1', cooldownY - 6);
+      endTick.setAttribute('y2', cooldownY + 6);
+      endTick.setAttribute('stroke', '#fff');
+      endTick.setAttribute('stroke-width', '2');
+      timelineSvg.appendChild(endTick);
+
+      const cooldownLabel = create('text');
+      cooldownLabel.setAttribute('x', (startX + endX) / 2);
+      cooldownLabel.setAttribute('y', cooldownY - 10);
+      cooldownLabel.setAttribute('text-anchor', 'middle');
+      cooldownLabel.setAttribute('fill', '#fff');
+      cooldownLabel.setAttribute('font-size', '10');
+      cooldownLabel.textContent = formatSeconds(entry.cooldown);
+      timelineSvg.appendChild(cooldownLabel);
+
+      if (entry.cooldownConflict && entry.cooldownReadyAt != null) {
+        const readyLabel = create('text');
+        readyLabel.setAttribute('x', endX);
+        readyLabel.setAttribute('y', cooldownY + 18);
+        readyLabel.setAttribute('text-anchor', 'end');
+        readyLabel.setAttribute('fill', '#fff');
+        readyLabel.setAttribute('font-size', '10');
+        const timeRemaining = entry.cooldownReadyAt - entry.start;
+        readyLabel.textContent = `Ready @ ${formatSeconds(timeRemaining)}`;
+        timelineSvg.appendChild(readyLabel);
+      }
+    }
+
+    if (entry.warnings.length) {
+      const markerSize = 8;
+      const centerY = warningY;
+      const marker = create('path');
+      marker.setAttribute('d', `M ${centerX} ${centerY - markerSize} L ${centerX + markerSize} ${centerY} L ${centerX} ${centerY + markerSize} L ${centerX - markerSize} ${centerY} Z`);
+      marker.setAttribute('fill', '#fff');
+      marker.setAttribute('stroke', '#000');
+      marker.setAttribute('stroke-width', '2');
+      timelineSvg.appendChild(marker);
+      const warnText = create('text');
+      warnText.setAttribute('x', centerX);
+      warnText.setAttribute('y', centerY + 4);
+      warnText.setAttribute('text-anchor', 'middle');
+      warnText.setAttribute('fill', '#000');
+      warnText.setAttribute('font-size', '10');
+      warnText.setAttribute('font-weight', 'bold');
+      warnText.textContent = entry.warnings
+        .map(key => {
+          if (key === 'mana') return 'M';
+          if (key === 'stamina') return 'S';
+          return key.charAt(0).toUpperCase();
+        })
+        .join('');
+      timelineSvg.appendChild(warnText);
+    }
+  });
+}
+
+function getRotationAbilityCosts(ability) {
+  if (!ability || typeof ability !== 'object') return {};
+  const rawCosts = Array.isArray(ability.costs) && ability.costs.length
+    ? ability.costs
+    : ability.costType
+    ? [{ type: ability.costType, value: ability.costValue }]
+    : [];
+  return rawCosts.reduce((acc, entry) => {
+    const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+    if (!type) return acc;
+    const value = Number.isFinite(entry.value)
+      ? entry.value
+      : Number.isFinite(ability.costValue)
+      ? ability.costValue
+      : 0;
+    if (!Number.isFinite(value)) return acc;
+    acc[type] = (acc[type] || 0) + value;
+    return acc;
+  }, {});
+}
+
+function describeRotationCosts(costMap) {
+  if (!costMap || typeof costMap !== 'object') return '';
+  const parts = Object.entries(costMap)
+    .map(([type, value]) => {
+      if (!Number.isFinite(value) || value === 0) return null;
+      const label = rotationResourceLabel(type);
+      const amount = Math.abs(Math.round(value));
+      if (!amount) return null;
+      if (value < 0) {
+        return `Gain ${amount} ${label}`;
+      }
+      return `${label} ${amount}`;
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join(' + ') : '';
+}
+
+function rotationResourceLabel(resource) {
+  const key = typeof resource === 'string' ? resource.toLowerCase() : '';
+  return RESOURCE_LABELS[key] || titleCase(key || 'Resource');
+}
+
+function buildRotationResourcePath(points, timeToX, valueToY) {
+  if (!Array.isArray(points) || !points.length) return '';
+  const sorted = points.slice().sort((a, b) => a.time - b.time);
+  const first = sorted[0];
+  let d = `M ${timeToX(first.time)} ${valueToY(first.value)}`;
+  for (let i = 1; i < sorted.length; i += 1) {
+    const prev = sorted[i - 1];
+    const current = sorted[i];
+    const x = timeToX(current.time);
+    const prevY = valueToY(prev.value);
+    if (current.time !== prev.time) {
+      d += ` L ${x} ${prevY}`;
+    }
+    d += ` L ${x} ${valueToY(current.value)}`;
+  }
+  return d;
 }
 
 function addAbilityToRotation(abilityId) {
