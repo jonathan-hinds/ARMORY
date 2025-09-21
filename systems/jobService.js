@@ -1293,9 +1293,28 @@ async function buildActiveJobStatus(jobState, jobDef, now, equipmentMap, config,
       cloneItem.baseItemId = baseItemId;
       queueItems.push({ instanceId: queuedId, baseItemId, item: cloneItem });
     }
+    const equippedIds = new Set();
+    if (characterDoc.equipment && typeof characterDoc.equipment === 'object') {
+      Object.values(characterDoc.equipment).forEach(id => {
+        if (typeof id === 'string' && id) {
+          equippedIds.add(id);
+        }
+      });
+    }
+    if (characterDoc.useables && typeof characterDoc.useables === 'object') {
+      Object.values(characterDoc.useables).forEach(id => {
+        if (typeof id === 'string' && id) {
+          equippedIds.add(id);
+        }
+      });
+    }
+
     if (Array.isArray(characterDoc.items)) {
       for (const storedId of characterDoc.items) {
         if (!storedId) continue;
+        if (equippedIds.has(storedId)) {
+          continue;
+        }
         const resolved = await resolveItem(characterDoc, storedId, equipmentMap);
         if (!resolved || resolved.slot === 'useable') continue;
         const cloneItem = JSON.parse(JSON.stringify(resolved));

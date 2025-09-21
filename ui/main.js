@@ -1522,30 +1522,77 @@ function createJobRecipeList(job, { includeOwned = false } = {}) {
   return list;
 }
 
-function appendBlacksmithDetail(list, label, text) {
-  if (!list || !text) return;
-  const li = document.createElement('li');
-  li.className = 'blacksmith-item-stat';
-  if (label) {
-    const labelSpan = document.createElement('span');
-    labelSpan.className = 'label';
-    labelSpan.textContent = label;
-    li.appendChild(labelSpan);
+function getBlacksmithItemTags(item) {
+  if (!item) return [];
+  const rawTags = Array.isArray(item.tags) ? item.tags.slice() : [];
+  if (item.slot) {
+    rawTags.push(slotLabel(item.slot));
   }
-  const valueSpan = document.createElement('span');
-  valueSpan.className = 'value';
-  valueSpan.textContent = text;
-  li.appendChild(valueSpan);
-  list.appendChild(li);
+  if (item.type && !rawTags.includes(item.type)) {
+    rawTags.push(item.type);
+  }
+  const damageType = item.weaponDamageType || item.damageType;
+  if (damageType) {
+    rawTags.push(damageType);
+  }
+  const unique = [];
+  const seen = new Set();
+  rawTags.forEach(tag => {
+    if (!tag) return;
+    const label = titleCase(String(tag).replace(/^custom:/, '').replace(/_/g, ' '));
+    const key = label.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(label);
+    }
+  });
+  return unique;
 }
 
-function createBlacksmithItemCard(entry, { actionType = null, actionLabel = null, onAction = null } = {}) {
+function groupBlacksmithEntries(entries) {
+  const groups = new Map();
+  entries.forEach(entry => {
+    if (!entry || !entry.item) return;
+    const key = entry.baseItemId || entry.item.id || entry.instanceId;
+    if (!key) return;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        item: entry.item,
+        baseItemId: entry.baseItemId || null,
+        instanceIds: [],
+        count: 0,
+      });
+    }
+    const group = groups.get(key);
+    if (entry.instanceId) {
+      group.instanceIds.push(entry.instanceId);
+    }
+    group.count += 1;
+  });
+  return Array.from(groups.values())
+    .filter(group => group.count > 0)
+    .sort((a, b) => {
+      const an = a.item && a.item.name ? a.item.name.toLowerCase() : '';
+      const bn = b.item && b.item.name ? b.item.name.toLowerCase() : '';
+      if (an < bn) return -1;
+      if (an > bn) return 1;
+      return 0;
+    });
+}
+
+function createBlacksmithItemCard(entry, {
+  actionType = null,
+  actionLabel = null,
+  onAction = null,
+  amountLabel = 'Amount',
+} = {}) {
   if (!entry || !entry.item) return null;
-  const { item } = entry;
+  const { item, instanceIds = [], count = 0 } = entry;
   const card = document.createElement('div');
   card.className = 'blacksmith-item-card';
-  if (entry.instanceId) {
-    card.dataset.instanceId = entry.instanceId;
+  if (instanceIds.length) {
+    card.dataset.instanceId = instanceIds[0];
   }
 
   const header = document.createElement('div');
@@ -1563,45 +1610,39 @@ function createBlacksmithItemCard(entry, { actionType = null, actionLabel = null
 
   card.appendChild(header);
 
-  const meta = document.createElement('div');
-  meta.className = 'blacksmith-item-meta';
-  meta.textContent = formatItemMeta(item);
-  card.appendChild(meta);
-
-  if (entry.baseItemId && entry.baseItemId !== item.id) {
-    const baseItem = getEquipmentById(entry.baseItemId);
-    const baseName = baseItem && baseItem.name
-      ? baseItem.name
-      : titleCase(String(entry.baseItemId).replace(/^custom:/, '').replace(/_/g, ' '));
-    const variant = document.createElement('div');
-    variant.className = 'blacksmith-item-variant';
-    variant.textContent = `Forged from ${baseName}`;
-    card.appendChild(variant);
+  const tags = getBlacksmithItemTags(item);
+  if (tags.length) {
+    const tagList = document.createElement('div');
+    tagList.className = 'blacksmith-item-tags';
+    tags.forEach(tag => {
+      const pill = document.createElement('span');
+      pill.className = 'blacksmith-item-tag';
+      pill.textContent = tag;
+      tagList.appendChild(pill);
+    });
+    card.appendChild(tagList);
   }
 
-  const stats = document.createElement('ul');
-  stats.className = 'blacksmith-item-stats';
-  appendBlacksmithDetail(stats, 'Attributes', formatAttributeBonuses(item.attributeBonuses));
-  appendBlacksmithDetail(stats, 'Chance Bonuses', formatChanceBonuses(item.chanceBonuses));
-  appendBlacksmithDetail(stats, 'Resources', formatResourceBonuses(item.resourceBonuses));
-  appendBlacksmithDetail(stats, 'Resistances', formatResistances(item.resistances));
-  if (item.weaponDamageType) {
-    appendBlacksmithDetail(stats, 'Damage Type', titleCase(item.weaponDamageType));
-  } else if (item.damageType) {
-    appendBlacksmithDetail(stats, 'Damage Type', titleCase(item.damageType));
-  }
-  if (stats.childElementCount) {
-    card.appendChild(stats);
-  }
+  const amountRow = document.createElement('div');
+  amountRow.className = 'blacksmith-item-amount';
+  const amountLabelEl = document.createElement('span');
+  amountLabelEl.className = 'label';
+  amountLabelEl.textContent = amountLabel;
+  const amountValue = document.createElement('span');
+  amountValue.className = 'value';
+  amountValue.textContent = `×${count}`;
+  amountRow.appendChild(amountLabelEl);
+  amountRow.appendChild(amountValue);
+  card.appendChild(amountRow);
 
-  if (actionType && typeof onAction === 'function' && entry.instanceId) {
+  if (actionType && typeof onAction === 'function' && instanceIds.length) {
     const actionRow = document.createElement('div');
     actionRow.className = 'blacksmith-item-actions';
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `blacksmith-item-action${actionType === 'remove' ? ' remove' : ''}`;
     button.textContent = actionLabel || (actionType === 'remove' ? 'Remove from Queue' : 'Add to Queue');
-    button.addEventListener('click', () => onAction(entry.instanceId, button));
+    button.addEventListener('click', () => onAction(instanceIds[0], button));
     actionRow.appendChild(button);
     card.appendChild(actionRow);
   }
@@ -1618,12 +1659,14 @@ function createBlacksmithColumn({
   actionType = null,
   actionLabel = null,
   onAction = null,
+  amountLabel = 'Amount',
 }) {
   const column = document.createElement('div');
   column.className = className ? `blacksmith-column ${className}` : 'blacksmith-column';
 
   const heading = document.createElement('h5');
-  heading.textContent = `${title}${entries.length ? ` (${entries.length})` : ''}`;
+  const total = entries.reduce((sum, entry) => sum + (entry.count || 0), 0);
+  heading.textContent = `${title}${total ? ` (${total})` : ''}`;
   column.appendChild(heading);
 
   if (!entries.length) {
@@ -1637,7 +1680,7 @@ function createBlacksmithColumn({
   const list = document.createElement('div');
   list.className = 'blacksmith-item-list';
   entries.forEach(entry => {
-    const card = createBlacksmithItemCard(entry, { actionType, actionLabel, onAction });
+    const card = createBlacksmithItemCard(entry, { actionType, actionLabel, onAction, amountLabel });
     if (card) {
       list.appendChild(card);
     }
@@ -1655,6 +1698,9 @@ function createBlacksmithTaskSection(activeJob, container) {
   const task = data.task === 'salvage' ? 'salvage' : modeId === 'salvage' ? 'salvage' : 'craft';
   const isSalvageMode = task === 'salvage';
 
+  const groupedQueue = groupBlacksmithEntries(queue);
+  const groupedInventory = groupBlacksmithEntries(inventory);
+
   const section = document.createElement('div');
   section.className = 'blacksmith-section';
 
@@ -1669,35 +1715,37 @@ function createBlacksmithTaskSection(activeJob, container) {
   const note = document.createElement('p');
   note.className = 'blacksmith-note';
   note.textContent = isSalvageMode
-    ? 'While salvaging, each queued item is dismantled until the list is empty—then the crew clocks out automatically.'
-    : 'Queue spare gear to prepare for your next Salvage shift. Add pieces from inventory on the right.';
+    ? 'While salvaging, the crew dismantles each queued item on the right until the list is empty—then clocks out automatically.'
+    : 'Move spare gear from your inventory on the left into the salvage queue on the right to prep for the next shift.';
   section.appendChild(note);
 
   const columns = document.createElement('div');
   columns.className = 'blacksmith-columns';
 
+  const inventoryColumn = createBlacksmithColumn({
+    title: 'Inventory',
+    entries: groupedInventory,
+    emptyText: 'No salvageable gear in inventory.',
+    className: isSalvageMode ? 'inventory' : 'inventory active',
+    actionType: 'add',
+    actionLabel: 'Add to Queue',
+    onAction: (instanceId, button) => handleAddBlacksmithQueueItem(instanceId, container, button),
+    amountLabel: 'Available',
+  });
+
   const queueColumn = createBlacksmithColumn({
     title: 'Salvage Queue',
-    entries: queue,
+    entries: groupedQueue,
     emptyText: 'No gear queued for salvage.',
     className: isSalvageMode ? 'salvage active' : 'salvage',
     actionType: 'remove',
     actionLabel: 'Remove from Queue',
     onAction: (instanceId, button) => handleRemoveBlacksmithQueueItem(instanceId, container, button),
+    amountLabel: 'Queued',
   });
 
-  const inventoryColumn = createBlacksmithColumn({
-    title: 'Available Gear',
-    entries: inventory,
-    emptyText: 'No spare gear available to salvage.',
-    className: isSalvageMode ? 'inventory' : 'inventory active',
-    actionType: 'add',
-    actionLabel: 'Add to Queue',
-    onAction: (instanceId, button) => handleAddBlacksmithQueueItem(instanceId, container, button),
-  });
-
-  columns.appendChild(queueColumn);
   columns.appendChild(inventoryColumn);
+  columns.appendChild(queueColumn);
   section.appendChild(columns);
 
   return section;
