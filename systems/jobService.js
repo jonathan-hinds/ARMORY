@@ -1781,8 +1781,8 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
     ? options.modeId.trim().toLowerCase()
     : null;
   const hasExplicitModeRequest = !!modeIdRaw;
-  let requestedModeId = modeIdRaw;
-  if (jobDef.isBlacksmith) {
+  let requestedModeId = hasExplicitModeRequest ? modeIdRaw : null;
+  if (jobDef.isBlacksmith && !hasExplicitModeRequest) {
     const selectionMap = jobState.shiftSelections && typeof jobState.shiftSelections === 'object'
       ? jobState.shiftSelections
       : null;
@@ -1791,10 +1791,8 @@ async function setJobWorkingState(playerId, characterId, shouldWork, options = {
       : null;
     const storedModeId = storedSelectionRaw ? storedSelectionRaw.trim().toLowerCase() : null;
     if (storedModeId) {
-      if (!requestedModeId || storedModeId !== requestedModeId) {
-        requestedModeId = storedModeId;
-      }
-    } else if (!requestedModeId && jobState.blacksmith && typeof jobState.blacksmith === 'object') {
+      requestedModeId = storedModeId;
+    } else if (jobState.blacksmith && typeof jobState.blacksmith === 'object') {
       const stateModeId = normalizeBlacksmithModeId(jobState.blacksmith.modeId);
       if (stateModeId) {
         requestedModeId = stateModeId;
