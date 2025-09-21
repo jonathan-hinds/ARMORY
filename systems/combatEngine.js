@@ -6,6 +6,7 @@ const { USEABLE_SLOTS } = require('../models/utils');
 
 const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
 const MAX_RESIST = 0.75;
+const MIN_DYNAMIC_ATTACK_INTERVAL = 0.5;
 
 function clampResist(value) {
   if (!Number.isFinite(value)) return 0;
@@ -61,6 +62,50 @@ function resolveUseables(character, equipmentMap) {
   return resolved;
 }
 
+function getEffectiveAttackInterval(combatant, now, { consume = true } = {}) {
+  if (!combatant) return MIN_DYNAMIC_ATTACK_INTERVAL;
+  const base =
+    combatant.derived && Number.isFinite(combatant.derived.attackIntervalSeconds)
+      ? combatant.derived.attackIntervalSeconds
+      : MIN_DYNAMIC_ATTACK_INTERVAL;
+  const adjustments = Array.isArray(combatant.attackIntervalAdjustments)
+    ? combatant.attackIntervalAdjustments
+    : [];
+  if (!adjustments.length) {
+    return Math.max(MIN_DYNAMIC_ATTACK_INTERVAL, base);
+  }
+  const currentTime = Number.isFinite(now) ? now : null;
+  let totalModifier = 0;
+  const remaining = [];
+  adjustments.forEach(entry => {
+    if (!entry) return;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    if (expiresAt != null && currentTime != null && currentTime >= expiresAt) {
+      return;
+    }
+    const amount = Number(entry.amount);
+    if (Number.isFinite(amount) && amount !== 0) {
+      totalModifier += amount;
+    }
+    if (consume) {
+      const uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : null;
+      if (uses != null) {
+        const nextUses = uses - 1;
+        if (nextUses > 0) {
+          remaining.push({ ...entry, remainingAttacks: nextUses });
+        }
+      } else {
+        remaining.push(entry);
+      }
+    } else {
+      remaining.push(entry);
+    }
+  });
+  combatant.attackIntervalAdjustments = remaining;
+  const baseInterval = Math.max(MIN_DYNAMIC_ATTACK_INTERVAL, base);
+  return Math.max(MIN_DYNAMIC_ATTACK_INTERVAL, baseInterval + totalModifier);
+}
+
 function createCombatant(character, equipmentMap) {
   const equipped = resolveEquipment(character, equipmentMap);
   const useables = resolveUseables(character, equipmentMap);
@@ -104,6 +149,7 @@ function createCombatant(character, equipmentMap) {
     damageGuards: [],
     damageReflections: [],
     damageHealShields: [],
+    attackIntervalAdjustments: [],
   };
   if (negationDetails) {
     combatant.negation = { ...negationDetails };
@@ -195,6 +241,9 @@ function executeCombatAction(actor, target, now, abilityMap, log) {
           pendingBonusAvailable = false;
         }
         if (effect.type === 'Stun' && result && result.hit) {
+          summary.stunApplied = true;
+        }
+        if (result && result.additionalStun) {
           summary.stunApplied = true;
         }
         if (result && result.hit && Number.isFinite(result.amount) && result.amount > 0) {
@@ -655,7 +704,8 @@ async function runCombat(charA, charB, abilityMap, equipmentMap, onUpdateOrOptio
     tick(actor, now, log);
     tick(target, now, log);
     const outcome = executeCombatAction(actor, target, now, abilityMap, log);
-    nextTimes[idx] += actor.derived.attackIntervalSeconds;
+    const interval = getEffectiveAttackInterval(actor, now, { consume: true });
+    nextTimes[idx] += interval;
     const next = Math.min(nextTimes[0], nextTimes[1]);
     const wait = Math.max(0, next - now);
     const newLogs = log && log.length > before ? log.slice(before) : outcome.logs;
@@ -869,9 +919,7 @@ async function runDungeonCombat(
       continue;
     }
     if (actor.health <= 0) {
-      const interval = actor.derived && Number.isFinite(actor.derived.attackIntervalSeconds)
-        ? actor.derived.attackIntervalSeconds
-        : 0.5;
+      const interval = getEffectiveAttackInterval(actor, now, { consume: false });
       nextTimes[actingIndex] = now + interval;
       continue;
     }
@@ -926,7 +974,8 @@ async function runDungeonCombat(
       decayThreat(bonusThreat, party.filter(member => member !== actor));
     }
 
-    nextTimes[actingIndex] += actor.derived.attackIntervalSeconds;
+    const interval = getEffectiveAttackInterval(actor, now, { consume: true });
+    nextTimes[actingIndex] += interval;
     const newLogs = log && log.length > before ? log.slice(before) : outcome.logs;
     if (onUpdate) {
       onUpdate({

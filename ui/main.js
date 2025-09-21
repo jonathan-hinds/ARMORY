@@ -258,28 +258,30 @@ function formatIntervalDuration(countRaw, singular, plural) {
 function formatEffectDurationText(effect) {
   if (!effect || typeof effect !== 'object') return '';
   if (effect.type === 'Stun') {
+    let label = 'attack';
+    let pluralLabel = 'attacks';
+    if (effect.durationType === 'enemyAttackIntervals') {
+      label = 'enemy attack';
+      pluralLabel = 'enemy attacks';
+    } else if (effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals') {
+      label = 'own attack';
+      pluralLabel = 'own attacks';
+    }
+    const range = resolveAttackWindowRange(effect);
+    const rangeText = formatIntervalRange(range, label, pluralLabel);
+    if (rangeText) {
+      return rangeText;
+    }
     if (Number.isFinite(effect.attacks)) {
-      return formatIntervalDuration(effect.attacks, 'attack');
+      return formatIntervalDuration(effect.attacks, label, pluralLabel);
     }
     if (Number.isFinite(effect.attackCount)) {
-      return formatIntervalDuration(effect.attackCount, 'attack');
-    }
-    if (Number.isFinite(effect.durationCount)) {
-      let label = 'attack';
-      let pluralLabel = 'attacks';
-      if (effect.durationType === 'enemyAttackIntervals') {
-        label = 'enemy attack';
-        pluralLabel = 'enemy attacks';
-      } else if (effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals') {
-        label = 'own attack';
-        pluralLabel = 'own attacks';
-      }
-      return formatIntervalDuration(effect.durationCount, label, pluralLabel);
+      return formatIntervalDuration(effect.attackCount, label, pluralLabel);
     }
     if (Number.isFinite(effect.durationSeconds) || Number.isFinite(effect.duration)) {
       const seconds = Number.isFinite(effect.durationSeconds) ? effect.durationSeconds : effect.duration;
       if (seconds > 0) {
-        return formatIntervalDuration(1, 'attack');
+        return `${seconds}s`;
       }
     }
     return '';
@@ -315,16 +317,77 @@ function resolveEffectAttackCount(effect) {
   return null;
 }
 
-function formatAttackWindow(effect, label = 'attack') {
-  const count = resolveEffectAttackCount(effect);
-  if (!Number.isFinite(count) || count <= 0) return '';
-  const rounded = Math.round(count * 10) / 10;
-  const normalized = Math.abs(rounded - Math.round(rounded)) < 1e-6 ? Math.round(rounded) : rounded;
-  const pluralLabel = label.endsWith('s') ? label : `${label}s`;
-  if (normalized === 1) {
-    return `next ${label}`;
+function resolveAttackWindowRange(effect) {
+  if (!effect || typeof effect !== 'object') return null;
+  const minCandidates = [];
+  const maxCandidates = [];
+  ['attackCountMin', 'attacksMin', 'durationCountMin'].forEach(key => {
+    if (Number.isFinite(effect[key])) {
+      minCandidates.push(effect[key]);
+    }
+  });
+  ['attackCountMax', 'attacksMax', 'durationCountMax'].forEach(key => {
+    if (Number.isFinite(effect[key])) {
+      maxCandidates.push(effect[key]);
+    }
+  });
+  let min = minCandidates.length ? Math.min(...minCandidates) : null;
+  let max = maxCandidates.length ? Math.max(...maxCandidates) : null;
+  if (min == null && max == null) {
+    const count = resolveEffectAttackCount(effect);
+    if (!Number.isFinite(count) || count <= 0) {
+      return null;
+    }
+    return { min: count, max: count };
   }
-  return `next ${normalized} ${pluralLabel}`;
+  if (min == null) min = max;
+  if (max == null) max = min;
+  if (min == null || max == null) return null;
+  if (max < min) {
+    const tmp = max;
+    max = min;
+    min = tmp;
+  }
+  return { min, max };
+}
+
+function normalizeIntervalValue(value) {
+  if (!Number.isFinite(value)) return null;
+  const rounded = Math.abs(value - Math.round(value)) < 1e-6 ? Math.round(value) : Number(value.toFixed(1));
+  if (!Number.isFinite(rounded)) return null;
+  return rounded;
+}
+
+function formatIntervalRange(range, singular, plural) {
+  if (!range) return '';
+  const minValue = normalizeIntervalValue(range.min);
+  const maxValue = normalizeIntervalValue(range.max);
+  if (minValue == null) return '';
+  const pluralLabel = plural || `${singular}s`;
+  if (maxValue == null || Math.abs(maxValue - minValue) < 1e-6) {
+    if (minValue <= 0) return '';
+    if (minValue === 1) return `1 ${singular}`;
+    return `${minValue} ${pluralLabel}`;
+  }
+  if (minValue <= 0) return '';
+  return `${minValue}-${maxValue} ${pluralLabel}`;
+}
+
+function formatAttackWindow(effect, label = 'attack') {
+  const range = resolveAttackWindowRange(effect);
+  if (!range) return '';
+  const singular = label;
+  const pluralLabel = label.endsWith('s') ? label : `${label}s`;
+  const minValue = normalizeIntervalValue(range.min);
+  const maxValue = normalizeIntervalValue(range.max);
+  if (minValue == null || minValue <= 0) return '';
+  if (maxValue == null || Math.abs(maxValue - minValue) < 1e-6) {
+    if (minValue === 1) {
+      return `next ${singular}`;
+    }
+    return `next ${minValue} ${pluralLabel}`;
+  }
+  return `next ${minValue}-${maxValue} ${pluralLabel}`;
 }
 
 function formatNumericValue(value) {
@@ -540,17 +603,53 @@ function describeEffect(effect, options = {}) {
     const durationText = windowText ? ` for the ${windowText}` : '';
     const typeKey = effect.damageType === 'magical' ? 'magical' : effect.damageType === 'physical' ? 'physical' : 'incoming';
     const typeLabel = typeKey === 'incoming' ? 'Incoming Damage' : `${titleCase(typeKey)} Damage`;
+    const retaliateTarget = effect.retaliateDamageType === 'magical'
+      ? 'magical attackers'
+      : effect.retaliateDamageType === 'physical'
+      ? 'physical attackers'
+      : 'attackers';
     if (derived) {
       const scaled = computeScaledEffectValue(baseAmount, derived, scaling);
       const pct = Math.max(0, Math.round(Math.min(0.75, scaled) * 100));
       const percentText = formatChanceValue(pct, { withSign: true });
-      return applyEffectChance(`Gain ${percentText} ${typeLabel} resistance${durationText}`);
+      let base = `Gain ${percentText} ${typeLabel} resistance${durationText}`;
+      if (effect.reflectNegatedDamage) {
+        base += ` and retaliate with prevented damage to ${retaliateTarget}`;
+      }
+      return applyEffectChance(base);
     }
     const basePct = Number.isFinite(baseAmount) ? baseAmount * 100 : 0;
     const percentText = formatChanceValue(basePct, { withSign: true });
     const scalingText = formatScalingEntries(scaling);
     const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
-    return applyEffectChance(`Gain ${percentText}${suffix} ${typeLabel} resistance${durationText}`);
+    let base = `Gain ${percentText}${suffix} ${typeLabel} resistance${durationText}`;
+    if (effect.reflectNegatedDamage) {
+      base += ` and retaliate with prevented damage to ${retaliateTarget}`;
+    }
+    return applyEffectChance(base);
+  }
+  if (effect.type === 'AttackIntervalDebuff') {
+    const scaling = effect.scaling || effect.amountScaling || effect.valueScaling;
+    const baseAmount = effect.amount != null ? effect.amount : effect.value;
+    let base;
+    if (derived) {
+      const scaled = computeScaledEffectValue(baseAmount, derived, scaling);
+      const rounded = Math.max(0, Math.round(scaled * 100) / 100);
+      const formatted = formatNumericValue(rounded);
+      const scalingText = formatScalingEntries(scaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      base = `Increase enemy attack interval by ${formatted}s${suffix}`;
+    } else {
+      const valueText = formatValueWithScaling(baseAmount, scaling);
+      base = valueText
+        ? `Increase enemy attack interval by ${valueText}s`
+        : 'Increase enemy attack interval';
+    }
+    const windowText = formatAttackWindow(effect, 'enemy attack');
+    if (windowText) {
+      base += ` for the ${windowText}`;
+    }
+    return applyEffectChance(base);
   }
   if (effect.type === 'DamageFloor') {
     const scaling = effect.scaling || effect.percentScaling || effect.valueScaling;
@@ -647,6 +746,14 @@ function describeEffect(effect, options = {}) {
     const durationText = formatEffectDurationText(effect);
     if (durationText) {
       base += ` within ${durationText}`;
+    }
+    if (Array.isArray(effect.bonusEffects) && effect.bonusEffects.length) {
+      const extraDescriptions = effect.bonusEffects
+        .map(entry => describeEffect(entry, options))
+        .filter(text => typeof text === 'string' && text.length);
+      if (extraDescriptions.length) {
+        base += `. Also triggers ${extraDescriptions.join('; ')}`;
+      }
     }
     return applyEffectChance(base);
   }

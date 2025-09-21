@@ -29,13 +29,14 @@ function matchesDamageChannel(entryType, damageType) {
 }
 
 function consumeResistBonuses(target, damageType, now) {
-  if (!target) return 0;
+  if (!target) return { total: 0, entries: [] };
   if (!Array.isArray(target.resistShields) || target.resistShields.length === 0) {
-    return 0;
+    return { total: 0, entries: [] };
   }
   const normalizedType = normalizeDamageChannel(damageType);
   const currentTime = Number.isFinite(now) ? now : null;
   const remaining = [];
+  const consumedEntries = [];
   let total = 0;
   target.resistShields.forEach(entry => {
     if (!entry) return;
@@ -51,6 +52,7 @@ function consumeResistBonuses(target, damageType, now) {
     const amount = Number(entry.amount);
     if (Number.isFinite(amount) && amount > 0) {
       total += amount;
+      consumedEntries.push({ amount, entry });
     }
     const uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : 1;
     const nextUses = uses - 1;
@@ -59,7 +61,38 @@ function consumeResistBonuses(target, damageType, now) {
     }
   });
   target.resistShields = remaining;
-  return total;
+  return { total, entries: consumedEntries };
+}
+
+function applyResistRetaliations(source, target, damageType, baseDamage, consumedEntries, now, log) {
+  if (!consumedEntries || consumedEntries.length === 0) {
+    return;
+  }
+  const normalizedType = normalizeDamageChannel(damageType);
+  consumedEntries.forEach(item => {
+    if (!item || !item.entry || !item.entry.retaliate) return;
+    const retaliateType = normalizeDamageChannel(item.entry.retaliateDamageType || 'any');
+    if (!matchesDamageChannel(retaliateType, normalizedType)) return;
+    const percent = Number(item.amount);
+    if (!Number.isFinite(percent) || percent <= 0) return;
+    const retaliationDamage = Math.max(0, Math.round(baseDamage * percent));
+    if (retaliationDamage <= 0) return;
+    if (source) {
+      const before = Number.isFinite(source.health) ? source.health : 0;
+      source.health = Math.max(0, before - retaliationDamage);
+    }
+    if (target && target.character && source && source.character) {
+      const label = item.entry.retaliateLogLabel || 'shield';
+      pushLog(log, `${target.character.name}'s ${label} retaliates for ${retaliationDamage} damage`, {
+        sourceId: target.character.id,
+        targetId: source.character.id,
+        kind: 'damage',
+        damageType,
+        amount: retaliationDamage,
+        retaliate: true,
+      });
+    }
+  });
 }
 
 function applyDamageReflections(source, target, damage, damageType, now, log) {
@@ -309,7 +342,7 @@ function formatChanceAmount(amount) {
 function normalizeActionType(value) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'ability' || normalized === 'basic') {
+  if (normalized === 'ability' || normalized === 'basic' || normalized === 'any') {
     return normalized;
   }
   return null;
@@ -321,6 +354,64 @@ function ensurePendingDamageBonuses(entity) {
     entity.pendingDamageBonuses = [];
   }
   return entity.pendingDamageBonuses;
+}
+
+function cloneEffectDescriptor(effect) {
+  if (!effect || typeof effect !== 'object') return null;
+  return JSON.parse(JSON.stringify(effect));
+}
+
+function processConsumedBonusEffects(source, target, details, baseOutcome, effectContext, now, log) {
+  if (!source || !Array.isArray(details) || details.length === 0) {
+    return { stunApplied: false };
+  }
+  let stunApplied = false;
+  details.forEach(detail => {
+    if (!detail) return;
+    const bonusEffects = Array.isArray(detail.bonusEffects) ? detail.bonusEffects : [];
+    if (!bonusEffects.length) return;
+    if (detail.triggerLabel && source.character) {
+      const targetId = target && target.character ? target.character.id : null;
+      pushLog(
+        log,
+        `${source.character.name}'s ${detail.triggerLabel}`,
+        {
+          sourceId: source.character.id,
+          targetId,
+          kind: 'ability',
+          abilityId: detail.sourceAbility ? detail.sourceAbility.id : undefined,
+        },
+      );
+    }
+    let lastResolution =
+      (baseOutcome && baseOutcome.resolution ? { ...baseOutcome.resolution } : null) ||
+      (effectContext && effectContext.resolution ? { ...effectContext.resolution } : null);
+    let lastResult = baseOutcome || (effectContext && effectContext.lastResult ? effectContext.lastResult : null);
+    bonusEffects.forEach((bonusEffect, idx) => {
+      if (!bonusEffect || typeof bonusEffect !== 'object') return;
+      const descriptor = cloneEffectDescriptor(bonusEffect);
+      if (!descriptor || !descriptor.type) return;
+      const bonusContext = {
+        ...effectContext,
+        resolution: lastResolution,
+        lastResult,
+        consumeDamageBonus: false,
+        effectIndex: idx,
+        ability: detail.sourceAbility || (effectContext && effectContext.ability) || null,
+      };
+      const result = applyEffect(source, target, descriptor, now, log, bonusContext);
+      if (result && result.resolution) {
+        lastResolution = result.resolution;
+      }
+      if (result) {
+        lastResult = result;
+      }
+      if (descriptor.type === 'Stun' && result && result.hit) {
+        stunApplied = true;
+      }
+    });
+  });
+  return { stunApplied };
 }
 
 function prunePendingDamageBonuses(entity, now) {
@@ -357,10 +448,16 @@ function consumePendingDamageBonus(source, context = {}, now, damageType) {
   const remaining = [];
   let total = 0;
   let consumed = false;
+  const details = [];
   list.forEach(entry => {
     if (!entry) return;
     const appliesTo = normalizeActionType(entry.appliesTo) || 'ability';
-    if (actionType && appliesTo && appliesTo !== actionType) {
+    if (
+      actionType &&
+      appliesTo &&
+      appliesTo !== 'any' &&
+      actionType !== appliesTo
+    ) {
       remaining.push(entry);
       return;
     }
@@ -373,19 +470,33 @@ function consumePendingDamageBonus(source, context = {}, now, damageType) {
       return;
     }
     const bonusValue = Number(entry.amount);
+    let entryTriggered = false;
     if (Number.isFinite(bonusValue) && bonusValue !== 0) {
       total += bonusValue;
       if (bonusValue > 0) {
         consumed = true;
       }
+      entryTriggered = true;
     }
     const nextUses = uses - 1;
     if (nextUses > 0) {
       remaining.push({ ...entry, remainingUses: nextUses });
     }
+    if (entryTriggered || (Array.isArray(entry.bonusEffects) && entry.bonusEffects.length)) {
+      const bonusEffects = Array.isArray(entry.bonusEffects)
+        ? entry.bonusEffects
+            .map(cloneEffectDescriptor)
+            .filter(descriptor => descriptor && descriptor.type)
+        : [];
+      details.push({
+        bonusEffects,
+        triggerLabel: entry.triggerLabel,
+        sourceAbility: entry.sourceAbility ? { ...entry.sourceAbility } : null,
+      });
+    }
   });
   source.pendingDamageBonuses = remaining;
-  return { amount: total, consumed };
+  return { amount: total, consumed, details };
 }
 
 function resolveDurationSeconds(effect, context = {}) {
@@ -396,8 +507,40 @@ function resolveDurationSeconds(effect, context = {}) {
   if (typeof effect.duration === 'number') {
     return Math.max(0, effect.duration);
   }
+  const resolveCount = defaultCount => {
+    const minValue = Number.isFinite(effect.durationCountMin) ? effect.durationCountMin : null;
+    const maxValue = Number.isFinite(effect.durationCountMax) ? effect.durationCountMax : null;
+    if (minValue == null && maxValue == null) {
+      return defaultCount;
+    }
+    let low = minValue != null ? minValue : maxValue;
+    let high = maxValue != null ? maxValue : minValue;
+    if (low == null && high == null) {
+      return defaultCount;
+    }
+    if (low == null) {
+      low = high;
+    }
+    if (high == null) {
+      high = low;
+    }
+    if (high < low) {
+      const tmp = high;
+      high = low;
+      low = tmp;
+    }
+    if (Number.isInteger(low) && Number.isInteger(high)) {
+      return randBetween(low, high);
+    }
+    const span = high - low;
+    if (!Number.isFinite(span) || span <= 0) {
+      return low;
+    }
+    return low + Math.random() * span;
+  };
   if (effect.durationType === 'enemyAttackIntervals') {
-    const count = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    const baseCount = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    const count = resolveCount(baseCount);
     const enemy = context.enemy;
     const interval =
       enemy && enemy.derived && typeof enemy.derived.attackIntervalSeconds === 'number'
@@ -406,7 +549,8 @@ function resolveDurationSeconds(effect, context = {}) {
     return Math.max(0, interval * count);
   }
   if (effect.durationType === 'userAttackIntervals' || effect.durationType === 'selfAttackIntervals') {
-    const count = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    const baseCount = typeof effect.durationCount === 'number' ? effect.durationCount : 1;
+    const count = resolveCount(baseCount);
     const actor = context.source || context.actor || context.user;
     const interval =
       actor && actor.derived && typeof actor.derived.attackIntervalSeconds === 'number'
@@ -586,7 +730,9 @@ function applyDamage(source, target, amount, type, log, context = {}) {
     resist = 0;
   }
   const currentTime = Number.isFinite(context.now) ? context.now : null;
-  const resistBonus = consumeResistBonuses(target, resolvedType, currentTime);
+  const resistBonusInfo = consumeResistBonuses(target, resolvedType, currentTime);
+  const resistBonus =
+    resistBonusInfo && Number.isFinite(resistBonusInfo.total) ? resistBonusInfo.total : resistBonusInfo;
   if (Number.isFinite(resistBonus) && resistBonus > 0) {
     resist += resistBonus;
   }
@@ -609,6 +755,13 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   const actualDamage = beforeHealth - updatedHealth;
   const healResult = applyDamageHealEffects(target, actualDamage, currentTime, log);
   const healedAmount = healResult.healed || 0;
+
+  const consumedResistEntries = resistBonusInfo && Array.isArray(resistBonusInfo.entries)
+    ? resistBonusInfo.entries
+    : [];
+  if (consumedResistEntries.length) {
+    applyResistRetaliations(source, target, resolvedType, dmg, consumedResistEntries, currentTime, log);
+  }
 
   let message;
   if (crit && blocked) {
@@ -673,7 +826,9 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       const baseBonus = typeof effect.value === 'number' ? effect.value : 0;
       const scaledBonus = computeScaledValue(baseBonus, source, effect.scaling || effect.valueScaling);
       let base = scaledBonus + randBetween(source.derived.minMeleeAttack, source.derived.maxMeleeAttack);
-      const { amount: bonusDamage, consumed } = consumePendingDamageBonus(source, context, now, 'physical');
+      const bonusResult = consumePendingDamageBonus(source, context, now, 'physical');
+      const bonusDamage = bonusResult.amount;
+      const bonusDetails = bonusResult.details || [];
       if (bonusDamage > 0) {
         base += bonusDamage;
         pushLog(log, `${source.character.name} unleashes stored power for ${Math.round(bonusDamage)} bonus damage`, {
@@ -685,9 +840,15 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       }
       const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage, now };
       const outcome = applyDamage(source, target, base, 'physical', log, damageContext);
-      if (outcome && consumed && bonusDamage > 0) {
+      if (outcome && bonusResult.consumed && bonusDamage > 0) {
         outcome.bonusDamageConsumed = true;
         outcome.bonusDamageAmount = bonusDamage;
+      }
+      if (outcome && bonusDetails.length) {
+        const bonusOutcome = processConsumedBonusEffects(source, target, bonusDetails, outcome, context, now, log);
+        if (bonusOutcome && bonusOutcome.stunApplied) {
+          outcome.additionalStun = true;
+        }
       }
       return outcome;
     }
@@ -695,7 +856,9 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       const baseBonus = typeof effect.value === 'number' ? effect.value : 0;
       const scaledBonus = computeScaledValue(baseBonus, source, effect.scaling || effect.valueScaling);
       let base = scaledBonus + randBetween(source.derived.minMagicAttack, source.derived.maxMagicAttack);
-      const { amount: bonusDamage, consumed } = consumePendingDamageBonus(source, context, now, 'magical');
+      const bonusResult = consumePendingDamageBonus(source, context, now, 'magical');
+      const bonusDamage = bonusResult.amount;
+      const bonusDetails = bonusResult.details || [];
       if (bonusDamage > 0) {
         base += bonusDamage;
         pushLog(log, `${source.character.name} unleashes stored power for ${Math.round(bonusDamage)} bonus damage`, {
@@ -707,9 +870,15 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       }
       const damageContext = { ...context, effect, bonusDamageApplied: bonusDamage, now };
       const outcome = applyDamage(source, target, base, 'magical', log, damageContext);
-      if (outcome && consumed && bonusDamage > 0) {
+      if (outcome && bonusResult.consumed && bonusDamage > 0) {
         outcome.bonusDamageConsumed = true;
         outcome.bonusDamageAmount = bonusDamage;
+      }
+      if (outcome && bonusDetails.length) {
+        const bonusOutcome = processConsumedBonusEffects(source, target, bonusDetails, outcome, context, now, log);
+        if (bonusOutcome && bonusOutcome.stunApplied) {
+          outcome.additionalStun = true;
+        }
       }
       return outcome;
     }
@@ -841,12 +1010,18 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       if (!Array.isArray(recipient.resistShields)) {
         recipient.resistShields = [];
       }
-      recipient.resistShields.push({
+      const shieldEntry = {
         amount: normalizedAmount,
         damageType,
         remainingAttacks: uses,
         expiresAt,
-      });
+      };
+      if (effect.reflectNegatedDamage) {
+        shieldEntry.retaliate = true;
+        shieldEntry.retaliateDamageType = normalizeDamageChannel(effect.retaliateDamageType || 'physical');
+        shieldEntry.retaliateLogLabel = effect.retaliateLogLabel || 'shield';
+      }
+      recipient.resistShields.push(shieldEntry);
       if (recipient.character) {
         const typeLabel =
           damageType === 'magical'
@@ -855,13 +1030,85 @@ function applyEffect(source, target, effect, now, log, context = {}) {
             ? 'physical'
             : 'all';
         const attackText = formatAttackCount(uses) || 'attacks';
-        pushLog(log, `${recipient.character.name} gains +${Math.round(normalizedAmount * 100)}% ${typeLabel} resistance for ${attackText}`, {
+        let message = `${recipient.character.name} gains +${Math.round(normalizedAmount * 100)}% ${typeLabel} resistance for ${attackText}`;
+        if (shieldEntry.retaliate) {
+          const retaliateTypeLabel =
+            shieldEntry.retaliateDamageType === 'magical'
+              ? 'magical attackers'
+              : shieldEntry.retaliateDamageType === 'physical'
+              ? 'physical attackers'
+              : 'attackers';
+          message += ` and retaliates against ${retaliateTypeLabel}`;
+        }
+        pushLog(log, message, {
           sourceId: recipient.character.id,
           targetId: recipient.character.id,
           kind: 'buff',
         });
       }
       return null;
+    }
+    case 'AttackIntervalDebuff': {
+      const resolvedTarget = resolveEffectTarget(effect, source, target) || target;
+      if (!resolvedTarget) {
+        return null;
+      }
+      const priorResult = context && context.lastResult;
+      if (priorResult && priorResult.hit === false) {
+        const failedResolution = priorResult.resolution || context.resolution || { hit: false };
+        return { hit: false, amount: 0, damageType: failedResolution.damageType, resolution: failedResolution };
+      }
+      const baseAmount =
+        effect.amount != null ? Number(effect.amount) : effect.value != null ? Number(effect.value) : 0;
+      const scaledAmount = computeScaledValue(
+        baseAmount,
+        source,
+        effect.scaling || effect.amountScaling || effect.valueScaling,
+      );
+      const normalizedAmount = Number.isFinite(scaledAmount) ? Math.max(0, scaledAmount) : 0;
+      if (normalizedAmount <= 0) {
+        const passthroughResolution =
+          (priorResult && priorResult.resolution) || context.resolution || { hit: true };
+        return { hit: true, amount: 0, resolution: passthroughResolution };
+      }
+      let attackUses = null;
+      if (Number.isFinite(effect.attacks)) {
+        attackUses = effect.attacks;
+      } else if (Number.isFinite(effect.attackCount)) {
+        attackUses = effect.attackCount;
+      }
+      const uses = Math.max(1, Math.round(Number.isFinite(attackUses) && attackUses > 0 ? attackUses : 1));
+      const durationSeconds = resolveDurationSeconds(effect, {
+        ...context,
+        source: resolvedTarget,
+        actor: resolvedTarget,
+        enemy: source,
+      });
+      const expiresAt = Number.isFinite(durationSeconds) && durationSeconds > 0 ? now + durationSeconds : null;
+      if (!Array.isArray(resolvedTarget.attackIntervalAdjustments)) {
+        resolvedTarget.attackIntervalAdjustments = [];
+      }
+      resolvedTarget.attackIntervalAdjustments.push({
+        amount: normalizedAmount,
+        remainingAttacks: uses,
+        expiresAt,
+      });
+      if (resolvedTarget.character) {
+        const attackText = formatAttackCount(uses, 'enemy attack') || 'enemy attacks';
+        const amountText = Math.round(normalizedAmount * 100) / 100;
+        pushLog(
+          log,
+          `${resolvedTarget.character.name}'s attacks slow by ${amountText}s for ${attackText}`,
+          {
+            sourceId: resolvedTarget.character.id,
+            targetId: resolvedTarget.character.id,
+            kind: 'debuff',
+          },
+        );
+      }
+      const appliedResolution =
+        (priorResult && priorResult.resolution) || context.resolution || { hit: true, damageType: null };
+      return { hit: true, amount: 0, resolution: appliedResolution };
     }
     case 'DamageFloor': {
       const recipient = resolveEffectTarget(effect, source, target) || source;
@@ -1022,6 +1269,12 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       const resolution = resolveAttack(source, target, type, log, context.resolution);
       if (!resolution.hit) {
         return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
+      }
+      const chance = Number(effect.chance);
+      if (Number.isFinite(chance) && chance >= 0 && chance < 1) {
+        if (Math.random() > chance) {
+          return { hit: false, amount: 0, damageType: resolution.damageType, resolution };
+        }
       }
       const stunContext = { ...context, enemy: context.enemy || target };
       const attackCount = resolveStunAttackCount(effect, source, target, stunContext);
@@ -1232,6 +1485,19 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       if (Number.isFinite(durationSeconds) && durationSeconds > 0) {
         expiresAt = now + durationSeconds;
       }
+      const bonusEffects = Array.isArray(effect.bonusEffects)
+        ? effect.bonusEffects
+            .map(cloneEffectDescriptor)
+            .filter(descriptor => descriptor && descriptor.type)
+        : [];
+      const triggerLabel = typeof effect.triggerLabel === 'string' ? effect.triggerLabel : null;
+      const sourceAbilityInfo =
+        context && context.ability
+          ? {
+              id: context.ability.id,
+              name: context.ability.name,
+            }
+          : null;
       const entry = {
         amount: rounded,
         appliesTo,
@@ -1239,6 +1505,15 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         remainingUses: uses,
         expiresAt,
       };
+      if (bonusEffects.length) {
+        entry.bonusEffects = bonusEffects;
+      }
+      if (triggerLabel) {
+        entry.triggerLabel = triggerLabel;
+      }
+      if (sourceAbilityInfo) {
+        entry.sourceAbility = sourceAbilityInfo;
+      }
       ensurePendingDamageBonuses(recipient).push(entry);
       const label = appliesTo === 'basic' ? 'basic attack' : 'ability';
       pushLog(log, `${recipient.character.name} stores ${rounded} bonus ${label} damage`, {
