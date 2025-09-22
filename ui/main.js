@@ -5753,6 +5753,161 @@ function appendDungeonLogs(entries, partyIds, bossId) {
   dungeonLogElement.scrollTop = dungeonLogElement.scrollHeight;
 }
 
+function normalizeCombatantDerivedForPreview(combatant) {
+  if (!combatant) return {};
+  if (combatant.derived && typeof combatant.derived === 'object') {
+    return combatant.derived;
+  }
+  return computeDerived(combatant);
+}
+
+function formatCombatantValue(value) {
+  return Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function formatCombatantRange(min, max) {
+  const start = formatCombatantValue(min);
+  const end = formatCombatantValue(max);
+  return `${start}-${end}`;
+}
+
+function formatCombatantPercent(value) {
+  return Number.isFinite(value) ? `${Math.round(value)}%` : '0%';
+}
+
+function formatCombatantResist(value) {
+  if (!Number.isFinite(value)) return '0%';
+  return `${Math.round(Math.max(0, value) * 100)}%`;
+}
+
+function formatCombatantInterval(value) {
+  if (!Number.isFinite(value)) return '0.00s';
+  return `${value.toFixed(2)}s`;
+}
+
+function buildCombatantStatsTooltip(combatant) {
+  if (!combatant) return null;
+  const derived = normalizeCombatantDerivedForPreview(combatant) || {};
+  const attributes = combatant.attributes || {};
+  const container = document.createElement('div');
+  container.className = 'ready-tooltip';
+  const title = document.createElement('div');
+  title.className = 'ready-tooltip-title';
+  title.textContent = combatant.name || 'Unknown';
+  container.appendChild(title);
+  const meta = document.createElement('div');
+  meta.className = 'ready-tooltip-meta';
+  const level = Number.isFinite(combatant.level) ? combatant.level : 1;
+  meta.textContent = `Lv${level} • ${displayDamageType(combatant.basicType)}`;
+  container.appendChild(meta);
+  const addSection = (label, rows) => {
+    if (!rows || !rows.length) return;
+    const section = document.createElement('div');
+    section.className = 'ready-tooltip-section';
+    const heading = document.createElement('div');
+    heading.className = 'ready-tooltip-section-title';
+    heading.textContent = label;
+    section.appendChild(heading);
+    const grid = document.createElement('div');
+    grid.className = 'tooltip-grid ready-tooltip-grid';
+    rows.forEach(([name, value]) => {
+      const l = document.createElement('div');
+      l.className = 'label';
+      l.textContent = name;
+      grid.appendChild(l);
+      const v = document.createElement('div');
+      v.textContent = value;
+      grid.appendChild(v);
+    });
+    section.appendChild(grid);
+    container.appendChild(section);
+  };
+  const attributeRows = STAT_KEYS.map(stat => [statLabel(stat), formatCombatantValue(attributes[stat])]);
+  addSection('Attributes', attributeRows);
+  addSection('Vitals', [
+    ['HP', formatCombatantValue(derived.health)],
+    ['MP', formatCombatantValue(derived.mana)],
+    ['Stamina', formatCombatantValue(derived.stamina)],
+    ['Interval', formatCombatantInterval(derived.attackIntervalSeconds)],
+  ]);
+  addSection('Offense', [
+    ['Melee', formatCombatantRange(derived.minMeleeAttack, derived.maxMeleeAttack)],
+    ['Magic', formatCombatantRange(derived.minMagicAttack, derived.maxMagicAttack)],
+    ['Hit', formatCombatantPercent(derived.hitChance)],
+  ]);
+  addSection('Defense', [
+    ['Crit', formatCombatantPercent(derived.critChance)],
+    ['Block', formatCombatantPercent(derived.blockChance)],
+    ['Dodge', formatCombatantPercent(derived.dodgeChance)],
+    ['Melee Resist', formatCombatantResist(derived.meleeResist)],
+    ['Magic Resist', formatCombatantResist(derived.magicResist)],
+  ]);
+  return container;
+}
+
+function updateReadyBarsForCombatant(wrapper, combatant) {
+  if (!wrapper) return;
+  const derived = normalizeCombatantDerivedForPreview(combatant) || {};
+  const bars = [
+    { selector: '.bar.health', label: 'HP', value: derived.health },
+    { selector: '.bar.mana', label: 'MP', value: derived.mana },
+    { selector: '.bar.stamina', label: 'SP', value: derived.stamina },
+  ];
+  bars.forEach(({ selector, label, value }) => {
+    const barEl = wrapper.querySelector(selector);
+    if (!barEl) return;
+    const fillEl = barEl.querySelector('.fill');
+    if (fillEl) {
+      fillEl.style.width = '100%';
+    }
+    const textEl = barEl.querySelector('.value');
+    if (textEl) {
+      const normalized = Math.max(0, formatCombatantValue(value));
+      textEl.textContent = `${label}: ${normalized} / ${normalized}`;
+    }
+  });
+}
+
+function createReadyCombatantCard(combatant, { isBoss = false } = {}) {
+  if (!combatant) {
+    return { element: null, indicator: null };
+  }
+  const wrapper = document.createElement('div');
+  wrapper.className = `ready-combatant${isBoss ? ' boss-member' : ' party-member'}`;
+  wrapper.dataset.ready = 'false';
+  if (combatant.id != null) {
+    wrapper.dataset.combatantId = String(combatant.id);
+  }
+  const nameEl = document.createElement('div');
+  nameEl.className = 'ready-name';
+  nameEl.textContent = combatant.name || 'Unknown';
+  wrapper.appendChild(nameEl);
+  const metaEl = document.createElement('div');
+  metaEl.className = 'ready-meta';
+  const level = Number.isFinite(combatant.level) ? combatant.level : 1;
+  metaEl.textContent = `Lv${level} • ${displayDamageType(combatant.basicType)}`;
+  wrapper.appendChild(metaEl);
+  const bars = document.createElement('div');
+  bars.className = 'bars';
+  bars.innerHTML =
+    '<div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>' +
+    '<div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>' +
+    '<div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>';
+  wrapper.appendChild(bars);
+  updateReadyBarsForCombatant(wrapper, combatant);
+  let indicator = null;
+  if (!isBoss) {
+    indicator = document.createElement('div');
+    indicator.className = 'ready-indicator not-ready';
+    indicator.textContent = 'Not Ready';
+    wrapper.appendChild(indicator);
+  }
+  if (typeof attachTooltip === 'function') {
+    attachTooltip(wrapper, () => buildCombatantStatsTooltip(combatant));
+  }
+  return { element: wrapper, indicator };
+}
+
 async function renderDungeonPreview(previewContainer, data, statusEl) {
   if (!previewContainer) return;
   previewContainer.innerHTML = '';
@@ -5779,20 +5934,84 @@ async function renderDungeonPreview(previewContainer, data, statusEl) {
   const panel = document.createElement('div');
   panel.className = 'dungeon-preview-panel';
   const title = document.createElement('h3');
-  title.textContent = 'Dungeon Boss';
+  title.textContent = 'Ready Check';
   panel.appendChild(title);
-  const details = renderOpponentPreview(data.boss);
-  if (details) {
-    panel.appendChild(details);
+
+  const columns = document.createElement('div');
+  columns.className = 'ready-columns';
+
+  const partyColumn = document.createElement('div');
+  partyColumn.className = 'ready-column party';
+  const partyTitle = document.createElement('div');
+  partyTitle.className = 'ready-column-title';
+  partyTitle.textContent = 'Party';
+  partyColumn.appendChild(partyTitle);
+  const partyList = document.createElement('div');
+  partyList.className = 'ready-party-list';
+
+  dungeonState.readyDisplays = new Map();
+  const partyMembers = Array.isArray(data && data.party) ? data.party : [];
+  dungeonState.partyPreview = partyMembers;
+  partyMembers.forEach(member => {
+    const card = createReadyCombatantCard(member, { isBoss: false });
+    if (card.element) {
+      const id = member && member.id != null ? String(member.id) : null;
+      if (id) {
+        dungeonState.readyDisplays.set(id, { indicator: card.indicator || null, frame: card.element });
+      }
+      if (card.element && currentCharacter && member && member.id === currentCharacter.id) {
+        card.element.classList.add('ready-self');
+      }
+      partyList.appendChild(card.element);
+    }
+  });
+  if (partyList.children.length) {
+    partyColumn.appendChild(partyList);
+  } else {
+    const emptyParty = document.createElement('div');
+    emptyParty.className = 'ready-empty';
+    emptyParty.textContent = 'Waiting for allies...';
+    partyColumn.appendChild(emptyParty);
   }
+  columns.appendChild(partyColumn);
+
+  const bossColumn = document.createElement('div');
+  bossColumn.className = 'ready-column boss';
+  const bossTitle = document.createElement('div');
+  bossTitle.className = 'ready-column-title';
+  bossTitle.textContent = 'Boss';
+  bossColumn.appendChild(bossTitle);
+  if (data && data.boss) {
+    const bossCard = createReadyCombatantCard(data.boss, { isBoss: true });
+    if (bossCard.element) {
+      bossColumn.appendChild(bossCard.element);
+    } else {
+      const emptyBoss = document.createElement('div');
+      emptyBoss.className = 'ready-empty';
+      emptyBoss.textContent = 'Boss unavailable';
+      bossColumn.appendChild(emptyBoss);
+    }
+  } else {
+    const pendingBoss = document.createElement('div');
+    pendingBoss.className = 'ready-empty';
+    pendingBoss.textContent = 'Awaiting boss data...';
+    bossColumn.appendChild(pendingBoss);
+  }
+  columns.appendChild(bossColumn);
+  panel.appendChild(columns);
+
+  const actions = document.createElement('div');
+  actions.className = 'ready-actions';
   const readyStatus = document.createElement('div');
   readyStatus.className = 'dungeon-ready-status';
   readyStatus.textContent = 'Ready 0 / ?';
-  panel.appendChild(readyStatus);
+  actions.appendChild(readyStatus);
   const readyButton = document.createElement('button');
   readyButton.className = 'dungeon-ready-button';
   readyButton.textContent = 'Ready Up';
-  panel.appendChild(readyButton);
+  actions.appendChild(readyButton);
+  panel.appendChild(actions);
+
   previewContainer.appendChild(panel);
   dungeonState.readyStatus = readyStatus;
   dungeonState.readyButton = readyButton;
@@ -5800,20 +6019,30 @@ async function renderDungeonPreview(previewContainer, data, statusEl) {
     sendDungeonReady(statusEl);
   });
 
-  const readyCount = Number.isFinite(dungeonState && dungeonState.lastReadyCount)
+  const readyCount = Number.isFinite(data && data.ready)
+    ? data.ready
+    : Number.isFinite(dungeonState && dungeonState.lastReadyCount)
     ? dungeonState.lastReadyCount
     : 0;
-  const readyTotal = Number.isFinite(dungeonState && dungeonState.lastReadyTotal)
-    ? dungeonState.lastReadyTotal
+  const readyTotal = Number.isFinite(data && data.total)
+    ? data.total
     : Number.isFinite(data && data.size)
     ? data.size
+    : Number.isFinite(dungeonState && dungeonState.lastReadyTotal)
+    ? dungeonState.lastReadyTotal
     : Number.isFinite(dungeonState && dungeonState.size)
     ? dungeonState.size
     : 0;
-  updateDungeonReady(readyCount, readyTotal);
+  const readyIds = Array.isArray(data && data.readyIds)
+    ? data.readyIds
+    : Array.isArray(dungeonState && dungeonState.lastReadyMembers)
+    ? dungeonState.lastReadyMembers
+    : [];
+  dungeonState.lastReadyMembers = Array.isArray(readyIds) ? readyIds.slice() : [];
+  updateDungeonReady(readyCount, readyTotal, readyIds);
 }
 
-function updateDungeonReady(count, total) {
+function updateDungeonReady(count, total, readyIds) {
   if (!dungeonState) return;
   const normalizedCount = Number.isFinite(count) ? count : 0;
   const normalizedTotal = Number.isFinite(total)
@@ -5823,8 +6052,50 @@ function updateDungeonReady(count, total) {
     : 0;
   dungeonState.lastReadyCount = normalizedCount;
   dungeonState.lastReadyTotal = normalizedTotal;
-  if (!dungeonState.readyStatus) return;
-  dungeonState.readyStatus.textContent = `Ready ${normalizedCount} / ${normalizedTotal}`;
+  if (Array.isArray(readyIds)) {
+    dungeonState.lastReadyMembers = readyIds.map(id => Number(id));
+  } else if (!Array.isArray(dungeonState.lastReadyMembers)) {
+    dungeonState.lastReadyMembers = [];
+  }
+  if (dungeonState.readyStatus) {
+    dungeonState.readyStatus.textContent = `Ready ${normalizedCount} / ${normalizedTotal}`;
+  }
+  const readySet = new Set(
+    (Array.isArray(dungeonState.lastReadyMembers) ? dungeonState.lastReadyMembers : [])
+      .map(id => String(id)),
+  );
+  if (dungeonState.readyDisplays && typeof dungeonState.readyDisplays.forEach === 'function') {
+    dungeonState.readyDisplays.forEach((display, id) => {
+      if (!display) return;
+      const indicator = display.indicator || null;
+      const frame = display.frame || null;
+      const isReady = readySet.has(id);
+      if (indicator) {
+        indicator.textContent = isReady ? 'Ready' : 'Not Ready';
+        indicator.classList.toggle('ready', isReady);
+        indicator.classList.toggle('not-ready', !isReady);
+      }
+      if (frame) {
+        frame.classList.toggle('ready', isReady);
+        frame.dataset.ready = isReady ? 'true' : 'false';
+      }
+    });
+  }
+  const button = dungeonState.readyButton;
+  if (button) {
+    const selfId = currentCharacter && currentCharacter.id != null ? String(currentCharacter.id) : null;
+    const isSelfReady = selfId ? readySet.has(selfId) : false;
+    if (normalizedCount >= normalizedTotal && normalizedTotal > 0) {
+      button.disabled = true;
+      button.textContent = 'All Ready';
+    } else if (isSelfReady) {
+      button.disabled = true;
+      button.textContent = 'Ready!';
+    } else {
+      button.disabled = false;
+      button.textContent = 'Ready Up';
+    }
+  }
 }
 
 async function sendDungeonReady(statusEl) {
@@ -5843,7 +6114,7 @@ async function sendDungeonReady(statusEl) {
       matchId: dungeonState.matchId,
       characterId: currentCharacter.id,
     });
-    updateDungeonReady(data.ready, data.total);
+    updateDungeonReady(data.ready, data.total, data.readyIds);
     if (statusEl) {
       showMessage(statusEl, 'Ready confirmed. Waiting for allies...', false);
     }
@@ -6042,6 +6313,9 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn) {
     bossId: null,
     lastReadyCount: 0,
     lastReadyTotal: size,
+    lastReadyMembers: [],
+    readyDisplays: new Map(),
+    partyPreview: [],
   };
 
   const es = new EventSource(`/dungeon/queue?characterId=${currentCharacter.id}&size=${size}`);
@@ -6078,11 +6352,10 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn) {
         showMessage(statusEl, 'Boss encountered. Ready when prepared.', false);
       }
       renderDungeonPreview(previewEl, data, statusEl);
-      updateDungeonReady(0, data.size || dungeonState.size);
       return;
     }
     if (data.type === 'ready') {
-      updateDungeonReady(data.ready || 0, data.total || dungeonState.size);
+      updateDungeonReady(data.ready || 0, data.total || dungeonState.size, data.readyIds);
       return;
     }
     if (data.type === 'start' && data.mode === 'dungeon') {
