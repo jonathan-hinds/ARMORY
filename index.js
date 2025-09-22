@@ -36,6 +36,7 @@ const {
   cancelDungeon,
   readyForDungeon,
   getDungeonStatus,
+  continueDungeon,
 } = require("./systems/dungeonService");
 const app = express();
 const connectDB = require("./db");
@@ -394,6 +395,7 @@ app.post("/matchmaking/cancel", (req, res) => {
 app.get("/dungeon/queue", async (req, res) => {
   const characterId = parseInt(req.query.characterId, 10);
   const size = req.query.size != null ? parseInt(req.query.size, 10) : 2;
+  const continuationToken = req.query.continuationToken;
   if (!characterId) {
     return res.status(400).end();
   }
@@ -416,7 +418,7 @@ app.get("/dungeon/queue", async (req, res) => {
   }
   let handle;
   try {
-    handle = await queueDungeon(characterId, size, send);
+    handle = await queueDungeon(characterId, size, send, { continuationToken });
   } catch (err) {
     send({ type: "error", message: err.message || "failed to join dungeon" });
     res.end();
@@ -462,6 +464,21 @@ app.post("/dungeon/cancel", (req, res) => {
     return res.status(404).json({ error: "character not queued" });
   }
   res.json({ cancelled: true });
+});
+
+app.post("/dungeon/continue", (req, res) => {
+  const characterId = parseInt(req.body && req.body.characterId, 10);
+  const token = req.body && req.body.token;
+  const action = (req.body && req.body.action) || "retry";
+  if (!characterId || !token) {
+    return res.status(400).json({ error: "characterId and token required" });
+  }
+  try {
+    const status = continueDungeon(token, characterId, action);
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message || "failed to continue dungeon" });
+  }
 });
 
 app.post("/dungeon/ready", async (req, res) => {

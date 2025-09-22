@@ -24,6 +24,7 @@ const queues = {
 const waitingEntries = new Map();
 const activeMatches = new Map();
 const participantMatches = new Map();
+const continuations = new Map();
 
 const FORGING_STATUS_MESSAGE = 'Match found! The dungeon core is forging your foe...';
 const FORGING_STATUS_DETAIL = 'Calibrating encounter parameters.';
@@ -259,6 +260,11 @@ async function finalizeMatch(match, result) {
 
   await Promise.all(characterDocs.map(doc => doc.save()));
 
+  const continuation = buildContinuation(match, result);
+  const continuationToken = continuation ? continuation.token : null;
+  const continuationSize = continuation ? continuation.size : null;
+  const canAdvance = continuation ? continuation.canAdvance : false;
+
   updates.forEach(update => {
     const { entry, doc, rewards } = update;
     sendSafe(entry, {
@@ -273,9 +279,203 @@ async function finalizeMatch(match, result) {
       metrics: result.metrics || null,
       finalParty: Array.isArray(result.finalParty) ? result.finalParty : null,
       finalBoss: result.finalBoss || null,
+      continuationToken,
+      canAdvance,
+      partyIds,
+      partySize: continuationSize,
     });
     finalizeEntry(entry);
   });
+}
+
+function cloneParentGenomes(parents) {
+  if (!parents || typeof parents !== 'object') {
+    return null;
+  }
+  return {
+    champion: parents.champion ? clone(parents.champion) : null,
+    partner: parents.partner ? clone(parents.partner) : null,
+  };
+}
+
+function buildContinuation(match, result) {
+  if (!match || !Array.isArray(match.entries) || match.entries.length === 0) {
+    return null;
+  }
+  const token = `${match.id}-${Math.random().toString(36).slice(2, 10)}`;
+  const partyIds = match.entries.map(entry => entry.character.id);
+  const continuation = {
+    token,
+    partyIds,
+    size: partyIds.length,
+    canAdvance: result && result.winnerSide === 'party',
+    lastBoss: match.boss ? clone(match.boss) : null,
+    lastPreview: match.preview ? clone(match.preview) : null,
+    parentGenomes: match.parentGenomes ? cloneParentGenomes(match.parentGenomes) : null,
+    votes: new Map(),
+    status: 'awaiting-choice',
+    mode: null,
+    entries: new Map(),
+    matchPromise: null,
+    started: false,
+  };
+  continuations.set(token, continuation);
+  return continuation;
+}
+
+function buildContinuationResponse(continuation, status, { action, conflict = false } = {}) {
+  const payload = {
+    status,
+    partySize: continuation.size,
+    canAdvance: continuation.canAdvance,
+  };
+  if (status === 'ready') {
+    payload.action = continuation.mode;
+    payload.token = continuation.token;
+  } else {
+    payload.action = action;
+    payload.waitingFor = Math.max(0, continuation.partyIds.length - continuation.votes.size);
+    payload.conflict = conflict;
+  }
+  return payload;
+}
+
+function continueDungeon(token, characterId, action = 'retry') {
+  const normalizedToken = typeof token === 'string' ? token.trim() : '';
+  if (!normalizedToken) {
+    throw new Error('continuation token required');
+  }
+  if (!continuations.has(normalizedToken)) {
+    throw new Error('continuation expired');
+  }
+  const continuation = continuations.get(normalizedToken);
+  if (!continuation.partyIds.includes(characterId)) {
+    throw new Error('character not part of this encounter');
+  }
+  if (continuation.status === 'consumed') {
+    throw new Error('continuation consumed');
+  }
+  const normalizedAction = action === 'advance' ? 'advance' : 'retry';
+  if (normalizedAction === 'advance' && !continuation.canAdvance) {
+    throw new Error('advance unavailable');
+  }
+  if (continuation.status === 'ready') {
+    if (continuation.mode && continuation.mode !== normalizedAction) {
+      throw new Error('party chose a different path');
+    }
+    return buildContinuationResponse(continuation, 'ready');
+  }
+  continuation.votes.set(characterId, normalizedAction);
+  const total = continuation.partyIds.length;
+  if (continuation.votes.size < total) {
+    return buildContinuationResponse(continuation, 'pending', { action: normalizedAction });
+  }
+  const voteSet = new Set(continuation.votes.values());
+  if (voteSet.size > 1) {
+    return buildContinuationResponse(continuation, 'pending', {
+      action: normalizedAction,
+      conflict: true,
+    });
+  }
+  continuation.mode = normalizedAction;
+  continuation.status = 'ready';
+  return buildContinuationResponse(continuation, 'ready');
+}
+
+function buildContinuationMatchOptions(continuation) {
+  const options = {};
+  if (continuation.mode === 'retry' && continuation.lastBoss) {
+    options.fixedBoss = continuation.lastBoss;
+    options.fixedPreview = continuation.lastPreview;
+  }
+  if (continuation.parentGenomes) {
+    options.parentGenomes = cloneParentGenomes(continuation.parentGenomes);
+  }
+  return options;
+}
+
+async function startContinuationMatch(continuation) {
+  if (!continuation || continuation.started) {
+    return continuation && continuation.matchPromise;
+  }
+  continuation.started = true;
+  const entries = Array.from(continuation.entries.values());
+  const options = buildContinuationMatchOptions(continuation);
+  try {
+    const promise = createMatch(entries, options);
+    continuation.matchPromise = promise;
+    await promise;
+  } finally {
+    continuation.status = 'consumed';
+    continuations.delete(continuation.token);
+  }
+  return continuation.matchPromise;
+}
+
+async function joinContinuation(characterId, token, send) {
+  const normalizedToken = typeof token === 'string' ? token.trim() : '';
+  if (!normalizedToken) {
+    throw new Error('continuation token required');
+  }
+  if (!continuations.has(normalizedToken)) {
+    throw new Error('continuation expired');
+  }
+  const continuation = continuations.get(normalizedToken);
+  if (!continuation.partyIds.includes(characterId)) {
+    throw new Error('character not part of this encounter');
+  }
+  if (continuation.status !== 'ready' || !continuation.mode) {
+    throw new Error('continuation not ready');
+  }
+  if (continuation.entries.has(characterId)) {
+    return attachExistingEntry(continuation.entries.get(characterId), send);
+  }
+
+  const character = await loadCharacter(characterId);
+  if (!character) {
+    throw new Error('character not found');
+  }
+  if (!character.rotation || character.rotation.length < 3) {
+    throw new Error('character rotation invalid');
+  }
+
+  let resolveEntry;
+  const promise = new Promise(resolve => {
+    resolveEntry = resolve;
+  });
+  const entry = {
+    character,
+    send,
+    resolve: resolveEntry,
+    size: continuation.size,
+    status: 'queued',
+    ready: false,
+    completed: false,
+    continuationToken: normalizedToken,
+    promise,
+  };
+  continuation.entries.set(characterId, entry);
+  waitingEntries.set(character.id, entry);
+  sendQueued(entry);
+
+  if (
+    continuation.entries.size >= continuation.partyIds.length
+    && (!continuation.matchPromise || continuation.started === false)
+  ) {
+    const startPromise = startContinuationMatch(continuation);
+    if (startPromise && typeof startPromise.catch === 'function') {
+      startPromise.catch(err => {
+        continuation.entries.forEach(item => {
+          cancelEntry(item, err.message || 'failed to start dungeon');
+        });
+      });
+    }
+  }
+
+  return {
+    promise,
+    cancel: reason => cancelDungeon(character.id, reason || 'dungeon cancelled'),
+  };
 }
 
 async function startBattle(match) {
@@ -341,7 +541,7 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value || null));
 }
 
-async function createMatch(entries) {
+async function createMatch(entries, options = {}) {
   const matchId = `dungeon-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const match = {
     id: matchId,
@@ -355,6 +555,7 @@ async function createMatch(entries) {
     lastEvent: null,
     lastReady: { ready: 0, total: entries.length, readyIds: [] },
     phase: 'forging',
+    parentGenomes: null,
   };
   activeMatches.set(matchId, match);
   entries.forEach(entry => {
@@ -379,13 +580,39 @@ async function createMatch(entries) {
     const summary = summarizeParty(entries, equipmentMap);
     match.partyPreview = summary;
 
-    const bossData = await generateDungeonBoss(
-      entries.map(entry => entry.character),
-      abilityMap,
-      equipmentMap,
-    );
-    match.boss = bossData.character;
-    match.preview = bossData.preview;
+    if (options.fixedBoss) {
+      match.boss = clone(options.fixedBoss);
+      match.preview = options.fixedPreview ? clone(options.fixedPreview) : clone(match.boss);
+      if (options.parentGenomes) {
+        match.parentGenomes = {
+          champion: options.parentGenomes.champion
+            ? clone(options.parentGenomes.champion)
+            : null,
+          partner: options.parentGenomes.partner
+            ? clone(options.parentGenomes.partner)
+            : null,
+        };
+      }
+    } else {
+      const bossOptions = {};
+      if (options.parentGenomes) {
+        bossOptions.parentGenomes = options.parentGenomes;
+      }
+      const bossData = await generateDungeonBoss(
+        entries.map(entry => entry.character),
+        abilityMap,
+        equipmentMap,
+        bossOptions,
+      );
+      match.boss = bossData.character;
+      match.preview = bossData.preview;
+      match.parentGenomes = bossData.genomes
+        ? {
+            champion: bossData.genomes.champion ? clone(bossData.genomes.champion) : null,
+            partner: bossData.genomes.partner ? clone(bossData.genomes.partner) : null,
+          }
+        : null;
+    }
     match.phase = 'preview';
     entries.forEach(entry => {
       sendSafe(entry, {
@@ -448,7 +675,7 @@ function attachExistingEntry(entry, send) {
   };
 }
 
-async function queueDungeon(characterId, size, send) {
+async function queueDungeon(characterId, size, send, options = {}) {
   const groupSize = Number.isFinite(size) ? Math.min(5, Math.max(2, size)) : 2;
   if (waitingEntries.has(characterId)) {
     return attachExistingEntry(waitingEntries.get(characterId), send);
@@ -466,6 +693,11 @@ async function queueDungeon(characterId, size, send) {
       }
     }
     throw new Error('character already queued');
+  }
+
+  const continuationToken = options && options.continuationToken ? String(options.continuationToken).trim() : '';
+  if (continuationToken) {
+    return joinContinuation(characterId, continuationToken, send);
   }
 
   const character = await loadCharacter(characterId);
@@ -606,4 +838,10 @@ function getDungeonStatus(characterId) {
   return { state: 'idle' };
 }
 
-module.exports = { queueDungeon, cancelDungeon, readyForDungeon, getDungeonStatus };
+module.exports = {
+  queueDungeon,
+  cancelDungeon,
+  readyForDungeon,
+  getDungeonStatus,
+  continueDungeon,
+};

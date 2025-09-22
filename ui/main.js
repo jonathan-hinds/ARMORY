@@ -6465,6 +6465,202 @@ function handleDungeonEnd(data) {
   }
   closeDungeonSource();
   updateAfterBattleEnd(data);
+  if (dungeonState) {
+    const continuationToken = data && data.continuationToken ? data.continuationToken : null;
+    const canAdvance = !!(data && data.canAdvance);
+    const partySize = Number.isFinite(data && data.partySize)
+      ? data.partySize
+      : dungeonState.size;
+    const partyIds = Array.isArray(data && data.partyIds) ? data.partyIds.slice() : [];
+    dungeonState.continuation = {
+      token: continuationToken,
+      canAdvance,
+      status: 'idle',
+      partySize,
+      partyIds,
+      requestInFlight: false,
+      selectedAction: null,
+      elements: null,
+    };
+    dungeonState.lastResult = data || null;
+    if (dungeonState.previewEl) {
+      renderDungeonPostMatch(dungeonState.previewEl, data, dungeonState.continuation);
+    }
+  }
+}
+
+function setContinuationButtonsDisabled(disabled) {
+  if (!dungeonState || !dungeonState.continuation || !dungeonState.continuation.elements) {
+    return;
+  }
+  const { retryButton, advanceButton } = dungeonState.continuation.elements;
+  if (retryButton) retryButton.disabled = !!disabled;
+  if (advanceButton) advanceButton.disabled = !!disabled;
+}
+
+function renderDungeonPostMatch(previewEl, result, continuation) {
+  if (!previewEl) return;
+  previewEl.innerHTML = '';
+  const panel = document.createElement('div');
+  panel.className = 'dungeon-post-match';
+  const victory = result && result.winnerSide === 'party';
+  const title = document.createElement('h3');
+  title.textContent = victory ? 'Victory' : 'Defeat';
+  panel.appendChild(title);
+
+  const reward = document.createElement('div');
+  reward.className = 'post-match-summary';
+  const xpGain = Number.isFinite(result && result.xpGain) ? result.xpGain : 0;
+  const gpGain = Number.isFinite(result && result.gpGain) ? result.gpGain : 0;
+  reward.textContent = `+${xpGain} XP · +${gpGain} GP`;
+  panel.appendChild(reward);
+
+  const flavor = document.createElement('p');
+  flavor.className = 'post-match-flavor';
+  if (continuation && continuation.token) {
+    flavor.textContent = victory
+      ? 'Forge ahead for a fiercer foe, or savor the moment.'
+      : 'Regroup and rally for another attempt.';
+  } else {
+    flavor.textContent = 'Return when you are ready for another delve.';
+  }
+  panel.appendChild(flavor);
+
+  if (continuation && continuation.token) {
+    const actions = document.createElement('div');
+    actions.className = 'post-match-actions';
+    const retryButton = document.createElement('button');
+    retryButton.textContent = 'Retry Boss';
+    retryButton.addEventListener('click', () => requestDungeonContinuation('retry'));
+    actions.appendChild(retryButton);
+    let advanceButton = null;
+    if (continuation.canAdvance) {
+      advanceButton = document.createElement('button');
+      advanceButton.textContent = 'Advance Challenge';
+      advanceButton.addEventListener('click', () => requestDungeonContinuation('advance'));
+      actions.appendChild(advanceButton);
+    }
+    panel.appendChild(actions);
+    const status = document.createElement('div');
+    status.className = 'post-match-status message';
+    panel.appendChild(status);
+    if (typeof clearMessage === 'function') {
+      clearMessage(status);
+    } else {
+      status.textContent = '';
+    }
+    continuation.elements = {
+      panel,
+      actions,
+      retryButton,
+      advanceButton,
+      status,
+    };
+    continuation.status = 'idle';
+    continuation.requestInFlight = false;
+    continuation.selectedAction = null;
+  } else if (continuation) {
+    continuation.elements = {
+      panel,
+      actions: null,
+      retryButton: null,
+      advanceButton: null,
+      status: null,
+    };
+  }
+  previewEl.appendChild(panel);
+}
+
+async function requestDungeonContinuation(action) {
+  if (!currentCharacter || !dungeonState || !dungeonState.continuation) return;
+  const continuation = dungeonState.continuation;
+  if (!continuation.token || continuation.requestInFlight) return;
+  continuation.requestInFlight = true;
+  continuation.selectedAction = action;
+  setContinuationButtonsDisabled(true);
+  const statusEl = continuation.elements && continuation.elements.status;
+  if (statusEl) {
+    const waitingMessage = action === 'advance'
+      ? 'Consulting with your party...'
+      : 'Rallying your party...';
+    showMessage(statusEl, waitingMessage, false);
+  }
+  try {
+    const response = await postJSON('/dungeon/continue', {
+      token: continuation.token,
+      characterId: currentCharacter.id,
+      action,
+    });
+    continuation.requestInFlight = false;
+    handleDungeonContinuationResponse(action, response);
+  } catch (err) {
+    continuation.requestInFlight = false;
+    const statusEl = continuation.elements && continuation.elements.status;
+    if (statusEl) {
+      showMessage(statusEl, err.message || 'Failed to reach your party.', true);
+    }
+    setContinuationButtonsDisabled(false);
+  }
+}
+
+function handleDungeonContinuationResponse(action, response) {
+  if (!dungeonState || !dungeonState.continuation) return;
+  const continuation = dungeonState.continuation;
+  if (response && Number.isFinite(response.partySize)) {
+    continuation.partySize = response.partySize;
+  }
+  const statusEl = continuation.elements && continuation.elements.status;
+  if (!response || !response.status) {
+    if (statusEl) {
+      showMessage(statusEl, 'Unable to interpret party response.', true);
+    }
+    setContinuationButtonsDisabled(false);
+    return;
+  }
+  continuation.status = response.status;
+  if (response.status === 'ready' && response.token) {
+    if (statusEl) {
+      const message = response.action === 'advance'
+        ? 'Forging a stronger foe...'
+        : 'Preparing a rematch...';
+      showMessage(statusEl, message, false);
+    }
+    const forgingElements = {
+      container: dungeonState.forgingContainer,
+      headline: dungeonState.forgingHeadline,
+      detail: dungeonState.forgingDetail,
+    };
+    const size = Number.isFinite(response.partySize)
+      ? response.partySize
+      : continuation.partySize;
+    startDungeonQueue(
+      size,
+      dungeonState.statusEl,
+      dungeonState.previewEl,
+      dungeonState.queueBtn,
+      dungeonState.leaveButton,
+      forgingElements,
+      { continuationToken: response.token },
+    );
+    return;
+  }
+  if (response.status === 'pending') {
+    const waitingFor = Number.isFinite(response.waitingFor) ? response.waitingFor : 0;
+    const message = response.conflict
+      ? 'Awaiting party consensus...'
+      : waitingFor > 0
+      ? 'Waiting for allies...'
+      : 'Awaiting party consensus...';
+    if (statusEl) {
+      showMessage(statusEl, message, false);
+    }
+    setContinuationButtonsDisabled(false);
+    return;
+  }
+  if (statusEl) {
+    showMessage(statusEl, 'Unable to continue the dungeon.', true);
+  }
+  setContinuationButtonsDisabled(false);
 }
 
 async function leaveDungeonQueue(statusEl) {
@@ -6504,6 +6700,7 @@ function startDungeonQueue(
   }
   const resume = !!(options && options.resume);
   const initialStatus = options && options.status ? options.status : null;
+  const continuationToken = options && options.continuationToken ? options.continuationToken : null;
   const normalizedSize = Number.isFinite(size) ? size : Number.parseInt(size, 10) || 2;
   const forgingContainer =
     forgingElements && forgingElements.container ? forgingElements.container : null;
@@ -6530,7 +6727,11 @@ function startDungeonQueue(
   closeDungeonSource();
   if (queueBtn) {
     queueBtn.disabled = true;
-    queueBtn.textContent = resume ? 'Resuming...' : 'Matching...';
+    if (continuationToken) {
+      queueBtn.textContent = 'Gathering...';
+    } else {
+      queueBtn.textContent = resume ? 'Resuming...' : 'Matching...';
+    }
   }
   if (leaveBtn) {
     leaveBtn.classList.remove('hidden');
@@ -6547,7 +6748,7 @@ function startDungeonQueue(
   }
   const forgingStatusMessage = DUNGEON_FORGING_MESSAGE;
   const forgingStatusDetail = DUNGEON_FORGING_DETAIL;
-  let statusMessage = 'Searching for allies...';
+  let statusMessage = continuationToken ? 'Summoning your party...' : 'Searching for allies...';
   if (resume && initialStatus) {
     if (initialStatus.phase === 'forging') {
       statusMessage = forgingStatusMessage;
@@ -6558,6 +6759,9 @@ function startDungeonQueue(
     } else {
       statusMessage = 'Resuming dungeon queue...';
     }
+  }
+  if (continuationToken) {
+    statusMessage = 'Summoning your party...';
   }
   if (statusEl) {
     showMessage(statusEl, statusMessage, false);
@@ -6584,6 +6788,8 @@ function startDungeonQueue(
     forgingMessage: forgingStatusMessage,
     forgingDetailMessage: forgingStatusDetail,
     phase: 'queued',
+    continuationToken,
+    continuation: null,
   };
   if (resume && initialStatus && initialStatus.phase) {
     dungeonState.phase = initialStatus.phase;
@@ -6650,9 +6856,14 @@ function startDungeonQueue(
     applyInitialReady();
   }
 
-  const es = new EventSource(
-    `/dungeon/queue?characterId=${currentCharacter.id}&size=${normalizedSize}`
-  );
+  const params = new URLSearchParams({
+    characterId: currentCharacter.id,
+    size: normalizedSize,
+  });
+  if (continuationToken) {
+    params.append('continuationToken', continuationToken);
+  }
+  const es = new EventSource(`/dungeon/queue?${params.toString()}`);
   dungeonSource = es;
   es.onmessage = ev => {
     let data;
