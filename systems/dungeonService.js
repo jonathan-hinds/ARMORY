@@ -25,6 +25,9 @@ const waitingEntries = new Map();
 const activeMatches = new Map();
 const participantMatches = new Map();
 
+const FORGING_STATUS_MESSAGE = 'Match found! The dungeon core is forging your foe...';
+const FORGING_STATUS_DETAIL = 'Calibrating encounter parameters.';
+
 async function loadCharacter(characterId) {
   const characterDoc = await CharacterModel.findOne({ characterId });
   if (!characterDoc) return null;
@@ -70,6 +73,16 @@ function sendQueued(entry) {
 function replayMatchState(entry, match) {
   if (!entry || !match) return;
   entry.matchId = match.id;
+  if (!match.started && (!match.preview || match.phase === 'forging')) {
+    sendSafe(entry, {
+      type: 'matched',
+      matchId: match.id,
+      size: match.entries.length,
+      message: FORGING_STATUS_MESSAGE,
+      detail: FORGING_STATUS_DETAIL,
+      phase: 'forging',
+    });
+  }
   const readyIds = Array.from(match.ready.values()).sort((a, b) => a - b);
   if (match.partyPreview || match.preview) {
     sendSafe(entry, {
@@ -268,6 +281,7 @@ async function finalizeMatch(match, result) {
 async function startBattle(match) {
   if (!match || match.started) return;
   match.started = true;
+  match.phase = 'encounter';
   const party = match.entries.map(entry => clone(entry.character));
   const boss = clone(match.boss);
   const onUpdate = event => {
@@ -328,42 +342,71 @@ function clone(value) {
 }
 
 async function createMatch(entries) {
-  const [abilities, equipmentMap] = await Promise.all([getAbilities(), getEquipmentMap()]);
-  const abilityMap = new Map(abilities.map(ability => [ability.id, ability]));
-  const bossData = await generateDungeonBoss(entries.map(entry => entry.character), abilityMap, equipmentMap);
   const matchId = `dungeon-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
   const match = {
     id: matchId,
     entries,
-    abilityMap,
-    equipmentMap,
-    boss: bossData.character,
-    preview: bossData.preview,
+    abilityMap: null,
+    equipmentMap: null,
+    boss: null,
+    preview: null,
     ready: new Set(),
     started: false,
     lastEvent: null,
     lastReady: { ready: 0, total: entries.length, readyIds: [] },
+    phase: 'forging',
   };
   activeMatches.set(matchId, match);
   entries.forEach(entry => {
     entry.status = 'matched';
     entry.matchId = matchId;
     participantMatches.set(entry.character.id, matchId);
-  });
-  const summary = summarizeParty(entries, equipmentMap);
-  match.partyPreview = summary;
-  entries.forEach(entry => {
     sendSafe(entry, {
-      type: 'preview',
+      type: 'matched',
       matchId,
-      boss: match.preview,
-      party: summary,
       size: entries.length,
-      ready: 0,
-      readyIds: [],
+      message: FORGING_STATUS_MESSAGE,
+      detail: FORGING_STATUS_DETAIL,
+      phase: 'forging',
     });
   });
-  return match;
+
+  try {
+    const [abilities, equipmentMap] = await Promise.all([getAbilities(), getEquipmentMap()]);
+    const abilityMap = new Map(abilities.map(ability => [ability.id, ability]));
+    match.abilityMap = abilityMap;
+    match.equipmentMap = equipmentMap;
+    const summary = summarizeParty(entries, equipmentMap);
+    match.partyPreview = summary;
+
+    const bossData = await generateDungeonBoss(
+      entries.map(entry => entry.character),
+      abilityMap,
+      equipmentMap,
+    );
+    match.boss = bossData.character;
+    match.preview = bossData.preview;
+    match.phase = 'preview';
+    entries.forEach(entry => {
+      sendSafe(entry, {
+        type: 'preview',
+        matchId,
+        boss: match.preview,
+        party: summary,
+        size: entries.length,
+        ready: 0,
+        readyIds: [],
+        phase: 'preview',
+      });
+    });
+    return match;
+  } catch (err) {
+    activeMatches.delete(matchId);
+    entries.forEach(entry => {
+      participantMatches.delete(entry.character.id);
+    });
+    throw err;
+  }
 }
 
 function tryStartMatch(size) {
@@ -502,9 +545,17 @@ function buildMatchStatus(entry, match) {
     return {
       state: entry && entry.status === 'matched' ? 'matched' : 'queued',
       size: entry && entry.size ? entry.size : null,
+      phase: entry && entry.status === 'matched' ? 'forging' : 'queued',
     };
   }
   const readyIds = Array.from(match.ready.values()).sort((a, b) => a - b);
+  const phase = match.started
+    ? 'encounter'
+    : match.phase
+    ? match.phase
+    : match.preview
+    ? 'preview'
+    : 'forging';
   return {
     state: match.started ? 'in-progress' : 'matched',
     size: match.entries.length,
@@ -524,6 +575,7 @@ function buildMatchStatus(entry, match) {
         : match.preview && match.preview.id != null
         ? match.preview.id
         : null,
+    phase,
   };
 }
 
