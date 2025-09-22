@@ -690,7 +690,7 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .tooltip { position:absolute; background:#fff; border:1px solid #000; padding:4px; pointer-events:none; z-index:1000; }
 .tooltip.hidden { display:none; }
 .tooltip[data-theme='dark'] { background:#000; border-color:#fff; color:#fff; }
-.tooltip[data-theme='dark'] .tooltip-grid .label { color:#bfbfbf; }
+.tooltip[data-theme='dark'] .tooltip-grid .label { color:#fff; }
 .tooltip-grid { display:grid; grid-template-columns:auto auto; gap:2px 8px; }
 .tooltip-grid .label { font-weight:bold; text-align:right; }
 
@@ -938,40 +938,103 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   color:#fff;
   cursor:default;
 }
-.ready-tooltip {
+.combatant-preview {
   display:flex;
   flex-direction:column;
   gap:6px;
+  border:2px solid #000;
+  background:#fff;
+  color:#000;
+  padding:8px;
   text-transform:uppercase;
+  letter-spacing:1px;
   font-size:12px;
-  max-width:240px;
+  box-shadow:3px 3px 0 #000;
 }
-.ready-tooltip-title {
+.combatant-preview .preview-header {
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  align-items:center;
+  border-bottom:1px solid #000;
+  padding-bottom:4px;
+}
+.combatant-preview .preview-name {
   font-weight:bold;
-  text-align:center;
-  letter-spacing:1px;
 }
-.ready-tooltip-meta {
-  text-align:center;
-  letter-spacing:1px;
+.combatant-preview .preview-meta {
+  font-size:11px;
 }
-.ready-tooltip-section {
+.combatant-preview .preview-section {
   border-top:1px solid #000;
   padding-top:4px;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
 }
-.ready-tooltip-section:first-of-type {
-  border-top:0;
-  padding-top:0;
-}
-.ready-tooltip-section-title {
+.combatant-preview .preview-section-title {
   font-weight:bold;
-  letter-spacing:1px;
 }
-.ready-tooltip-grid {
+.combatant-preview .preview-grid {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:4px 12px;
   align-items:center;
 }
-.ready-tooltip-grid .label {
+.combatant-preview .preview-grid .label {
   font-weight:bold;
+}
+.combatant-preview .preview-list {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+.combatant-preview .preview-row {
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  border:1px solid #000;
+  padding:2px 4px;
+  font-weight:bold;
+}
+.combatant-preview .preview-row .value {
+  text-align:right;
+}
+.combatant-preview .preview-row.empty {
+  border-style:dashed;
+  font-style:italic;
+}
+.combatant-preview .preview-chips {
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.combatant-preview .preview-chip {
+  border:1px solid #000;
+  padding:2px 6px;
+  font-weight:bold;
+}
+.combatant-preview.compact {
+  background:#000;
+  color:#fff;
+  border-color:#fff;
+  box-shadow:3px 3px 0 #fff;
+  max-width:260px;
+}
+.combatant-preview.compact .preview-header {
+  border-color:#fff;
+}
+.combatant-preview.compact .preview-section {
+  border-color:#fff;
+}
+.combatant-preview.compact .preview-row {
+  border-color:#fff;
+}
+.combatant-preview.compact .preview-chip {
+  border-color:#fff;
+}
+.combatant-preview.compact .preview-row.empty {
+  border-style:dashed;
 }
 .ready-self {
   box-shadow:4px 4px 0 #000, inset 0 0 0 2px #000;
@@ -1571,28 +1634,6 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .history-header { font-weight:bold; text-transform:uppercase; font-size:13px; }
 .history-details, .history-timeline, .history-rewards, .history-items { font-size:12px; }
 .history-items { font-style:italic; }
-.opponent-preview { border:1px solid #000; padding:8px; display:flex; flex-direction:column; gap:8px; background:#fff; }
-.opponent-header { display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid #000; padding-bottom:4px; }
-.opponent-name { font-weight:bold; text-transform:uppercase; }
-.opponent-meta { font-size:12px; }
-.equipment-section, .rotation-section { display:flex; flex-direction:column; gap:4px; }
-.equipment-section .section-title, .rotation-section .section-title { font-weight:bold; text-transform:uppercase; border-bottom:1px solid #000; padding-bottom:2px; }
-.equipment-list { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:4px; }
-.equipment-entry { border:1px solid #000; padding:4px; display:flex; justify-content:space-between; background:#fff; }
-.equipment-entry.empty { border-style:dashed; }
-.equipment-entry .slot { font-weight:bold; margin-right:4px; }
-.rotation-list { display:flex; flex-wrap:wrap; gap:4px; }
-.rotation-chip { border:1px solid #000; padding:2px 6px; background:#fff; font-size:12px; }
-.opponent-preview.compact { background:#000; color:#fff; border-color:#fff; box-shadow:0 0 0 2px #000 inset; font-size:12px; }
-.opponent-preview.compact .opponent-header { border-color:#fff; }
-.opponent-preview.compact .opponent-name { color:#fff; }
-.opponent-preview.compact .opponent-meta { color:#ddd; }
-.opponent-preview.compact .equipment-section .section-title,
-.opponent-preview.compact .rotation-section .section-title { border-color:#fff; }
-.opponent-preview.compact .equipment-entry { background:#000; color:#fff; border-color:#fff; }
-.opponent-preview.compact .rotation-chip { background:#000; color:#fff; border-color:#fff; }
-.opponent-preview.compact .stats-table th,
-.opponent-preview.compact .stats-table td { border-color:#fff; color:#fff; }
 
 /* Job / profession dialog */
 .job-dialog-overlay {
