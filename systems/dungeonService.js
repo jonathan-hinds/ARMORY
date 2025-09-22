@@ -59,6 +59,50 @@ function sendSafe(entry, payload) {
   }
 }
 
+function sendQueued(entry) {
+  if (!entry) return;
+  sendSafe(entry, {
+    type: 'queued',
+    size: entry.size || null,
+  });
+}
+
+function replayMatchState(entry, match) {
+  if (!entry || !match) return;
+  entry.matchId = match.id;
+  const readyIds = Array.from(match.ready.values()).sort((a, b) => a - b);
+  if (match.partyPreview || match.preview) {
+    sendSafe(entry, {
+      type: 'preview',
+      matchId: match.id,
+      boss: match.preview || null,
+      party: match.partyPreview || [],
+      size: match.entries.length,
+      ready: match.ready.size,
+      readyIds,
+    });
+  }
+  if (match.lastReady) {
+    sendSafe(entry, {
+      type: 'ready',
+      matchId: match.id,
+      ready: match.lastReady.ready,
+      total: match.lastReady.total,
+      readyIds: Array.isArray(match.lastReady.readyIds)
+        ? match.lastReady.readyIds.slice()
+        : readyIds,
+    });
+  }
+  if (match.started && match.lastEvent) {
+    const resumeEvent = clone(match.lastEvent);
+    if (resumeEvent && typeof resumeEvent === 'object') {
+      resumeEvent.matchId = match.id;
+      resumeEvent.youId = entry.character.id;
+      sendSafe(entry, resumeEvent);
+    }
+  }
+}
+
 function finalizeEntry(entry) {
   if (!entry || entry.completed) return;
   entry.completed = true;
@@ -227,12 +271,13 @@ async function startBattle(match) {
   const party = match.entries.map(entry => clone(entry.character));
   const boss = clone(match.boss);
   const onUpdate = event => {
+    const baseEvent = clone(event);
+    match.lastEvent = baseEvent;
     match.entries.forEach(entry => {
-      sendSafe(entry, {
-        ...event,
-        matchId: match.id,
-        youId: entry.character.id,
-      });
+      const payload = clone(baseEvent);
+      payload.matchId = match.id;
+      payload.youId = entry.character.id;
+      sendSafe(entry, payload);
     });
   };
   const result = await runDungeonCombat(party, boss, match.abilityMap, match.equipmentMap, onUpdate);
@@ -266,6 +311,11 @@ async function readyForDungeon(matchId, characterId) {
     total: match.entries.length,
     readyIds: readyMembers,
   };
+  match.lastReady = {
+    ready: match.ready.size,
+    total: match.entries.length,
+    readyIds,
+  };
   match.entries.forEach(item => sendSafe(item, payload));
   if (match.ready.size >= match.entries.length) {
     await startBattle(match);
@@ -291,6 +341,8 @@ async function createMatch(entries) {
     preview: bossData.preview,
     ready: new Set(),
     started: false,
+    lastEvent: null,
+    lastReady: { ready: 0, total: entries.length, readyIds: [] },
   };
   activeMatches.set(matchId, match);
   entries.forEach(entry => {
@@ -327,8 +379,52 @@ function tryStartMatch(size) {
   });
 }
 
+function attachExistingEntry(entry, send) {
+  if (!entry) {
+    return { promise: Promise.resolve(), cancel: () => {} };
+  }
+  entry.send = send;
+  if (!entry.promise) {
+    entry.promise = new Promise(resolve => {
+      entry.resolve = resolve;
+    });
+  }
+  if (entry.status === 'queued') {
+    sendQueued(entry);
+  }
+  const matchId = participantMatches.get(entry.character.id) || entry.matchId;
+  if (matchId && activeMatches.has(matchId)) {
+    const match = activeMatches.get(matchId);
+    if (match) {
+      replayMatchState(entry, match);
+    }
+  }
+  return {
+    promise: entry.promise,
+    cancel: reason => cancelDungeon(entry.character.id, reason || 'dungeon cancelled'),
+  };
+}
+
 async function queueDungeon(characterId, size, send) {
   const groupSize = Number.isFinite(size) ? Math.min(5, Math.max(2, size)) : 2;
+  if (waitingEntries.has(characterId)) {
+    return attachExistingEntry(waitingEntries.get(characterId), send);
+  }
+  if (participantMatches.has(characterId)) {
+    const matchId = participantMatches.get(characterId);
+    const match = activeMatches.get(matchId);
+    if (match) {
+      const entry = match.entries.find(item => item.character.id === characterId);
+      if (entry) {
+        if (!waitingEntries.has(characterId)) {
+          waitingEntries.set(characterId, entry);
+        }
+        return attachExistingEntry(entry, send);
+      }
+    }
+    throw new Error('character already queued');
+  }
+
   const character = await loadCharacter(characterId);
   if (!character) {
     throw new Error('character not found');
@@ -336,13 +432,10 @@ async function queueDungeon(characterId, size, send) {
   if (!character.rotation || character.rotation.length < 3) {
     throw new Error('character rotation invalid');
   }
-  if (waitingEntries.has(character.id) || participantMatches.has(character.id)) {
-    throw new Error('character already queued');
-  }
 
-  let cancel;
+  let entry;
   const promise = new Promise(resolve => {
-    const entry = {
+    entry = {
       character,
       send,
       resolve,
@@ -351,40 +444,114 @@ async function queueDungeon(characterId, size, send) {
       ready: false,
       completed: false,
     };
-    cancel = reason => cancelEntry(entry, reason || 'dungeon cancelled');
     queues[groupSize].push(entry);
     waitingEntries.set(character.id, entry);
+    sendQueued(entry);
     tryStartMatch(groupSize);
   });
+  if (entry) {
+    entry.promise = promise;
+  }
 
-  return { promise, cancel };
+  return {
+    promise,
+    cancel: reason => cancelDungeon(character.id, reason || 'dungeon cancelled'),
+  };
 }
 
 function cancelDungeon(characterId, reason) {
   if (waitingEntries.has(characterId)) {
     const entry = waitingEntries.get(characterId);
+    if (entry && entry.matchId && activeMatches.has(entry.matchId)) {
+      const match = activeMatches.get(entry.matchId);
+      if (match && disbandMatch(match, characterId, reason)) {
+        return true;
+      }
+    }
     cancelEntry(entry, reason || 'connection closed');
     return true;
   }
   if (participantMatches.has(characterId)) {
     const matchId = participantMatches.get(characterId);
     const match = activeMatches.get(matchId);
-    if (match) {
-      const entry = match.entries.find(item => item.character.id === characterId);
-      if (entry && !match.started) {
-        match.entries.forEach(item => {
-          if (item.character.id !== characterId) {
-            cancelEntry(item, 'party disbanded');
-          } else {
-            cancelEntry(item, reason || 'connection closed');
-          }
-        });
-        activeMatches.delete(matchId);
-        return true;
-      }
+    if (match && disbandMatch(match, characterId, reason)) {
+      return true;
     }
   }
   return false;
 }
 
-module.exports = { queueDungeon, cancelDungeon, readyForDungeon };
+function disbandMatch(match, leavingId, reason) {
+  if (!match || match.started) {
+    return false;
+  }
+  match.entries.forEach(item => {
+    if (!item || !item.character) return;
+    if (item.character.id !== leavingId) {
+      cancelEntry(item, 'party disbanded');
+    } else {
+      cancelEntry(item, reason || 'connection closed');
+    }
+  });
+  activeMatches.delete(match.id);
+  return true;
+}
+
+function buildMatchStatus(entry, match) {
+  if (!entry || !match) {
+    return {
+      state: entry && entry.status === 'matched' ? 'matched' : 'queued',
+      size: entry && entry.size ? entry.size : null,
+    };
+  }
+  const readyIds = Array.from(match.ready.values()).sort((a, b) => a - b);
+  return {
+    state: match.started ? 'in-progress' : 'matched',
+    size: match.entries.length,
+    matchId: match.id,
+    ready: match.ready.size,
+    readyTotal: match.entries.length,
+    readyIds,
+    youReady: !!entry.ready,
+    party: Array.isArray(match.partyPreview) ? clone(match.partyPreview) : [],
+    boss: match.preview ? clone(match.preview) : null,
+    partyIds: match.entries.map(item => (item && item.character ? item.character.id : null)).filter(
+      id => id != null
+    ),
+    bossId:
+      match.boss && match.boss.id != null
+        ? match.boss.id
+        : match.preview && match.preview.id != null
+        ? match.preview.id
+        : null,
+  };
+}
+
+function getDungeonStatus(characterId) {
+  if (!Number.isFinite(characterId)) {
+    return { state: 'idle' };
+  }
+  if (waitingEntries.has(characterId)) {
+    const entry = waitingEntries.get(characterId);
+    if (entry && entry.matchId && activeMatches.has(entry.matchId)) {
+      return buildMatchStatus(entry, activeMatches.get(entry.matchId));
+    }
+    return {
+      state: entry && entry.status === 'matched' ? 'matched' : 'queued',
+      size: entry ? entry.size : null,
+    };
+  }
+  if (participantMatches.has(characterId)) {
+    const matchId = participantMatches.get(characterId);
+    const match = activeMatches.get(matchId);
+    if (match) {
+      const entry = match.entries.find(item => item.character.id === characterId);
+      if (entry) {
+        return buildMatchStatus(entry, match);
+      }
+    }
+  }
+  return { state: 'idle' };
+}
+
+module.exports = { queueDungeon, cancelDungeon, readyForDungeon, getDungeonStatus };

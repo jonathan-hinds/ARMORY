@@ -6456,26 +6456,60 @@ async function leaveDungeonQueue(statusEl) {
   }
 }
 
-function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn) {
+function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, options = {}) {
   if (!currentCharacter) {
     showMessage(statusEl, 'Select a character first.', true);
     return;
   }
+  const resume = !!(options && options.resume);
+  const initialStatus = options && options.status ? options.status : null;
+  const normalizedSize = Number.isFinite(size) ? size : Number.parseInt(size, 10) || 2;
+  const hasInitialPreview =
+    resume &&
+    initialStatus &&
+    (initialStatus.state === 'matched' || initialStatus.state === 'in-progress') &&
+    initialStatus.party &&
+    initialStatus.boss;
+  const initialPreview = hasInitialPreview
+    ? {
+        matchId: initialStatus.matchId || null,
+        party: initialStatus.party,
+        boss: initialStatus.boss,
+        size: initialStatus.size || normalizedSize,
+        ready: initialStatus.ready || 0,
+        readyIds: initialStatus.readyIds || [],
+      }
+    : null;
   closeDungeonSource();
   if (queueBtn) {
     queueBtn.disabled = true;
-    queueBtn.textContent = 'Matching...';
+    queueBtn.textContent = resume ? 'Resuming...' : 'Matching...';
   }
   if (leaveBtn) {
     leaveBtn.classList.remove('hidden');
-    leaveBtn.disabled = false;
-    leaveBtn.textContent = 'Leave Queue';
+    if (initialStatus && initialStatus.state === 'in-progress') {
+      leaveBtn.disabled = true;
+      leaveBtn.textContent = 'Encounter underway';
+    } else {
+      leaveBtn.disabled = false;
+      leaveBtn.textContent = 'Leave Queue';
+    }
   }
   if (previewEl) {
     previewEl.innerHTML = '';
   }
   if (statusEl) {
-    showMessage(statusEl, 'Searching for allies...', false);
+    let message = 'Searching for allies...';
+    if (resume && initialStatus) {
+      if (initialStatus.state === 'matched') {
+        message = 'Rejoining your party...';
+      } else if (initialStatus.state === 'in-progress') {
+        message = 'Reconnecting to the encounter...';
+      } else {
+        message = 'Resuming dungeon queue...';
+      }
+    }
+    showMessage(statusEl, message, false);
   }
   dungeonState = {
     queueBtn,
@@ -6485,17 +6519,74 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn) {
     readyButton: null,
     readyStatus: null,
     matchId: null,
-    size,
+    size: normalizedSize,
     partyIds: [],
     bossId: null,
     lastReadyCount: 0,
-    lastReadyTotal: size,
+    lastReadyTotal: normalizedSize,
     lastReadyMembers: [],
     readyDisplays: new Map(),
     partyPreview: [],
   };
+  if (resume && initialStatus) {
+    if (initialStatus.matchId) {
+      dungeonState.matchId = initialStatus.matchId;
+    }
+    if (Array.isArray(initialStatus.partyIds)) {
+      dungeonState.partyIds = initialStatus.partyIds.slice();
+    }
+    if (Number.isFinite(initialStatus.bossId)) {
+      dungeonState.bossId = initialStatus.bossId;
+    }
+    if (Number.isFinite(initialStatus.readyTotal)) {
+      dungeonState.lastReadyTotal = initialStatus.readyTotal;
+    }
+    if (Array.isArray(initialStatus.readyIds)) {
+      dungeonState.lastReadyMembers = initialStatus.readyIds.slice();
+    }
+    if (Number.isFinite(initialStatus.ready)) {
+      dungeonState.lastReadyCount = initialStatus.ready;
+    }
+  }
 
-  const es = new EventSource(`/dungeon/queue?characterId=${currentCharacter.id}&size=${size}`);
+  let previewPromise = null;
+  if (previewEl) {
+    if (initialPreview) {
+      previewPromise = Promise.resolve(renderDungeonPreview(previewEl, initialPreview, statusEl));
+    } else {
+      previewEl.innerHTML = '';
+    }
+  }
+  const applyInitialReady = () => {
+    if (
+      resume &&
+      initialStatus &&
+      (Number.isFinite(initialStatus.ready) || (Array.isArray(initialStatus.readyIds) && initialStatus.readyIds.length))
+    ) {
+      const readyCount = Number.isFinite(initialStatus.ready)
+        ? initialStatus.ready
+        : Array.isArray(initialStatus.readyIds)
+        ? initialStatus.readyIds.length
+        : 0;
+      const readyTotal = Number.isFinite(initialStatus.readyTotal)
+        ? initialStatus.readyTotal
+        : dungeonState.size;
+      updateDungeonReady(
+        readyCount,
+        readyTotal,
+        Array.isArray(initialStatus.readyIds) ? initialStatus.readyIds : []
+      );
+    }
+  };
+  if (previewPromise && typeof previewPromise.then === 'function') {
+    previewPromise.then(applyInitialReady).catch(() => {});
+  } else {
+    applyInitialReady();
+  }
+
+  const es = new EventSource(
+    `/dungeon/queue?characterId=${currentCharacter.id}&size=${normalizedSize}`
+  );
   dungeonSource = es;
   es.onmessage = ev => {
     let data;
@@ -6518,15 +6609,48 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn) {
       if (dungeonState && dungeonState.leaveButton) {
         dungeonState.leaveButton.disabled = false;
         dungeonState.leaveButton.textContent = 'Leave Queue';
-        dungeonState.leaveButton.classList.add('hidden');
+        if (/already\s+queued/i.test(message)) {
+          dungeonState.leaveButton.classList.remove('hidden');
+        } else {
+          dungeonState.leaveButton.classList.add('hidden');
+        }
       }
       closeDungeonSource();
       return;
     }
+    if (data.type === 'queued') {
+      if (statusEl) {
+        const descriptor = data.size ? `${data.size}-player` : 'party';
+        showMessage(statusEl, `Searching for a ${descriptor} group...`, false);
+      }
+      if (queueBtn) {
+        queueBtn.disabled = true;
+        queueBtn.textContent = 'Matching...';
+      }
+      if (dungeonState) {
+        dungeonState.size = Number.isFinite(data.size)
+          ? data.size
+          : dungeonState.size;
+        dungeonState.lastReadyTotal = dungeonState.size;
+        if (dungeonState.leaveButton) {
+          dungeonState.leaveButton.classList.remove('hidden');
+          dungeonState.leaveButton.disabled = false;
+          dungeonState.leaveButton.textContent = 'Leave Queue';
+        }
+      }
+      return;
+    }
     if (data.type === 'preview') {
       dungeonState.matchId = data.matchId;
+      dungeonState.size = Number.isFinite(data.size) ? data.size : dungeonState.size;
+      dungeonState.lastReadyTotal = dungeonState.size;
       if (statusEl) {
         showMessage(statusEl, 'Boss encountered. Ready when prepared.', false);
+      }
+      if (dungeonState && dungeonState.leaveButton) {
+        dungeonState.leaveButton.classList.remove('hidden');
+        dungeonState.leaveButton.disabled = false;
+        dungeonState.leaveButton.textContent = 'Leave Queue';
       }
       renderDungeonPreview(previewEl, data, statusEl);
       return;
@@ -6573,6 +6697,48 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn) {
     }
     closeDungeonSource();
   };
+}
+
+async function loadDungeonStatus(statusEl, previewEl, queueBtn, leaveBtn, select) {
+  if (!currentCharacter || dungeonSource) return;
+  let res;
+  try {
+    res = await fetch(`/dungeon/status?characterId=${currentCharacter.id}`);
+  } catch (err) {
+    console.warn('Failed to load dungeon status', err);
+    return;
+  }
+  if (!res.ok) {
+    if (statusEl) {
+      showMessage(statusEl, 'Failed to load dungeon status.', true);
+    }
+    return;
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch (err) {
+    console.warn('Failed to parse dungeon status', err);
+    return;
+  }
+  if (!data || !data.state || data.state === 'idle') {
+    return;
+  }
+  if (select && Number.isFinite(data.size)) {
+    const stringValue = String(data.size);
+    if (select.value !== stringValue) {
+      select.value = stringValue;
+    }
+  }
+  const resumeSize = Number.isFinite(data.size)
+    ? data.size
+    : (select
+    ? Number.parseInt(select.value, 10) || 2
+    : 2);
+  startDungeonQueue(resumeSize, statusEl, previewEl, queueBtn, leaveBtn, {
+    resume: true,
+    status: data,
+  });
 }
 
 function renderDungeonPanel() {
@@ -6629,6 +6795,10 @@ function renderDungeonPanel() {
 
   leaveBtn.addEventListener('click', () => {
     leaveDungeonQueue(statusEl);
+  });
+
+  loadDungeonStatus(statusEl, previewEl, queueBtn, leaveBtn, select).catch(err => {
+    console.warn('Failed to restore dungeon status', err);
   });
 }
 

@@ -31,7 +31,12 @@ const {
   isAdventureActive,
   streamAdventureCombat,
 } = require("./systems/adventureService");
-const { queueDungeon, cancelDungeon, readyForDungeon } = require("./systems/dungeonService");
+const {
+  queueDungeon,
+  cancelDungeon,
+  readyForDungeon,
+  getDungeonStatus,
+} = require("./systems/dungeonService");
 const app = express();
 const connectDB = require("./db");
 
@@ -430,6 +435,20 @@ app.get("/dungeon/queue", async (req, res) => {
     send({ type: "error", message: err.message || "dungeon failed" });
   }
   res.end();
+});
+
+app.get("/dungeon/status", (req, res) => {
+  const characterId = parseInt(req.query.characterId, 10);
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  try {
+    const status = getDungeonStatus(characterId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to load dungeon status" });
+  }
 });
 
 app.post("/dungeon/cancel", (req, res) => {
