@@ -314,7 +314,7 @@ async function readyForDungeon(matchId, characterId) {
   match.lastReady = {
     ready: match.ready.size,
     total: match.entries.length,
-    readyIds,
+    readyIds: readyMembers,
   };
   match.entries.forEach(item => sendSafe(item, payload));
   if (match.ready.size >= match.entries.length) {
