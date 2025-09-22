@@ -1,5 +1,5 @@
 {
-  "generations": 35,
+  "generations": 50,
   "generationsPerExtraMember": 0,
   "scaling": {
     "attributePointScale": { "base": 1.5, "perExtraMember": 0.08, "minTotal": 45 },
