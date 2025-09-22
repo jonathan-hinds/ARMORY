@@ -1329,12 +1329,23 @@ async function generateDungeonBoss(party, abilityMap, equipmentMap, options = {}
   context.party = party;
   let parentA = null;
   let parentB = null;
+  if (options.parentGenomes && typeof options.parentGenomes === 'object') {
+    const parents = options.parentGenomes;
+    if (parents.champion) {
+      parentA = normalizeGenome(clone(parents.champion), context);
+    }
+    if (parents.partner) {
+      parentB = normalizeGenome(clone(parents.partner), context);
+    }
+  }
   let finalChampion = null;
+  let finalPartner = parentB ? { genome: parentB } : null;
   for (let gen = 0; gen < context.generations; gen += 1) {
     const { champion, partner } = await findChampion(context, parentA, parentB, gen);
     finalChampion = champion;
     parentA = champion.genome;
     parentB = partner.genome;
+    finalPartner = partner;
   }
   const bossCharacter = buildBossCharacter(finalChampion.genome, context, 0);
   finalChampion.genome.name = bossCharacter.name;
@@ -1359,6 +1370,10 @@ async function generateDungeonBoss(party, abilityMap, equipmentMap, options = {}
     character: bossCharacter,
     preview,
     metrics,
+    genomes: {
+      champion: clone(finalChampion.genome),
+      partner: finalPartner && finalPartner.genome ? clone(finalPartner.genome) : null,
+    },
   };
 }
 
