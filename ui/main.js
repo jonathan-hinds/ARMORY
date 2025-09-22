@@ -5785,63 +5785,240 @@ function formatCombatantInterval(value) {
   return `${value.toFixed(2)}s`;
 }
 
-function buildCombatantStatsTooltip(combatant) {
+function resolveCombatantItem(entry) {
+  if (!entry) return null;
+  if (entry.item && entry.item.name) return entry.item;
+  if (entry.item && entry.item.id != null) {
+    return getEquipmentById(entry.item.id) || entry.item;
+  }
+  if (entry.itemId != null) return getEquipmentById(entry.itemId);
+  if (entry.id != null) return getEquipmentById(entry.id);
+  if (typeof entry === 'string') {
+    const numeric = Number(entry);
+    if (!Number.isNaN(numeric)) {
+      return getEquipmentById(numeric);
+    }
+    return null;
+  }
+  if (typeof entry === 'number') return getEquipmentById(entry);
+  return null;
+}
+
+function getCombatantUseables(combatant) {
+  if (!combatant) return [];
+  if (Array.isArray(combatant.useables)) return combatant.useables;
+  if (combatant.useables && typeof combatant.useables === 'object') {
+    return Object.entries(combatant.useables).map(([slot, value]) => {
+      if (value && typeof value === 'object') {
+        return { slot, ...value };
+      }
+      return { slot, itemId: value };
+    });
+  }
+  return [];
+}
+
+function getCombatantAbilityEntries(combatant) {
+  const entries = [];
+  if (!combatant) return entries;
+  const seen = new Set();
+  const lookupAbility = id => {
+    if (!Array.isArray(abilityCatalog)) return null;
+    return abilityCatalog.find(a => a.id === id) || null;
+  };
+  const addEntry = (id, ability) => {
+    const key = id != null ? String(id) : ability && ability.id != null ? String(ability.id) : null;
+    if (key && seen.has(key)) return;
+    if (key) seen.add(key);
+    entries.push({ id, ability });
+  };
+  const normalizeAbilityId = value => {
+    if (value && typeof value === 'object') {
+      if (value.id != null) return value.id;
+      if (value.abilityId != null) return value.abilityId;
+    }
+    return value;
+  };
+  if (Array.isArray(combatant.rotation)) {
+    combatant.rotation.forEach(entry => {
+      const id = normalizeAbilityId(entry);
+      const ability = entry && entry.name ? entry : lookupAbility(id);
+      addEntry(id, ability || null);
+    });
+  }
+  if (Array.isArray(combatant.abilities)) {
+    combatant.abilities.forEach(entry => {
+      const id = normalizeAbilityId(entry);
+      const ability = entry && entry.name ? entry : lookupAbility(id);
+      addEntry(id, ability || null);
+    });
+  }
+  return entries;
+}
+
+function buildCombatantPreview(combatant, options = {}) {
   if (!combatant) return null;
   const derived = normalizeCombatantDerivedForPreview(combatant) || {};
   const attributes = combatant.attributes || {};
   const container = document.createElement('div');
-  container.className = 'ready-tooltip';
+  container.className = 'combatant-preview';
+  if (options.compact) {
+    container.classList.add('compact');
+  }
+  const previewTheme = options.theme || (options.compact ? 'dark' : null);
+  if (previewTheme) {
+    container.dataset.tooltipTheme = previewTheme;
+  }
+
+  const header = document.createElement('div');
+  header.className = 'preview-header';
   const title = document.createElement('div');
-  title.className = 'ready-tooltip-title';
+  title.className = 'preview-name';
   title.textContent = combatant.name || 'Unknown';
-  container.appendChild(title);
+  header.appendChild(title);
   const meta = document.createElement('div');
-  meta.className = 'ready-tooltip-meta';
+  meta.className = 'preview-meta';
   const level = Number.isFinite(combatant.level) ? combatant.level : 1;
   meta.textContent = `Lv${level} • ${displayDamageType(combatant.basicType)}`;
-  container.appendChild(meta);
-  const addSection = (label, rows) => {
-    if (!rows || !rows.length) return;
+  header.appendChild(meta);
+  container.appendChild(header);
+
+  const addGridSection = (label, rows) => {
+    const validRows = Array.isArray(rows) ? rows.filter(row => row && row.length >= 2) : [];
+    if (!validRows.length) return null;
     const section = document.createElement('div');
-    section.className = 'ready-tooltip-section';
+    section.className = 'preview-section';
     const heading = document.createElement('div');
-    heading.className = 'ready-tooltip-section-title';
+    heading.className = 'preview-section-title';
     heading.textContent = label;
     section.appendChild(heading);
     const grid = document.createElement('div');
-    grid.className = 'tooltip-grid ready-tooltip-grid';
-    rows.forEach(([name, value]) => {
+    grid.className = 'preview-grid';
+    validRows.forEach(([name, value]) => {
       const l = document.createElement('div');
       l.className = 'label';
       l.textContent = name;
       grid.appendChild(l);
       const v = document.createElement('div');
+      v.className = 'value';
       v.textContent = value;
       grid.appendChild(v);
     });
     section.appendChild(grid);
     container.appendChild(section);
+    return section;
   };
-  const attributeRows = STAT_KEYS.map(stat => [statLabel(stat), formatCombatantValue(attributes[stat])]);
-  addSection('Attributes', attributeRows);
-  addSection('Vitals', [
+
+  addGridSection('Attributes', STAT_KEYS.map(stat => [statLabel(stat), formatCombatantValue(attributes[stat])]));
+  addGridSection('Vitals', [
     ['HP', formatCombatantValue(derived.health)],
     ['MP', formatCombatantValue(derived.mana)],
     ['Stamina', formatCombatantValue(derived.stamina)],
     ['Interval', formatCombatantInterval(derived.attackIntervalSeconds)],
   ]);
-  addSection('Offense', [
+  addGridSection('Offense', [
     ['Melee', formatCombatantRange(derived.minMeleeAttack, derived.maxMeleeAttack)],
     ['Magic', formatCombatantRange(derived.minMagicAttack, derived.maxMagicAttack)],
     ['Hit', formatCombatantPercent(derived.hitChance)],
-  ]);
-  addSection('Defense', [
     ['Crit', formatCombatantPercent(derived.critChance)],
+  ]);
+  addGridSection('Defense', [
     ['Block', formatCombatantPercent(derived.blockChance)],
     ['Dodge', formatCombatantPercent(derived.dodgeChance)],
     ['Melee Resist', formatCombatantResist(derived.meleeResist)],
     ['Magic Resist', formatCombatantResist(derived.magicResist)],
   ]);
+
+  const addListSection = label => {
+    const section = document.createElement('div');
+    section.className = 'preview-section';
+    const heading = document.createElement('div');
+    heading.className = 'preview-section-title';
+    heading.textContent = label;
+    section.appendChild(heading);
+    const list = document.createElement('div');
+    list.className = 'preview-list';
+    section.appendChild(list);
+    container.appendChild(section);
+    return { section, list };
+  };
+
+  const equipmentSection = addListSection('Equipment');
+  EQUIPMENT_SLOTS.forEach(slot => {
+    const row = document.createElement('div');
+    row.className = 'preview-row';
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = slotLabel(slot);
+    row.appendChild(label);
+    const value = document.createElement('div');
+    value.className = 'value';
+    const itemId = combatant.equipment ? combatant.equipment[slot] : null;
+    const item = resolveCombatantItem(itemId);
+    if (item) {
+      const rarityText = item.rarity ? `${titleCase(item.rarity)} • ` : '';
+      value.textContent = `${rarityText}${item.name}`;
+      attachTooltip(row, () => itemTooltip(item));
+    } else {
+      value.textContent = 'Empty';
+      row.classList.add('empty');
+    }
+    row.appendChild(value);
+    equipmentSection.list.appendChild(row);
+  });
+
+  const useables = getCombatantUseables(combatant);
+  const useableSection = addListSection('Useable Items');
+  USEABLE_SLOTS.forEach(slot => {
+    const row = document.createElement('div');
+    row.className = 'preview-row';
+    const label = document.createElement('div');
+    label.className = 'label';
+    label.textContent = slotLabel(slot);
+    row.appendChild(label);
+    const value = document.createElement('div');
+    value.className = 'value';
+    const entry = useables.find(info => info && String(info.slot) === slot) || null;
+    const item = resolveCombatantItem(entry);
+    if (item) {
+      const rarityText = item.rarity ? `${titleCase(item.rarity)} • ` : '';
+      value.textContent = `${rarityText}${item.name}`;
+      attachTooltip(row, () => itemTooltip(item));
+    } else {
+      value.textContent = 'Empty';
+      row.classList.add('empty');
+    }
+    row.appendChild(value);
+    useableSection.list.appendChild(row);
+  });
+
+  const abilityEntries = getCombatantAbilityEntries(combatant);
+  const abilitySection = addListSection('Abilities');
+  if (abilityEntries.length) {
+    const chipGroup = document.createElement('div');
+    chipGroup.className = 'preview-chips';
+    abilityEntries.forEach(({ id, ability }) => {
+      const chip = document.createElement('span');
+      chip.className = 'preview-chip';
+      const label = ability && ability.name ? ability.name : id != null ? `Ability ${id}` : 'Ability';
+      chip.textContent = label;
+      if (ability) {
+        chip.dataset.abilityId = String(ability.id != null ? ability.id : id);
+        attachTooltip(chip, () => abilityTooltip(ability, { basicType: combatant.basicType }));
+      }
+      chipGroup.appendChild(chip);
+    });
+    abilitySection.list.appendChild(chipGroup);
+  } else {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'preview-row empty';
+    const value = document.createElement('div');
+    value.className = 'value';
+    value.textContent = 'No abilities';
+    placeholder.appendChild(value);
+    abilitySection.list.appendChild(placeholder);
+  }
+
   return container;
 }
 
@@ -5903,7 +6080,7 @@ function createReadyCombatantCard(combatant, { isBoss = false } = {}) {
     wrapper.appendChild(indicator);
   }
   if (typeof attachTooltip === 'function') {
-    attachTooltip(wrapper, () => buildCombatantStatsTooltip(combatant));
+    attachTooltip(wrapper, () => buildCombatantPreview(combatant, { compact: true, theme: 'dark' }));
   }
   return { element: wrapper, indicator };
 }
@@ -6885,10 +7062,8 @@ function createAdventureOpponentCard(event) {
   const previewData = event.opponent.preview || null;
   if (previewData) {
     attachTooltip(card, () => {
-      const preview = renderOpponentPreview(previewData);
+      const preview = buildCombatantPreview(previewData, { compact: true, theme: 'dark' });
       if (preview) {
-        preview.classList.add('compact');
-        preview.dataset.tooltipTheme = 'dark';
         return preview;
       }
       return buildTooltipFromPairs([['Opponent', opponentName]]);
@@ -7375,130 +7550,7 @@ function selectMode(mode) {
 }
 
 function renderOpponentPreview(opponent) {
-  if (!opponent) return null;
-  const container = document.createElement('div');
-  container.className = 'opponent-preview';
-
-  const header = document.createElement('div');
-  header.className = 'opponent-header';
-  const nameEl = document.createElement('div');
-  nameEl.className = 'opponent-name';
-  nameEl.textContent = opponent.name || 'Unknown';
-  header.appendChild(nameEl);
-  const metaEl = document.createElement('div');
-  metaEl.className = 'opponent-meta';
-  const typeText = displayDamageType(opponent.basicType);
-  metaEl.textContent = `Lv${opponent.level || 1} Damage: ${typeText}`;
-  header.appendChild(metaEl);
-  container.appendChild(header);
-
-  const attributesTable = document.createElement('table');
-  attributesTable.className = 'stats-table';
-  const attrHeader = document.createElement('tr');
-  attrHeader.className = 'section';
-  const attrHeaderCell = document.createElement('td');
-  attrHeaderCell.colSpan = STAT_KEYS.length;
-  attrHeaderCell.textContent = 'Attributes';
-  attrHeader.appendChild(attrHeaderCell);
-  attributesTable.appendChild(attrHeader);
-  const attrRow = document.createElement('tr');
-  STAT_KEYS.forEach(stat => {
-    const cell = document.createElement('td');
-    const value = opponent.attributes && opponent.attributes[stat] != null ? opponent.attributes[stat] : 0;
-    cell.textContent = `${statLabel(stat)} ${value}`;
-    attrRow.appendChild(cell);
-  });
-  attributesTable.appendChild(attrRow);
-  container.appendChild(attributesTable);
-
-  const derived = opponent.derived || {};
-  const derivedTable = document.createElement('table');
-  derivedTable.className = 'stats-table';
-  const derivedHeader = document.createElement('tr');
-  derivedHeader.className = 'section';
-  const derivedHeaderCell = document.createElement('td');
-  derivedHeaderCell.colSpan = 4;
-  derivedHeaderCell.textContent = 'Derived Stats';
-  derivedHeader.appendChild(derivedHeaderCell);
-  derivedTable.appendChild(derivedHeader);
-
-  const derivedRow1 = document.createElement('tr');
-  derivedRow1.innerHTML = `<td>Health</td><td>${Math.round(derived.health || 0)}</td><td>Attack Interval</td><td>${(derived.attackIntervalSeconds || 0).toFixed(2)}s</td>`;
-  derivedTable.appendChild(derivedRow1);
-  const derivedRow2 = document.createElement('tr');
-  derivedRow2.innerHTML = `<td>Melee</td><td>${Math.round(derived.minMeleeAttack || 0)}-${Math.round(derived.maxMeleeAttack || 0)}</td><td>Magic</td><td>${Math.round(derived.minMagicAttack || 0)}-${Math.round(derived.maxMagicAttack || 0)}</td>`;
-  derivedTable.appendChild(derivedRow2);
-  const derivedRow3 = document.createElement('tr');
-  derivedRow3.innerHTML = `<td>Mana</td><td>${Math.round(derived.mana || 0)}</td><td>Stamina</td><td>${Math.round(derived.stamina || 0)}</td>`;
-  derivedTable.appendChild(derivedRow3);
-  const derivedRow4 = document.createElement('tr');
-  const meleeResist = Math.round((derived.meleeResist || 0) * 100);
-  const magicResist = Math.round((derived.magicResist || 0) * 100);
-  derivedRow4.innerHTML = `<td>Melee Resist</td><td>${meleeResist}%</td><td>Magic Resist</td><td>${magicResist}%</td>`;
-  derivedTable.appendChild(derivedRow4);
-  container.appendChild(derivedTable);
-
-  const equipmentSection = document.createElement('div');
-  equipmentSection.className = 'equipment-section';
-  const equipmentTitle = document.createElement('div');
-  equipmentTitle.className = 'section-title';
-  equipmentTitle.textContent = 'Equipment';
-  equipmentSection.appendChild(equipmentTitle);
-  const equipmentList = document.createElement('div');
-  equipmentList.className = 'equipment-list';
-  EQUIPMENT_SLOTS.forEach(slot => {
-    const entry = document.createElement('div');
-    entry.className = 'equipment-entry';
-    const label = document.createElement('div');
-    label.className = 'slot';
-    label.textContent = slotLabel(slot);
-    entry.appendChild(label);
-    const value = document.createElement('div');
-    value.className = 'value';
-    const itemId = opponent.equipment ? opponent.equipment[slot] : null;
-    const item = getEquipmentById(itemId);
-    if (item) {
-      value.textContent = item.name;
-      attachTooltip(entry, () => itemTooltip(item));
-    } else {
-      value.textContent = 'Empty';
-      entry.classList.add('empty');
-    }
-    entry.appendChild(value);
-    equipmentList.appendChild(entry);
-  });
-  equipmentSection.appendChild(equipmentList);
-  container.appendChild(equipmentSection);
-
-  const rotationSection = document.createElement('div');
-  rotationSection.className = 'rotation-section';
-  const rotationTitle = document.createElement('div');
-  rotationTitle.className = 'section-title';
-  rotationTitle.textContent = 'Rotation';
-  rotationSection.appendChild(rotationTitle);
-  const rotationList = document.createElement('div');
-  rotationList.className = 'rotation-list';
-  if (Array.isArray(opponent.rotation) && opponent.rotation.length) {
-    opponent.rotation.forEach(id => {
-      const ability = abilityCatalog.find(a => a.id === id);
-      const chip = document.createElement('span');
-      chip.className = 'rotation-chip';
-      chip.textContent = ability ? ability.name : `Ability ${id}`;
-      if (ability) {
-        attachTooltip(chip, () => abilityTooltip(ability, { basicType: opponent.basicType }));
-      }
-      rotationList.appendChild(chip);
-    });
-  } else {
-    const placeholder = document.createElement('span');
-    placeholder.className = 'rotation-chip';
-    placeholder.textContent = 'No abilities';
-    rotationList.appendChild(placeholder);
-  }
-  rotationSection.appendChild(rotationList);
-  container.appendChild(rotationSection);
-
-  return container;
+  return buildCombatantPreview(opponent);
 }
 
 async function renderChallengePanel(statusOverride) {
