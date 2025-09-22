@@ -813,6 +813,47 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   text-transform:uppercase;
 }
 .dungeon-status { min-height:20px; }
+.dungeon-forging {
+  border:1px solid #000;
+  background:#fff;
+  box-shadow:4px 4px 0 #000;
+  padding:12px 16px;
+  margin-top:8px;
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  align-items:center;
+  text-align:center;
+  text-transform:uppercase;
+  font-weight:bold;
+  letter-spacing:0.5px;
+}
+.dungeon-forging-headline { font-size:0.85rem; }
+.dungeon-forging-bar {
+  position:relative;
+  width:100%;
+  max-width:280px;
+  height:14px;
+  border:1px solid #000;
+  background:#fff;
+  overflow:hidden;
+}
+.dungeon-forging-fill {
+  position:absolute;
+  inset:0;
+  background-image:repeating-linear-gradient(-45deg, #000 0, #000 6px, #fff 6px, #fff 12px);
+  animation:dungeon-forging-stripes 0.6s linear infinite;
+}
+.dungeon-forging-detail {
+  font-size:0.7rem;
+  text-transform:none;
+  font-weight:normal;
+  letter-spacing:0.3px;
+}
+@keyframes dungeon-forging-stripes {
+  from { background-position:0 0; }
+  to { background-position:12px 0; }
+}
 .dungeon-preview-panel {
   border:2px solid #000;
   padding:16px;

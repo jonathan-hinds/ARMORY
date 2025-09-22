@@ -122,6 +122,8 @@ let matchmakingState = null;
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
 const ADVENTURE_PREVIEW_TTL = 30000;
+const DUNGEON_FORGING_MESSAGE = 'Match found! Forging dungeon boss...';
+const DUNGEON_FORGING_DETAIL = 'Calibrating encounter parameters.';
 
 function xpForNextLevel(level) {
   return level * 100;
@@ -5601,6 +5603,28 @@ function closeDungeonSource() {
   dungeonSource = null;
 }
 
+function hideDungeonForging() {
+  if (!dungeonState || !dungeonState.forgingContainer) {
+    return;
+  }
+  dungeonState.forgingContainer.classList.add('hidden');
+}
+
+function showDungeonForging(headline, detail) {
+  if (!dungeonState || !dungeonState.forgingContainer) {
+    return;
+  }
+  const title = headline || 'Forging dungeon boss...';
+  const description = detail || DUNGEON_FORGING_DETAIL;
+  dungeonState.forgingContainer.classList.remove('hidden');
+  if (dungeonState.forgingHeadline) {
+    dungeonState.forgingHeadline.textContent = title;
+  }
+  if (dungeonState.forgingDetail) {
+    dungeonState.forgingDetail.textContent = description;
+  }
+}
+
 function updateDungeonBar(bar, current, maxValue) {
   if (!bar) return;
   if (typeof maxValue === 'number') {
@@ -6087,6 +6111,10 @@ function createReadyCombatantCard(combatant, { isBoss = false } = {}) {
 
 async function renderDungeonPreview(previewContainer, data, statusEl) {
   if (!previewContainer) return;
+  if (dungeonState) {
+    dungeonState.phase = 'preview';
+    hideDungeonForging();
+  }
   previewContainer.innerHTML = '';
 
   const loading = document.createElement('div');
@@ -6392,6 +6420,10 @@ function handleDungeonUpdate(data) {
 }
 
 function handleDungeonEnd(data) {
+  if (dungeonState) {
+    dungeonState.phase = 'complete';
+  }
+  hideDungeonForging();
   if (data) {
     if (Array.isArray(data.finalParty) && dungeonBars) {
       data.finalParty.forEach(member => {
@@ -6441,6 +6473,7 @@ async function leaveDungeonQueue(statusEl) {
   if (button.disabled) return;
   button.disabled = true;
   button.textContent = 'Leaving...';
+  hideDungeonForging();
   const targetStatus = statusEl || dungeonState.statusEl;
   if (targetStatus) {
     showMessage(targetStatus, 'Leaving dungeon queue...', false);
@@ -6456,7 +6489,15 @@ async function leaveDungeonQueue(statusEl) {
   }
 }
 
-function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, options = {}) {
+function startDungeonQueue(
+  size,
+  statusEl,
+  previewEl,
+  queueBtn,
+  leaveBtn,
+  forgingElements = null,
+  options = {},
+) {
   if (!currentCharacter) {
     showMessage(statusEl, 'Select a character first.', true);
     return;
@@ -6464,6 +6505,12 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
   const resume = !!(options && options.resume);
   const initialStatus = options && options.status ? options.status : null;
   const normalizedSize = Number.isFinite(size) ? size : Number.parseInt(size, 10) || 2;
+  const forgingContainer =
+    forgingElements && forgingElements.container ? forgingElements.container : null;
+  const forgingHeadline =
+    forgingElements && forgingElements.headline ? forgingElements.headline : null;
+  const forgingDetail =
+    forgingElements && forgingElements.detail ? forgingElements.detail : null;
   const hasInitialPreview =
     resume &&
     initialStatus &&
@@ -6498,18 +6545,22 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
   if (previewEl) {
     previewEl.innerHTML = '';
   }
-  if (statusEl) {
-    let message = 'Searching for allies...';
-    if (resume && initialStatus) {
-      if (initialStatus.state === 'matched') {
-        message = 'Rejoining your party...';
-      } else if (initialStatus.state === 'in-progress') {
-        message = 'Reconnecting to the encounter...';
-      } else {
-        message = 'Resuming dungeon queue...';
-      }
+  const forgingStatusMessage = DUNGEON_FORGING_MESSAGE;
+  const forgingStatusDetail = DUNGEON_FORGING_DETAIL;
+  let statusMessage = 'Searching for allies...';
+  if (resume && initialStatus) {
+    if (initialStatus.phase === 'forging') {
+      statusMessage = forgingStatusMessage;
+    } else if (initialStatus.state === 'matched') {
+      statusMessage = 'Rejoining your party...';
+    } else if (initialStatus.state === 'in-progress') {
+      statusMessage = 'Reconnecting to the encounter...';
+    } else {
+      statusMessage = 'Resuming dungeon queue...';
     }
-    showMessage(statusEl, message, false);
+  }
+  if (statusEl) {
+    showMessage(statusEl, statusMessage, false);
   }
   dungeonState = {
     queueBtn,
@@ -6527,7 +6578,22 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
     lastReadyMembers: [],
     readyDisplays: new Map(),
     partyPreview: [],
+    forgingContainer,
+    forgingHeadline,
+    forgingDetail,
+    forgingMessage: forgingStatusMessage,
+    forgingDetailMessage: forgingStatusDetail,
+    phase: 'queued',
   };
+  if (resume && initialStatus && initialStatus.phase) {
+    dungeonState.phase = initialStatus.phase;
+  }
+  hideDungeonForging();
+  if (dungeonState.phase === 'forging') {
+    const detailMessage =
+      (initialStatus && initialStatus.detail) || dungeonState.forgingDetailMessage;
+    showDungeonForging(statusMessage, detailMessage);
+  }
   if (resume && initialStatus) {
     if (initialStatus.matchId) {
       dungeonState.matchId = initialStatus.matchId;
@@ -6615,6 +6681,7 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
           dungeonState.leaveButton.classList.add('hidden');
         }
       }
+      hideDungeonForging();
       closeDungeonSource();
       return;
     }
@@ -6637,13 +6704,41 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
           dungeonState.leaveButton.disabled = false;
           dungeonState.leaveButton.textContent = 'Leave Queue';
         }
+        dungeonState.phase = 'queued';
+        dungeonState.forgingMessage = DUNGEON_FORGING_MESSAGE;
+        dungeonState.forgingDetailMessage = DUNGEON_FORGING_DETAIL;
       }
+      hideDungeonForging();
+      return;
+    }
+    if (data.type === 'matched') {
+      if (dungeonState) {
+        dungeonState.phase = 'forging';
+        dungeonState.forgingMessage =
+          (data && data.message) || dungeonState.forgingMessage || DUNGEON_FORGING_MESSAGE;
+        dungeonState.forgingDetailMessage =
+          (data && data.detail) || dungeonState.forgingDetailMessage || DUNGEON_FORGING_DETAIL;
+      }
+      const message =
+        (data && data.message) || (dungeonState && dungeonState.forgingMessage) ||
+        DUNGEON_FORGING_MESSAGE;
+      const detailMessage =
+        (data && data.detail) || (dungeonState && dungeonState.forgingDetailMessage) ||
+        DUNGEON_FORGING_DETAIL;
+      if (statusEl) {
+        showMessage(statusEl, message, false);
+      }
+      showDungeonForging(message, detailMessage);
       return;
     }
     if (data.type === 'preview') {
       dungeonState.matchId = data.matchId;
       dungeonState.size = Number.isFinite(data.size) ? data.size : dungeonState.size;
       dungeonState.lastReadyTotal = dungeonState.size;
+      if (dungeonState) {
+        dungeonState.phase = 'preview';
+      }
+      hideDungeonForging();
       if (statusEl) {
         showMessage(statusEl, 'Boss encountered. Ready when prepared.', false);
       }
@@ -6660,8 +6755,13 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
       return;
     }
     if (data.type === 'start' && data.mode === 'dungeon') {
-      dungeonState.partyIds = data.partyIds || (data.party ? data.party.map(member => member.id) : []);
-      dungeonState.bossId = data.bossId || (data.boss ? data.boss.id : null);
+      if (dungeonState) {
+        dungeonState.partyIds =
+          data.partyIds || (data.party ? data.party.map(member => member.id) : []);
+        dungeonState.bossId = data.bossId || (data.boss ? data.boss.id : null);
+        dungeonState.phase = 'encounter';
+      }
+      hideDungeonForging();
       if (statusEl) {
         showMessage(statusEl, 'Encounter underway...', false);
       }
@@ -6678,6 +6778,7 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
       return;
     }
     if (data.type === 'end') {
+      hideDungeonForging();
       handleDungeonEnd(data);
       closeDungeonSource();
     }
@@ -6695,11 +6796,12 @@ function startDungeonQueue(size, statusEl, previewEl, queueBtn, leaveBtn, option
       dungeonState.leaveButton.textContent = 'Leave Queue';
       dungeonState.leaveButton.classList.add('hidden');
     }
+    hideDungeonForging();
     closeDungeonSource();
   };
 }
 
-async function loadDungeonStatus(statusEl, previewEl, queueBtn, leaveBtn, select) {
+async function loadDungeonStatus(statusEl, previewEl, queueBtn, leaveBtn, select, forgingElements = null) {
   if (!currentCharacter || dungeonSource) return;
   let res;
   try {
@@ -6735,7 +6837,7 @@ async function loadDungeonStatus(statusEl, previewEl, queueBtn, leaveBtn, select
     : (select
     ? Number.parseInt(select.value, 10) || 2
     : 2);
-  startDungeonQueue(resumeSize, statusEl, previewEl, queueBtn, leaveBtn, {
+  startDungeonQueue(resumeSize, statusEl, previewEl, queueBtn, leaveBtn, forgingElements, {
     resume: true,
     status: data,
   });
@@ -6778,6 +6880,32 @@ function renderDungeonPanel() {
   controls.appendChild(leaveBtn);
   container.appendChild(controls);
   container.appendChild(statusEl);
+  const forgingEl = document.createElement('div');
+  forgingEl.id = 'dungeon-forging';
+  forgingEl.className = 'dungeon-forging hidden';
+  forgingEl.setAttribute('role', 'status');
+  forgingEl.setAttribute('aria-live', 'polite');
+  const forgingHeadline = document.createElement('div');
+  forgingHeadline.className = 'dungeon-forging-headline';
+  forgingHeadline.textContent = DUNGEON_FORGING_MESSAGE;
+  forgingEl.appendChild(forgingHeadline);
+  const forgingBar = document.createElement('div');
+  forgingBar.className = 'dungeon-forging-bar';
+  const forgingFill = document.createElement('div');
+  forgingFill.className = 'dungeon-forging-fill';
+  forgingFill.setAttribute('aria-hidden', 'true');
+  forgingBar.appendChild(forgingFill);
+  forgingEl.appendChild(forgingBar);
+  const forgingDetail = document.createElement('div');
+  forgingDetail.className = 'dungeon-forging-detail';
+  forgingDetail.textContent = DUNGEON_FORGING_DETAIL;
+  forgingEl.appendChild(forgingDetail);
+  container.appendChild(forgingEl);
+  const forgingElements = {
+    container: forgingEl,
+    headline: forgingHeadline,
+    detail: forgingDetail,
+  };
   const previewEl = document.createElement('div');
   previewEl.id = 'dungeon-preview';
   container.appendChild(previewEl);
@@ -6790,14 +6918,14 @@ function renderDungeonPanel() {
 
   queueBtn.addEventListener('click', () => {
     const sizeValue = parseInt(select.value, 10) || 2;
-    startDungeonQueue(sizeValue, statusEl, previewEl, queueBtn, leaveBtn);
+    startDungeonQueue(sizeValue, statusEl, previewEl, queueBtn, leaveBtn, forgingElements);
   });
 
   leaveBtn.addEventListener('click', () => {
     leaveDungeonQueue(statusEl);
   });
 
-  loadDungeonStatus(statusEl, previewEl, queueBtn, leaveBtn, select).catch(err => {
+  loadDungeonStatus(statusEl, previewEl, queueBtn, leaveBtn, select, forgingElements).catch(err => {
     console.warn('Failed to restore dungeon status', err);
   });
 }
