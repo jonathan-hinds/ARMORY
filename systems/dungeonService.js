@@ -1,11 +1,18 @@
 const CharacterModel = require('../models/Character');
-const { serializeCharacter, findItemIndex, countItems, matchesItemId } = require('../models/utils');
+const {
+  serializeCharacter,
+  findItemIndex,
+  countItems,
+  matchesItemId,
+  ensureEquipmentShape,
+} = require('../models/utils');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
 const { generateDungeonBoss } = require('./dungeonGA');
 const { runDungeonCombat } = require('./combatEngine');
 const { xpForNextLevel } = require('./characterService');
 const { processJobForCharacter, ensureJobIdleForDoc } = require('./jobService');
+const { compute } = require('./derivedStats');
 
 const queues = {
   2: [],
@@ -70,13 +77,60 @@ function cancelEntry(entry, message = 'dungeon cancelled') {
   finalizeEntry(entry);
 }
 
-function summarizeParty(entries) {
-  return entries.map(item => ({
-    id: item.character.id,
-    name: item.character.name,
-    level: item.character.level,
-    basicType: item.character.basicType,
-  }));
+function resolveEquipmentForPreview(equipment, equipmentMap) {
+  const resolved = {};
+  const source = ensureEquipmentShape(equipment || {});
+  Object.entries(source).forEach(([slot, id]) => {
+    if (id && equipmentMap && equipmentMap.has(id)) {
+      resolved[slot] = equipmentMap.get(id);
+    } else {
+      resolved[slot] = null;
+    }
+  });
+  return resolved;
+}
+
+function buildPartyMemberPreview(character, equipmentMap) {
+  if (!character) return null;
+  const equipment = ensureEquipmentShape(character.equipment || {});
+  const resolved = resolveEquipmentForPreview(equipment, equipmentMap);
+  const derived = compute(character, resolved);
+  const attributes = { ...(character.attributes || {}) };
+  const preview = {
+    id: character.id,
+    name: character.name,
+    level: character.level,
+    basicType: character.basicType,
+    attributes,
+    equipment,
+    rotation: Array.isArray(character.rotation) ? character.rotation.slice() : [],
+  };
+  if (derived && typeof derived === 'object') {
+    preview.derived = {
+      attackIntervalSeconds: derived.attackIntervalSeconds,
+      minMeleeAttack: derived.minMeleeAttack,
+      maxMeleeAttack: derived.maxMeleeAttack,
+      minMagicAttack: derived.minMagicAttack,
+      maxMagicAttack: derived.maxMagicAttack,
+      health: derived.health,
+      mana: derived.mana,
+      stamina: derived.stamina,
+      meleeResist: derived.meleeResist,
+      magicResist: derived.magicResist,
+      critChance: derived.critChance,
+      blockChance: derived.blockChance,
+      dodgeChance: derived.dodgeChance,
+      hitChance: derived.hitChance,
+    };
+  }
+  return preview;
+}
+
+function summarizeParty(entries, equipmentMap) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map(item => (item && item.character ? buildPartyMemberPreview(item.character, equipmentMap) : null))
+    .filter(Boolean);
 }
 
 function applyUseableConsumption(entry, consumedMap, characterDoc) {
@@ -199,21 +253,24 @@ async function readyForDungeon(matchId, characterId) {
     throw new Error('participant not found');
   }
   if (entry.ready) {
-    return { ready: match.ready.size, total: match.entries.length };
+    const readyMembers = Array.from(match.ready.values()).sort((a, b) => a - b);
+    return { ready: match.ready.size, total: match.entries.length, readyIds: readyMembers };
   }
   entry.ready = true;
   match.ready.add(characterId);
+  const readyMembers = Array.from(match.ready.values()).sort((a, b) => a - b);
   const payload = {
     type: 'ready',
     matchId: match.id,
     ready: match.ready.size,
     total: match.entries.length,
+    readyIds: readyMembers,
   };
   match.entries.forEach(item => sendSafe(item, payload));
   if (match.ready.size >= match.entries.length) {
     await startBattle(match);
   }
-  return { ready: match.ready.size, total: match.entries.length };
+  return { ready: match.ready.size, total: match.entries.length, readyIds: readyMembers };
 }
 
 function clone(value) {
@@ -241,7 +298,8 @@ async function createMatch(entries) {
     entry.matchId = matchId;
     participantMatches.set(entry.character.id, matchId);
   });
-  const summary = summarizeParty(entries);
+  const summary = summarizeParty(entries, equipmentMap);
+  match.partyPreview = summary;
   entries.forEach(entry => {
     sendSafe(entry, {
       type: 'preview',
@@ -250,6 +308,7 @@ async function createMatch(entries) {
       party: summary,
       size: entries.length,
       ready: 0,
+      readyIds: [],
     });
   });
   return match;
