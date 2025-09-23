@@ -35,6 +35,7 @@ const {
   queueDungeon,
   cancelDungeon,
   readyForDungeon,
+  readyForDungeonDecision,
   getDungeonStatus,
 } = require("./systems/dungeonService");
 const app = express();
@@ -475,6 +476,20 @@ app.post("/dungeon/ready", async (req, res) => {
     res.json(status);
   } catch (err) {
     res.status(400).json({ error: err.message || "failed to ready" });
+  }
+});
+
+app.post("/dungeon/decision", async (req, res) => {
+  const matchId = req.body && req.body.matchId;
+  const characterId = parseInt((req.body && req.body.characterId) || 0, 10);
+  if (!matchId || !characterId) {
+    return res.status(400).json({ error: "matchId and characterId required" });
+  }
+  try {
+    const status = await readyForDungeonDecision(matchId, characterId);
+    res.json(status);
+  } catch (err) {
+    res.status(400).json({ error: err.message || "failed to continue" });
   }
 });
 

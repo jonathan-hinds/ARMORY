@@ -864,6 +864,61 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   gap:16px;
   font-family:'Courier New', monospace;
 }
+.dungeon-decision-panel {
+  border:2px solid #000;
+  padding:16px;
+  background:#fff;
+  box-shadow:4px 4px 0 #000;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  font-family:'Courier New', monospace;
+}
+.dungeon-decision-panel .decision-title {
+  margin:0;
+  font-size:20px;
+  text-transform:uppercase;
+  letter-spacing:3px;
+  text-align:center;
+}
+.dungeon-decision-panel .decision-round {
+  align-self:center;
+  border:2px solid #000;
+  padding:4px 10px;
+  font-size:12px;
+  text-transform:uppercase;
+  background:#000;
+  color:#fff;
+  letter-spacing:1px;
+}
+.dungeon-decision-panel .decision-detail {
+  font-size:13px;
+  text-align:center;
+  text-transform:none;
+  letter-spacing:0.5px;
+}
+.dungeon-decision-panel .decision-reward {
+  font-size:12px;
+  text-align:center;
+  border:2px dashed #000;
+  padding:6px 8px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+.decision-columns {
+  margin-top:4px;
+}
+.decision-actions {
+  border-top:2px solid #000;
+  padding-top:12px;
+}
+.decision-actions .dungeon-ready-button {
+  min-width:140px;
+}
+.dungeon-decision-panel .ready-column-title {
+  background:#000;
+  color:#fff;
+}
 .dungeon-preview-panel h3 {
   margin:0;
   font-size:18px;

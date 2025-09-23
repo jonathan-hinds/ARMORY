@@ -1327,14 +1327,21 @@ async function generateDungeonBoss(party, abilityMap, equipmentMap, options = {}
   const config = await loadDungeonConfig();
   const context = buildDungeonContext(party, abilityMap, equipmentMap, options, config);
   context.party = party;
-  let parentA = null;
-  let parentB = null;
+  const seeds = Array.isArray(options.seedGenomes)
+    ? options.seedGenomes.filter(Boolean)
+    : options.seedGenome
+    ? [options.seedGenome]
+    : [];
+  let parentA = seeds[0] ? normalizeGenome(seeds[0], context) : null;
+  let parentB = seeds[1] ? normalizeGenome(seeds[1], context) : null;
   let finalChampion = null;
+  let finalPartner = null;
   for (let gen = 0; gen < context.generations; gen += 1) {
     const { champion, partner } = await findChampion(context, parentA, parentB, gen);
     finalChampion = champion;
     parentA = champion.genome;
     parentB = partner.genome;
+    finalPartner = partner;
   }
   const bossCharacter = buildBossCharacter(finalChampion.genome, context, 0);
   finalChampion.genome.name = bossCharacter.name;
@@ -1359,6 +1366,11 @@ async function generateDungeonBoss(party, abilityMap, equipmentMap, options = {}
     character: bossCharacter,
     preview,
     metrics,
+    genome: normalizeGenome(finalChampion.genome, context),
+    partnerGenome:
+      finalPartner && finalPartner.genome
+        ? normalizeGenome(finalPartner.genome, context)
+        : null,
   };
 }
 

@@ -6113,6 +6113,7 @@ async function renderDungeonPreview(previewContainer, data, statusEl) {
   if (!previewContainer) return;
   if (dungeonState) {
     dungeonState.phase = 'preview';
+    dungeonState.decisionAction = null;
     hideDungeonForging();
   }
   previewContainer.innerHTML = '';
@@ -6247,6 +6248,147 @@ async function renderDungeonPreview(previewContainer, data, statusEl) {
   updateDungeonReady(readyCount, readyTotal, readyIds);
 }
 
+function renderDungeonDecision(previewContainer, data = {}, statusEl) {
+  if (!previewContainer || !dungeonState) return;
+  hideDungeonForging();
+  dungeonState.phase = 'decision';
+  const action = data.action === 'advance' ? 'advance' : 'retry';
+  dungeonState.decisionAction = action;
+  if (statusEl) {
+    showMessage(
+      statusEl,
+      action === 'advance'
+        ? 'Victory secured. Awaiting votes to advance.'
+        : 'Defeat endured. Awaiting votes to retry.',
+      false,
+    );
+  }
+  previewContainer.innerHTML = '';
+
+  const panel = document.createElement('div');
+  panel.className = 'dungeon-decision-panel';
+
+  const title = document.createElement('h3');
+  title.className = 'decision-title';
+  const outcome = data.outcome === 'victory' ? 'Victory!' : 'Defeat...';
+  title.textContent = outcome;
+  panel.appendChild(title);
+
+  if (Number.isFinite(data.round)) {
+    const roundTag = document.createElement('div');
+    roundTag.className = 'decision-round';
+    roundTag.textContent = `Round ${data.round}`;
+    panel.appendChild(roundTag);
+  }
+
+  const detail = document.createElement('div');
+  detail.className = 'decision-detail';
+  detail.textContent =
+    action === 'advance'
+      ? 'Ready up to face a fiercer foe forged from your fallen challenger.'
+      : 'Regroup and ready up to challenge the dungeon once more.';
+  panel.appendChild(detail);
+
+  if (Number.isFinite(data.xpGain) || Number.isFinite(data.gpGain)) {
+    const reward = document.createElement('div');
+    reward.className = 'decision-reward';
+    const xpValue = Number.isFinite(data.xpGain) ? data.xpGain : 0;
+    const gpValue = Number.isFinite(data.gpGain) ? data.gpGain : 0;
+    reward.textContent = `Rewards: +${xpValue} XP, +${gpValue} GP`;
+    panel.appendChild(reward);
+  }
+
+  const columns = document.createElement('div');
+  columns.className = 'ready-columns decision-columns';
+
+  const partyColumn = document.createElement('div');
+  partyColumn.className = 'ready-column party';
+  const partyTitle = document.createElement('div');
+  partyTitle.className = 'ready-column-title';
+  partyTitle.textContent = 'Party';
+  partyColumn.appendChild(partyTitle);
+
+  const partyList = document.createElement('div');
+  partyList.className = 'ready-party-list';
+  dungeonState.readyDisplays = new Map();
+  const partyMembers = Array.isArray(data.party) ? data.party : dungeonState.partyPreview || [];
+  dungeonState.partyPreview = partyMembers;
+  partyMembers.forEach(member => {
+    const card = createReadyCombatantCard(member, { isBoss: false });
+    if (card.element) {
+      const id = member && member.id != null ? String(member.id) : null;
+      if (id) {
+        dungeonState.readyDisplays.set(id, { indicator: card.indicator || null, frame: card.element });
+      }
+      if (card.element && currentCharacter && member && member.id === currentCharacter.id) {
+        card.element.classList.add('ready-self');
+      }
+      partyList.appendChild(card.element);
+    }
+  });
+  if (partyList.children.length) {
+    partyColumn.appendChild(partyList);
+  } else {
+    const emptyParty = document.createElement('div');
+    emptyParty.className = 'ready-empty';
+    emptyParty.textContent = 'Waiting for allies...';
+    partyColumn.appendChild(emptyParty);
+  }
+  columns.appendChild(partyColumn);
+
+  const bossColumn = document.createElement('div');
+  bossColumn.className = 'ready-column boss';
+  const bossTitle = document.createElement('div');
+  bossTitle.className = 'ready-column-title';
+  bossTitle.textContent = 'Boss';
+  bossColumn.appendChild(bossTitle);
+  if (data && data.boss) {
+    const bossCard = createReadyCombatantCard(data.boss, { isBoss: true });
+    if (bossCard.element) {
+      bossColumn.appendChild(bossCard.element);
+    } else {
+      const emptyBoss = document.createElement('div');
+      emptyBoss.className = 'ready-empty';
+      emptyBoss.textContent = 'Boss unavailable';
+      bossColumn.appendChild(emptyBoss);
+    }
+  } else {
+    const pendingBoss = document.createElement('div');
+    pendingBoss.className = 'ready-empty';
+    pendingBoss.textContent = 'Boss data unavailable';
+    bossColumn.appendChild(pendingBoss);
+  }
+  columns.appendChild(bossColumn);
+  panel.appendChild(columns);
+
+  const actions = document.createElement('div');
+  actions.className = 'decision-actions ready-actions';
+  const readyStatus = document.createElement('div');
+  readyStatus.className = 'dungeon-ready-status';
+  actions.appendChild(readyStatus);
+  const button = document.createElement('button');
+  button.className = 'dungeon-ready-button';
+  const buttonLabel = action === 'advance' ? 'Advance' : 'Retry';
+  button.textContent = buttonLabel;
+  button.dataset.action = action;
+  button.addEventListener('click', () => {
+    sendDungeonReady(statusEl);
+  });
+  actions.appendChild(button);
+  panel.appendChild(actions);
+
+  previewContainer.appendChild(panel);
+
+  dungeonState.readyStatus = readyStatus;
+  dungeonState.readyButton = button;
+
+  const readyCount = Number.isFinite(data.ready) ? data.ready : 0;
+  const readyTotal = Number.isFinite(data.total) ? data.total : dungeonState.size;
+  const readyIds = Array.isArray(data.readyIds) ? data.readyIds : [];
+  dungeonState.lastReadyMembers = readyIds.slice();
+  updateDungeonReady(readyCount, readyTotal, readyIds);
+}
+
 function updateDungeonReady(count, total, readyIds) {
   if (!dungeonState) return;
   const normalizedCount = Number.isFinite(count) ? count : 0;
@@ -6262,8 +6404,14 @@ function updateDungeonReady(count, total, readyIds) {
   } else if (!Array.isArray(dungeonState.lastReadyMembers)) {
     dungeonState.lastReadyMembers = [];
   }
+  const isDecisionPhase = dungeonState.phase === 'decision';
+  const actionLabel = isDecisionPhase
+    ? dungeonState.decisionAction === 'advance'
+      ? 'Advance'
+      : 'Retry'
+    : 'Ready';
   if (dungeonState.readyStatus) {
-    dungeonState.readyStatus.textContent = `Ready ${normalizedCount} / ${normalizedTotal}`;
+    dungeonState.readyStatus.textContent = `${actionLabel} ${normalizedCount} / ${normalizedTotal}`;
   }
   const readySet = new Set(
     (Array.isArray(dungeonState.lastReadyMembers) ? dungeonState.lastReadyMembers : [])
@@ -6276,7 +6424,14 @@ function updateDungeonReady(count, total, readyIds) {
       const frame = display.frame || null;
       const isReady = readySet.has(id);
       if (indicator) {
-        indicator.textContent = isReady ? 'Ready' : 'Not Ready';
+        const readyText = isDecisionPhase
+          ? isReady
+            ? actionLabel
+            : 'Not Ready'
+          : isReady
+          ? 'Ready'
+          : 'Not Ready';
+        indicator.textContent = readyText;
         indicator.classList.toggle('ready', isReady);
         indicator.classList.toggle('not-ready', !isReady);
       }
@@ -6292,13 +6447,13 @@ function updateDungeonReady(count, total, readyIds) {
     const isSelfReady = selfId ? readySet.has(selfId) : false;
     if (normalizedCount >= normalizedTotal && normalizedTotal > 0) {
       button.disabled = true;
-      button.textContent = 'All Ready';
+      button.textContent = isDecisionPhase ? 'All Ready' : 'All Ready';
     } else if (isSelfReady) {
       button.disabled = true;
-      button.textContent = 'Ready!';
+      button.textContent = isDecisionPhase ? 'Locked In' : 'Ready!';
     } else {
       button.disabled = false;
-      button.textContent = 'Ready Up';
+      button.textContent = isDecisionPhase ? actionLabel : 'Ready Up';
     }
   }
 }
@@ -6307,21 +6462,38 @@ async function sendDungeonReady(statusEl) {
   if (!dungeonState || !dungeonState.matchId || !currentCharacter) return;
   const button = dungeonState.readyButton;
   if (button && button.disabled) return;
+  const isDecisionPhase = dungeonState.phase === 'decision';
+  const actionLabel = isDecisionPhase
+    ? dungeonState.decisionAction === 'advance'
+      ? 'Advance'
+      : 'Retry'
+    : 'Ready';
   if (button) {
     button.disabled = true;
-    button.textContent = 'Ready...';
+    button.textContent = `${actionLabel}...`;
   }
   if (statusEl) {
-    showMessage(statusEl, 'Signalling readiness...', false);
+    showMessage(
+      statusEl,
+      isDecisionPhase ? 'Casting your vote to continue...' : 'Signalling readiness...',
+      false,
+    );
   }
   try {
-    const data = await postJSON('/dungeon/ready', {
+    const endpoint = isDecisionPhase ? '/dungeon/decision' : '/dungeon/ready';
+    const data = await postJSON(endpoint, {
       matchId: dungeonState.matchId,
       characterId: currentCharacter.id,
     });
     updateDungeonReady(data.ready, data.total, data.readyIds);
     if (statusEl) {
-      showMessage(statusEl, 'Ready confirmed. Waiting for allies...', false);
+      showMessage(
+        statusEl,
+        isDecisionPhase
+          ? 'Decision recorded. Awaiting the rest of the party...'
+          : 'Ready confirmed. Waiting for allies...',
+        false,
+      );
     }
   } catch (err) {
     if (statusEl) {
@@ -6329,7 +6501,7 @@ async function sendDungeonReady(statusEl) {
     }
     if (button) {
       button.disabled = false;
-      button.textContent = 'Ready Up';
+      button.textContent = isDecisionPhase ? actionLabel : 'Ready Up';
     }
   }
 }
@@ -6417,6 +6589,72 @@ function handleDungeonUpdate(data) {
   if (Array.isArray(data.log) && data.log.length) {
     appendDungeonLogs(data.log, data.partyIds || (dungeonState && dungeonState.partyIds) || [], data.bossId || (dungeonState && dungeonState.bossId));
   }
+}
+
+function handleDungeonDecision(data, statusEl, previewEl) {
+  hideDungeonForging();
+  if (dungeonState) {
+    dungeonState.phase = 'decision';
+    dungeonState.decisionAction = data && data.action ? data.action : null;
+    if (Number.isFinite(data && data.total)) {
+      dungeonState.lastReadyTotal = data.total;
+    }
+    if (Array.isArray(data && data.readyIds)) {
+      dungeonState.lastReadyMembers = data.readyIds.slice();
+    }
+    if (data && data.matchId) {
+      dungeonState.matchId = data.matchId;
+    }
+    if (Array.isArray(data && data.partyIds)) {
+      dungeonState.partyIds = data.partyIds.slice();
+    }
+    if (Number.isFinite(data && data.bossId)) {
+      dungeonState.bossId = data.bossId;
+    }
+  }
+  if (data) {
+    if (Array.isArray(data.finalParty) && dungeonBars) {
+      data.finalParty.forEach(member => {
+        if (!member || !member.id) return;
+        const group = dungeonBars.get(member.id);
+        if (group) {
+          updateDungeonBarGroup(group, member);
+        }
+      });
+    }
+    if (data.finalBoss && dungeonBossBars) {
+      updateDungeonBarGroup(dungeonBossBars, data.finalBoss);
+    }
+  }
+  if (dungeonLogElement) {
+    const outcome = data && data.outcome === 'victory' ? 'Victory!' : 'Defeat...';
+    appendDungeonLogs([{ message: outcome }], [], null);
+    appendDungeonLogs(
+      [
+        {
+          message: `+${Number.isFinite(data && data.xpGain) ? data.xpGain : 0} XP, +${
+            Number.isFinite(data && data.gpGain) ? data.gpGain : 0
+          } GP`,
+        },
+      ],
+      [],
+      null,
+    );
+  }
+  if (dungeonCloseButton) {
+    dungeonCloseButton.classList.remove('hidden');
+  }
+  const targetStatus = statusEl || (dungeonState && dungeonState.statusEl) || null;
+  const targetPreview = previewEl || (dungeonState && dungeonState.previewEl) || null;
+  if (targetPreview) {
+    renderDungeonDecision(targetPreview, data, targetStatus);
+  }
+  if (dungeonState && dungeonState.leaveButton) {
+    dungeonState.leaveButton.classList.remove('hidden');
+    dungeonState.leaveButton.disabled = false;
+    dungeonState.leaveButton.textContent = 'Leave Party';
+  }
+  updateAfterBattleEnd(data);
 }
 
 function handleDungeonEnd(data) {
@@ -6584,6 +6822,7 @@ function startDungeonQueue(
     forgingMessage: forgingStatusMessage,
     forgingDetailMessage: forgingStatusDetail,
     phase: 'queued',
+    decisionAction: null,
   };
   if (resume && initialStatus && initialStatus.phase) {
     dungeonState.phase = initialStatus.phase;
@@ -6616,8 +6855,35 @@ function startDungeonQueue(
   }
 
   let previewPromise = null;
+  const isDecisionPhase = initialStatus && initialStatus.phase === 'decision';
   if (previewEl) {
-    if (initialPreview) {
+    if (isDecisionPhase) {
+      const pendingAction =
+        (initialStatus.decision && initialStatus.decision.action) ||
+        initialStatus.pendingAction ||
+        'retry';
+      const fallbackOutcome = pendingAction === 'advance' ? 'victory' : 'defeat';
+      const decisionData = {
+        matchId: initialStatus.matchId || null,
+        party: initialStatus.party || [],
+        boss: initialStatus.boss || null,
+        ready: initialStatus.ready || 0,
+        total: initialStatus.readyTotal || (initialStatus.size || normalizedSize),
+        readyIds: initialStatus.readyIds || [],
+        action: pendingAction,
+        outcome: (initialStatus.decision && initialStatus.decision.outcome) || fallbackOutcome,
+        round:
+          (initialStatus.decision && initialStatus.decision.round) ||
+          initialStatus.round ||
+          1,
+        xpGain: initialStatus.xpGain || 0,
+        gpGain: initialStatus.gpGain || 0,
+        metrics: initialStatus.metrics || null,
+        finalParty: initialStatus.finalParty || null,
+        finalBoss: initialStatus.finalBoss || null,
+      };
+      previewPromise = Promise.resolve(renderDungeonDecision(previewEl, decisionData, statusEl));
+    } else if (initialPreview) {
       previewPromise = Promise.resolve(renderDungeonPreview(previewEl, initialPreview, statusEl));
     } else {
       previewEl.innerHTML = '';
@@ -6625,6 +6891,7 @@ function startDungeonQueue(
   }
   const applyInitialReady = () => {
     if (
+      !isDecisionPhase &&
       resume &&
       initialStatus &&
       (Number.isFinite(initialStatus.ready) || (Array.isArray(initialStatus.readyIds) && initialStatus.readyIds.length))
@@ -6718,6 +6985,7 @@ function startDungeonQueue(
           (data && data.message) || dungeonState.forgingMessage || DUNGEON_FORGING_MESSAGE;
         dungeonState.forgingDetailMessage =
           (data && data.detail) || dungeonState.forgingDetailMessage || DUNGEON_FORGING_DETAIL;
+        dungeonState.decisionAction = null;
       }
       const message =
         (data && data.message) || (dungeonState && dungeonState.forgingMessage) ||
@@ -6754,12 +7022,17 @@ function startDungeonQueue(
       updateDungeonReady(data.ready || 0, data.total || dungeonState.size, data.readyIds);
       return;
     }
+    if (data.type === 'decision' && data.mode === 'dungeon') {
+      handleDungeonDecision(data, statusEl, previewEl);
+      return;
+    }
     if (data.type === 'start' && data.mode === 'dungeon') {
       if (dungeonState) {
         dungeonState.partyIds =
           data.partyIds || (data.party ? data.party.map(member => member.id) : []);
         dungeonState.bossId = data.bossId || (data.boss ? data.boss.id : null);
         dungeonState.phase = 'encounter';
+        dungeonState.decisionAction = null;
       }
       hideDungeonForging();
       if (statusEl) {
