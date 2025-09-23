@@ -327,11 +327,46 @@ async function finalizeMatch(match, result) {
   const bossPreview = match.preview ? clone(match.preview) : null;
   const outcome = result.winnerSide === 'party' ? 'victory' : 'defeat';
   const pendingAction = result.winnerSide === 'party' ? 'advance' : 'retry';
+
+  let nextBossCharacter = null;
+  let nextBossPreview = null;
+  let nextBossGenome = null;
+  let nextPartnerGenome = null;
+  if (pendingAction === 'advance') {
+    try {
+      const seeds = [];
+      if (match.bossGenome) seeds.push(match.bossGenome);
+      if (match.partnerGenome) seeds.push(match.partnerGenome);
+      const options = seeds.length ? { seedGenomes: seeds } : {};
+      const bossData = await generateDungeonBoss(
+        match.entries.map(entry => entry.character),
+        match.abilityMap,
+        match.equipmentMap,
+        options,
+      );
+      nextBossCharacter = clone(bossData.character || null);
+      nextBossPreview = clone(bossData.preview || null);
+      nextBossGenome = bossData.genome || null;
+      nextPartnerGenome = bossData.partnerGenome || null;
+    } catch (err) {
+      console.warn('Failed to prepare next dungeon boss preview', err);
+      nextBossCharacter = null;
+      nextBossPreview = null;
+      nextBossGenome = null;
+      nextPartnerGenome = null;
+    }
+  }
+
+  match.nextBoss = nextBossCharacter;
+  match.nextBossPreview = nextBossPreview;
+  match.nextBossGenome = nextBossGenome;
+  match.nextPartnerGenome = nextPartnerGenome;
+
   match.pendingAction = pendingAction;
   match.decisionState = {
     action: pendingAction,
     outcome,
-    boss: bossPreview,
+    boss: nextBossPreview || bossPreview,
     metrics: result.metrics ? clone(result.metrics) : null,
     finalParty: Array.isArray(result.finalParty) ? result.finalParty : null,
     finalBoss: result.finalBoss || null,
@@ -365,11 +400,13 @@ async function finalizeMatch(match, result) {
       total: entries.length,
       readyIds: [],
       party: match.partyPreview,
-      boss: bossPreview,
+      boss: nextBossPreview || bossPreview,
       partyIds: match.entries.map(item => (item && item.character ? item.character.id : null)).filter(
         id => id != null,
       ),
       bossId:
+        (nextBossCharacter && nextBossCharacter.id != null ? nextBossCharacter.id : null) ||
+        (nextBossPreview && nextBossPreview.id != null ? nextBossPreview.id : null) ||
         (match.boss && match.boss.id != null ? match.boss.id : null) ||
         (bossPreview && bossPreview.id != null ? bossPreview.id : null),
       xpGain: rewards.xpGain,
@@ -483,6 +520,24 @@ async function proceedAfterDecision(match) {
       phase: 'forging',
     };
     match.entries.forEach(entry => sendSafe(entry, forgingPayload));
+    const preparedBoss = match.nextBoss ? clone(match.nextBoss) : null;
+    const preparedPreview = match.nextBossPreview ? clone(match.nextBossPreview) : null;
+    const preparedGenome = match.nextBossGenome || null;
+    const preparedPartnerGenome = match.nextPartnerGenome || null;
+    match.nextBoss = null;
+    match.nextBossPreview = null;
+    match.nextBossGenome = null;
+    match.nextPartnerGenome = null;
+    if (preparedBoss && preparedPreview) {
+      match.boss = preparedBoss;
+      match.preview = preparedPreview;
+      match.bossGenome = preparedGenome;
+      match.partnerGenome = preparedPartnerGenome;
+      match.round = (match.round || 1) + 1;
+      match.partyPreview = summarizeParty(match.entries, match.equipmentMap);
+      await startBattle(match);
+      return;
+    }
     try {
       const seeds = [];
       if (match.bossGenome) seeds.push(match.bossGenome);
@@ -575,6 +630,10 @@ async function createMatch(entries) {
     phase: 'forging',
     bossGenome: null,
     partnerGenome: null,
+    nextBoss: null,
+    nextBossPreview: null,
+    nextBossGenome: null,
+    nextPartnerGenome: null,
     pendingAction: null,
     decisionState: null,
     round: 1,

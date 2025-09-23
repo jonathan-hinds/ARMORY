@@ -7019,6 +7019,15 @@ function startDungeonQueue(
       return;
     }
     if (data.type === 'ready') {
+      const eventPhase = data.phase || null;
+      if (
+        dungeonState &&
+        dungeonState.phase &&
+        eventPhase &&
+        eventPhase !== dungeonState.phase
+      ) {
+        return;
+      }
       updateDungeonReady(data.ready || 0, data.total || dungeonState.size, data.readyIds);
       return;
     }
