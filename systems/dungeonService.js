@@ -318,6 +318,7 @@ function buildContinuation(match, result) {
     entries: new Map(),
     matchPromise: null,
     started: false,
+    waiters: new Map(),
   };
   continuations.set(token, continuation);
   return continuation;
@@ -338,6 +339,84 @@ function buildContinuationResponse(continuation, status, { action, conflict = fa
     payload.conflict = conflict;
   }
   return payload;
+}
+
+function createResolvedContinuationHandle(payload) {
+  return {
+    promise: Promise.resolve(payload),
+    cancel: () => {},
+  };
+}
+
+function ensureContinuationWaiters(continuation) {
+  if (!continuation.waiters || !(continuation.waiters instanceof Map)) {
+    continuation.waiters = new Map();
+  }
+  return continuation.waiters;
+}
+
+function resolveContinuationWaiters(continuation, payload) {
+  if (!continuation.waiters || continuation.waiters.size === 0) {
+    return;
+  }
+  const waiters = Array.from(continuation.waiters.values());
+  continuation.waiters.clear();
+  waiters.forEach(waiter => {
+    if (!waiter || typeof waiter.resolve !== 'function') return;
+    try {
+      waiter.resolve(payload);
+    } catch (err) {
+      // Ignore waiter resolution failures.
+    }
+  });
+}
+
+function createContinuationWaitHandle(continuation, characterId) {
+  const waiters = ensureContinuationWaiters(continuation);
+  if (waiters.has(characterId)) {
+    const existing = waiters.get(characterId);
+    if (existing && existing.handle) {
+      return existing.handle;
+    }
+    waiters.delete(characterId);
+  }
+  let externalResolve;
+  let externalReject;
+  const promise = new Promise((resolve, reject) => {
+    externalResolve = resolve;
+    externalReject = reject;
+  });
+  const waiter = {
+    settled: false,
+    resolve(payload) {
+      if (this.settled) return;
+      this.settled = true;
+      externalResolve(payload);
+    },
+    reject(reason) {
+      if (this.settled) return;
+      this.settled = true;
+      externalReject(reason instanceof Error ? reason : new Error(String(reason || 'continuation failed')));
+    },
+    handle: null,
+  };
+  const handle = {
+    promise,
+    cancel: reason => {
+      if (waiter.settled) {
+        return;
+      }
+      waiter.settled = true;
+      waiters.delete(characterId);
+      if (continuation.status !== 'ready') {
+        continuation.votes.delete(characterId);
+      }
+      externalReject(new Error(reason || 'continuation request cancelled'));
+    },
+  };
+  waiter.handle = handle;
+  waiters.set(characterId, waiter);
+  return handle;
 }
 
 function continueDungeon(token, characterId, action = 'retry') {
@@ -363,23 +442,34 @@ function continueDungeon(token, characterId, action = 'retry') {
     if (continuation.mode && continuation.mode !== normalizedAction) {
       throw new Error('party chose a different path');
     }
-    return buildContinuationResponse(continuation, 'ready');
+    return createResolvedContinuationHandle(buildContinuationResponse(continuation, 'ready'));
   }
   continuation.votes.set(characterId, normalizedAction);
   const total = continuation.partyIds.length;
+
   if (continuation.votes.size < total) {
-    return buildContinuationResponse(continuation, 'pending', { action: normalizedAction });
+    const waitHandle = createContinuationWaitHandle(continuation, characterId);
+    return waitHandle;
   }
+
   const voteSet = new Set(continuation.votes.values());
   if (voteSet.size > 1) {
-    return buildContinuationResponse(continuation, 'pending', {
+    const payload = buildContinuationResponse(continuation, 'pending', {
       action: normalizedAction,
       conflict: true,
     });
+    continuation.mode = null;
+    continuation.status = 'awaiting-choice';
+    continuation.votes.clear();
+    resolveContinuationWaiters(continuation, payload);
+    return createResolvedContinuationHandle(payload);
   }
+
   continuation.mode = normalizedAction;
   continuation.status = 'ready';
-  return buildContinuationResponse(continuation, 'ready');
+  const payload = buildContinuationResponse(continuation, 'ready');
+  resolveContinuationWaiters(continuation, payload);
+  return createResolvedContinuationHandle(payload);
 }
 
 function buildContinuationMatchOptions(continuation) {

@@ -466,17 +466,38 @@ app.post("/dungeon/cancel", (req, res) => {
   res.json({ cancelled: true });
 });
 
-app.post("/dungeon/continue", (req, res) => {
+app.post("/dungeon/continue", async (req, res) => {
   const characterId = parseInt(req.body && req.body.characterId, 10);
   const token = req.body && req.body.token;
   const action = (req.body && req.body.action) || "retry";
   if (!characterId || !token) {
     return res.status(400).json({ error: "characterId and token required" });
   }
+  let handle;
   try {
-    const status = continueDungeon(token, characterId, action);
+    handle = continueDungeon(token, characterId, action);
+  } catch (err) {
+    res.status(400).json({ error: err.message || "failed to continue dungeon" });
+    return;
+  }
+  const promise = handle && handle.promise ? handle.promise : Promise.resolve(handle);
+  let cancelled = false;
+  req.on("close", () => {
+    cancelled = true;
+    if (handle && typeof handle.cancel === "function") {
+      handle.cancel("request closed");
+    }
+  });
+  try {
+    const status = await promise;
+    if (cancelled) {
+      return;
+    }
     res.json(status);
   } catch (err) {
+    if (cancelled) {
+      return;
+    }
     res.status(400).json({ error: err.message || "failed to continue dungeon" });
   }
 });
