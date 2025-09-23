@@ -1,6 +1,6 @@
 {
   "generations": 50,
-  "generationsPerExtraMember": 0,
+  "generationsPerExtraMember": 15,
   "scaling": {
     "attributePointScale": { "base": 1.5, "perExtraMember": 0.08, "minTotal": 50 },
     "gearBudgetScale": { "base": 1.5, "perExtraMember": 0.18, "minTotal": 80 }
@@ -9,7 +9,7 @@
   "population": {
     "baseSize": 50,
     "sizePerPartyMember": 0,
-    "maxSize": 60,
+    "maxSize": 150,
     "generationGrowth": 15,
     "randomInjectionRate": 0.25,
     "mutateParentRate": 0.2625,
