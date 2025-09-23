@@ -298,12 +298,56 @@ function cloneParentGenomes(parents) {
   };
 }
 
+function normalizePartyIds(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return [];
+  }
+  const unique = [];
+  const seen = new Set();
+  entries.forEach(entry => {
+    if (!entry || !entry.character) return;
+    const rawId = entry.character.id;
+    const numericId = Number.isFinite(rawId)
+      ? rawId
+      : Number.parseInt(rawId, 10);
+    if (!Number.isFinite(numericId) || seen.has(numericId)) {
+      return;
+    }
+    seen.add(numericId);
+    unique.push(numericId);
+  });
+  return unique;
+}
+
+function countContinuationVotes(continuation) {
+  if (
+    !continuation
+    || !Array.isArray(continuation.partyIds)
+    || !(continuation.votes instanceof Map)
+  ) {
+    return 0;
+  }
+  if (continuation.partyIds.length === continuation.votes.size) {
+    return continuation.votes.size;
+  }
+  let count = 0;
+  continuation.partyIds.forEach(id => {
+    if (continuation.votes.has(id)) {
+      count += 1;
+    }
+  });
+  return count;
+}
+
 function buildContinuation(match, result) {
   if (!match || !Array.isArray(match.entries) || match.entries.length === 0) {
     return null;
   }
+  const partyIds = normalizePartyIds(match.entries);
+  if (!partyIds.length) {
+    return null;
+  }
   const token = `${match.id}-${Math.random().toString(36).slice(2, 10)}`;
-  const partyIds = match.entries.map(entry => entry.character.id);
   const continuation = {
     token,
     partyIds,
@@ -335,7 +379,8 @@ function buildContinuationResponse(continuation, status, { action, conflict = fa
     payload.token = continuation.token;
   } else {
     payload.action = action;
-    payload.waitingFor = Math.max(0, continuation.partyIds.length - continuation.votes.size);
+    const votes = countContinuationVotes(continuation);
+    payload.waitingFor = Math.max(0, continuation.partyIds.length - votes);
     payload.conflict = conflict;
   }
   return payload;
@@ -447,7 +492,7 @@ function continueDungeon(token, characterId, action = 'retry') {
   continuation.votes.set(characterId, normalizedAction);
   const total = continuation.partyIds.length;
 
-  if (continuation.votes.size < total) {
+  if (countContinuationVotes(continuation) < total) {
     const waitHandle = createContinuationWaitHandle(continuation, characterId);
     return waitHandle;
   }
