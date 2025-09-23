@@ -6399,11 +6399,32 @@ function updateDungeonReady(count, total, readyIds) {
     : 0;
   dungeonState.lastReadyCount = normalizedCount;
   dungeonState.lastReadyTotal = normalizedTotal;
+
+  let normalizedReadyIds;
   if (Array.isArray(readyIds)) {
-    dungeonState.lastReadyMembers = readyIds.map(id => Number(id));
-  } else if (!Array.isArray(dungeonState.lastReadyMembers)) {
-    dungeonState.lastReadyMembers = [];
+    const seen = new Set();
+    normalizedReadyIds = readyIds
+      .map(id => Number(id))
+      .filter(id => {
+        if (!Number.isFinite(id) || seen.has(id)) {
+          return false;
+        }
+        seen.add(id);
+        return true;
+      });
+  } else if (Array.isArray(dungeonState.lastReadyMembers)) {
+    normalizedReadyIds = dungeonState.lastReadyMembers.slice();
+  } else {
+    normalizedReadyIds = [];
   }
+
+  if (normalizedCount <= 0) {
+    normalizedReadyIds = [];
+  } else if (normalizedReadyIds.length > normalizedCount) {
+    normalizedReadyIds.length = normalizedCount;
+  }
+
+  dungeonState.lastReadyMembers = normalizedReadyIds;
   const isDecisionPhase = dungeonState.phase === 'decision';
   const actionLabel = isDecisionPhase
     ? dungeonState.decisionAction === 'advance'
@@ -6598,10 +6619,15 @@ function handleDungeonDecision(data, statusEl, previewEl) {
     dungeonState.decisionAction = data && data.action ? data.action : null;
     if (Number.isFinite(data && data.total)) {
       dungeonState.lastReadyTotal = data.total;
+    } else if (!Number.isFinite(dungeonState.lastReadyTotal)) {
+      dungeonState.lastReadyTotal = dungeonState.size || 0;
     }
     if (Array.isArray(data && data.readyIds)) {
       dungeonState.lastReadyMembers = data.readyIds.slice();
+    } else {
+      dungeonState.lastReadyMembers = [];
     }
+    dungeonState.lastReadyCount = Number.isFinite(data && data.ready) ? data.ready : 0;
     if (data && data.matchId) {
       dungeonState.matchId = data.matchId;
     }
