@@ -427,4 +427,44 @@
       }
     ]
   }
+  ,
+  {
+    "id": 25,
+    "name": "Reckoning",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 20,
+    "cooldown": 15,
+    "scaling": ["stamina"],
+    "effects": [
+      {
+        "type": "ReckoningDamage",
+        "value": 12,
+        "scaling": { "stamina": 0.28 },
+        "damageType": "physical",
+        "logLabel": "reckoning"
+      }
+    ]
+  },
+  {
+    "id": 26,
+    "name": "Secondwind",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 16,
+    "cooldown": 16,
+    "scaling": ["stamina"],
+    "effects": [
+      {
+        "type": "DamageResourceReturn",
+        "resource": "stamina",
+        "percent": 0.35,
+        "attackCountBase": 4,
+        "attackCountScaling": { "stamina": 0.12 },
+        "attackCountMax": 16,
+        "durationType": "selfAttackIntervals",
+        "logLabel": "Second Wind"
+      }
+    ]
+  }
 ]
