@@ -492,6 +492,25 @@ function getActiveDerivedStats() {
   return null;
 }
 
+function describeTriggerEffects(trigger, effects, options = {}) {
+  if (!Array.isArray(effects) || effects.length === 0) {
+    return '';
+  }
+  const derived = options && options.derived ? options.derived : null;
+  const abilityBonus = options && Number.isFinite(options.abilityBonus) ? options.abilityBonus : null;
+  const parts = effects
+    .map(effect => describeEffect(effect, { ...options, derived, abilityBonus }))
+    .filter(Boolean);
+  if (!parts.length) {
+    return '';
+  }
+  let label = 'On trigger';
+  if (trigger === 'crit' || trigger === 'critical' || trigger === 'criticalHit') {
+    label = 'On crit';
+  }
+  return `${label}: ${parts.join('; ')}`;
+}
+
 function describeEffect(effect, options = {}) {
   if (!effect || typeof effect !== 'object') return '';
   const derived = options && options.derived ? options.derived : null;
@@ -508,8 +527,8 @@ function describeEffect(effect, options = {}) {
   };
 
   if (effect.type === 'PhysicalDamage') {
+    const baseAmount = effect.value != null ? effect.value : effect.damage;
     if (derived) {
-      const baseAmount = effect.value != null ? effect.value : effect.damage;
       const scaled = computeScaledEffectValue(baseAmount, derived, effect.scaling || effect.valueScaling);
       const minAttack = Number.isFinite(derived.minMeleeAttack) ? derived.minMeleeAttack : null;
       const maxAttack = Number.isFinite(derived.maxMeleeAttack) ? derived.maxMeleeAttack : minAttack;
@@ -521,20 +540,34 @@ function describeEffect(effect, options = {}) {
         if (effect.ignoreResistOnCrit) {
           baseText += ' (ignores resistance on crit)';
         }
+        const triggerText = describeTriggerEffects('crit', effect.critEffects, {
+          ...options,
+          derived,
+          abilityBonus: scaled,
+        });
+        if (triggerText) {
+          baseText += `. ${triggerText}`;
+        }
         return applyEffectChance(baseText);
       }
     }
-    const amount = effect.value != null ? effect.value : effect.damage;
-    const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    const text = formatValueWithScaling(baseAmount, effect.scaling || effect.valueScaling);
     let baseText = text ? `Physical Damage ${text}` : 'Physical Damage';
     if (effect.ignoreResistOnCrit) {
       baseText += ' (ignores resistance on crit)';
     }
+    const triggerText = describeTriggerEffects('crit', effect.critEffects, {
+      ...options,
+      abilityBonus: Number.isFinite(baseAmount) ? baseAmount : null,
+    });
+    if (triggerText) {
+      baseText += `. ${triggerText}`;
+    }
     return applyEffectChance(baseText);
   }
   if (effect.type === 'MagicDamage') {
+    const baseAmount = effect.value != null ? effect.value : effect.damage;
     if (derived) {
-      const baseAmount = effect.value != null ? effect.value : effect.damage;
       const scaled = computeScaledEffectValue(baseAmount, derived, effect.scaling || effect.valueScaling);
       const minAttack = Number.isFinite(derived.minMagicAttack) ? derived.minMagicAttack : null;
       const maxAttack = Number.isFinite(derived.maxMagicAttack) ? derived.maxMagicAttack : minAttack;
@@ -546,16 +579,55 @@ function describeEffect(effect, options = {}) {
         if (effect.ignoreResistOnCrit) {
           baseText += ' (ignores resistance on crit)';
         }
+        const triggerText = describeTriggerEffects('crit', effect.critEffects, {
+          ...options,
+          derived,
+          abilityBonus: scaled,
+        });
+        if (triggerText) {
+          baseText += `. ${triggerText}`;
+        }
         return applyEffectChance(baseText);
       }
     }
-    const amount = effect.value != null ? effect.value : effect.damage;
-    const text = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    const text = formatValueWithScaling(baseAmount, effect.scaling || effect.valueScaling);
     let baseText = text ? `Magic Damage ${text}` : 'Magic Damage';
     if (effect.ignoreResistOnCrit) {
       baseText += ' (ignores resistance on crit)';
     }
+    const triggerText = describeTriggerEffects('crit', effect.critEffects, {
+      ...options,
+      abilityBonus: Number.isFinite(baseAmount) ? baseAmount : null,
+    });
+    if (triggerText) {
+      baseText += `. ${triggerText}`;
+    }
     return applyEffectChance(baseText);
+  }
+  if (effect.type === 'Bleed') {
+    const abilityBonus = options && Number.isFinite(options.abilityBonus) ? options.abilityBonus : null;
+    const basePercent = effect.percent != null ? Number(effect.percent) : null;
+    let percent = Number.isFinite(basePercent) ? basePercent : null;
+    const perBonus = Number(effect.percentPerBonus);
+    if (abilityBonus != null && Number.isFinite(perBonus) && perBonus !== 0) {
+      const bonusContribution = abilityBonus * perBonus;
+      percent = (Number.isFinite(percent) ? percent : 0) + bonusContribution;
+    }
+    let baseText;
+    if (Number.isFinite(percent) && percent > 0) {
+      baseText = `Bleed the target for ${formatNumericValue(percent * 100)}% of their max health`;
+    } else {
+      baseText = "Bleed the target for damage based on this ability's bonus damage";
+    }
+    const duration = Number(effect.duration);
+    if (Number.isFinite(duration) && duration > 0) {
+      baseText += ` over ${formatNumericValue(duration)}s`;
+    }
+    const interval = Number(effect.interval);
+    if (Number.isFinite(interval) && interval > 0) {
+      baseText += ` (${formatNumericValue(interval)}s intervals)`;
+    }
+    return baseText;
   }
   if (effect.type === 'Heal') {
     const amount = effect.value != null ? effect.value : effect.amount;
@@ -1195,6 +1267,59 @@ function formatAbilityCost(ability) {
   return parts.length ? parts.join(', ') : 'None';
 }
 
+function normalizeAbilityConditionalCosts(ability) {
+  if (!ability) return [];
+  if (Array.isArray(ability.conditionalCosts) && ability.conditionalCosts.length) {
+    return ability.conditionalCosts;
+  }
+  if (ability.conditionalCost) {
+    return [ability.conditionalCost];
+  }
+  return [];
+}
+
+function formatConditionalResourceList(resources) {
+  if (!Array.isArray(resources) || resources.length === 0) {
+    return null;
+  }
+  const labels = resources
+    .map(resource => (typeof resource === 'string' ? resource.toLowerCase() : null))
+    .filter(Boolean)
+    .map(resource => RESOURCE_LABELS[resource] || titleCase(resource));
+  if (!labels.length) {
+    return null;
+  }
+  if (labels.length === 1) {
+    return { text: `${labels[0]} cost`, plural: false };
+  }
+  if (labels.length === 2) {
+    return { text: `${labels[0]} and ${labels[1]} costs`, plural: true };
+  }
+  const prefix = labels.slice(0, -1).join(', ');
+  const last = labels[labels.length - 1];
+  return { text: `${prefix}, and ${last} costs`, plural: true };
+}
+
+function describeConditionalCostEntry(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  const type = typeof entry.type === 'string' ? entry.type : '';
+  const normalizedType = type.replace(/[^a-z]/gi, '').toLowerCase();
+  const resourceInfo = formatConditionalResourceList(entry.resources);
+  const baseText = resourceInfo ? resourceInfo.text : 'Resource cost';
+  const verb = resourceInfo && resourceInfo.plural ? 'are' : 'is';
+  if (normalizedType === 'waiveifnodamagelastturn') {
+    return `${baseText} ${verb} waived if you haven't taken damage since your last turn.`;
+  }
+  if (entry.description && typeof entry.description === 'string') {
+    return entry.description;
+  }
+  return '';
+}
+
+function describeAbilitySpecialRules(ability) {
+  return normalizeAbilityConditionalCosts(ability).map(describeConditionalCostEntry).filter(Boolean);
+}
+
 function abilityTooltip(ability, options = {}) {
   const container = document.createElement('div');
   container.className = 'tooltip-grid';
@@ -1232,6 +1357,10 @@ function abilityTooltip(ability, options = {}) {
   const derived = getActiveDerivedStats();
   const effectLines = ability.effects.map(effect => describeEffect(effect, { derived })).join('<br/>');
   add('Effects', effectLines || 'None');
+  const specialRules = describeAbilitySpecialRules(ability);
+  if (specialRules.length) {
+    add('Special', specialRules.join('<br/>'));
+  }
   return container;
 }
 
