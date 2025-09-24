@@ -274,6 +274,99 @@ function applyDamageHealEffects(target, damageTaken, now, log) {
   return { healed };
 }
 
+function normalizeResourceKey(resource) {
+  if (!resource) return null;
+  const lowered = String(resource).trim().toLowerCase();
+  if (!lowered) return null;
+  if (lowered === 'hp') return 'health';
+  if (lowered === 'mp') return 'mana';
+  return lowered;
+}
+
+function formatResourceLabel(resource) {
+  const normalized = normalizeResourceKey(resource);
+  if (!normalized) return 'Resource';
+  if (normalized === 'health') return 'Health';
+  if (normalized === 'mana') return 'Mana';
+  if (normalized === 'stamina') return 'Stamina';
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function applyDamageResourceReturns(source, damageDealt, now, log) {
+  if (!source) {
+    return { entries: [], totalRestored: 0 };
+  }
+  if (!Array.isArray(source.damageResourceReturns) || source.damageResourceReturns.length === 0) {
+    return { entries: [], totalRestored: 0 };
+  }
+  const currentTime = Number.isFinite(now) ? now : null;
+  const remaining = [];
+  const restoredEntries = [];
+  let totalRestored = 0;
+  source.damageResourceReturns.forEach(entry => {
+    if (!entry) return;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : null;
+    if (expiresAt != null && currentTime != null && currentTime >= expiresAt) {
+      return;
+    }
+    const resourceKey = normalizeResourceKey(entry.resource);
+    if (!resourceKey) {
+      return;
+    }
+    const percent = Number(entry.percent != null ? entry.percent : entry.value);
+    const uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : 1;
+    let restoredAmount = 0;
+    if (Number.isFinite(damageDealt) && damageDealt > 0 && Number.isFinite(percent) && percent > 0) {
+      restoredAmount = Math.round(damageDealt * Math.max(0, percent));
+      if (Number.isFinite(entry.perHitCap) && entry.perHitCap >= 0) {
+        restoredAmount = Math.min(restoredAmount, Math.round(entry.perHitCap));
+      }
+    }
+    let appliedRestoration = 0;
+    if (restoredAmount > 0) {
+      const before = Number.isFinite(source[resourceKey]) ? source[resourceKey] : 0;
+      const maxValue =
+        source.derived && Number.isFinite(source.derived[resourceKey]) ? source.derived[resourceKey] : null;
+      const desired = before + restoredAmount;
+      const updated = maxValue != null ? Math.min(maxValue, desired) : desired;
+      const actual = Math.max(0, Math.round(updated - before));
+      if (actual > 0) {
+        source[resourceKey] = updated;
+        appliedRestoration = actual;
+        const label = formatResourceLabel(resourceKey);
+        const descriptor = entry.logLabel ? String(entry.logLabel) : 'momentum';
+        if (source.character) {
+          pushLog(
+            log,
+            `${source.character.name} recovers ${appliedRestoration} ${label.toLowerCase()} from ${descriptor}`,
+            {
+              sourceId: source.character.id,
+              targetId: source.character.id,
+              kind: 'resource',
+              resource: resourceKey,
+              amount: appliedRestoration,
+            },
+          );
+        }
+      }
+    }
+    const nextUses = uses - 1;
+    if (nextUses > 0) {
+      remaining.push({ ...entry, remainingAttacks: nextUses });
+    }
+    if (appliedRestoration > 0) {
+      totalRestored += appliedRestoration;
+    }
+    restoredEntries.push({
+      resource: resourceKey,
+      amount: appliedRestoration,
+      remainingAttacks: Math.max(0, nextUses),
+    });
+  });
+  source.damageResourceReturns = remaining;
+  return { entries: restoredEntries, totalRestored };
+}
+
 function isChanceStat(stat) {
   return CHANCE_STATS.includes(stat);
 }
@@ -651,6 +744,40 @@ function formatAttackCount(count, label = 'attack') {
   return `${normalized} ${pluralLabel}`;
 }
 
+function resolveScaledAttackCount(effect, source) {
+  if (!effect || typeof effect !== 'object') return 0;
+  if (Number.isFinite(effect.attacks)) {
+    return Math.max(0, effect.attacks);
+  }
+  if (Number.isFinite(effect.attackCount)) {
+    return Math.max(0, effect.attackCount);
+  }
+  const baseCountCandidate =
+    Number.isFinite(effect.attackCountBase)
+      ? effect.attackCountBase
+      : Number.isFinite(effect.baseAttacks)
+      ? effect.baseAttacks
+      : Number.isFinite(effect.durationCount)
+      ? effect.durationCount
+      : 1;
+  const scaling = effect.attackCountScaling || effect.durationCountScaling || null;
+  const scaledValue = computeScaledValue(baseCountCandidate, source, scaling);
+  let count = Number.isFinite(scaledValue) ? scaledValue : baseCountCandidate;
+  if (Number.isFinite(effect.attackCountMin)) {
+    count = Math.max(effect.attackCountMin, count);
+  }
+  if (Number.isFinite(effect.minAttacks)) {
+    count = Math.max(effect.minAttacks, count);
+  }
+  if (Number.isFinite(effect.attackCountMax)) {
+    count = Math.min(effect.attackCountMax, count);
+  }
+  if (Number.isFinite(effect.maxAttacks)) {
+    count = Math.min(effect.maxAttacks, count);
+  }
+  return Math.max(0, count);
+}
+
 function clampProbability(value, min = 0, max = 1) {
   if (!Number.isFinite(value)) return min;
   const clamped = Math.min(Math.max(value, min), max);
@@ -766,7 +893,8 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   if (resistIgnored) {
     resist = 0;
   }
-  const baseDamage = Math.max(1, Math.round(dmg * (1 - resist)));
+  const minimumBaseDamage = context && context.allowZeroBase ? 0 : 1;
+  const baseDamage = Math.max(minimumBaseDamage, Math.round(dmg * (1 - resist)));
   const beforeHealth = Number.isFinite(target.health) ? target.health : 0;
   const maxHealth =
     target.derived && Number.isFinite(target.derived.health) ? target.derived.health : beforeHealth;
@@ -781,6 +909,12 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   const actualDamage = beforeHealth - updatedHealth;
   const healResult = applyDamageHealEffects(target, actualDamage, currentTime, log);
   const healedAmount = healResult.healed || 0;
+  const resourceReturnResult = applyDamageResourceReturns(source, actualDamage, currentTime, log);
+
+  const resourceRestoredEntries = resourceReturnResult && Array.isArray(resourceReturnResult.entries)
+    ? resourceReturnResult.entries.filter(entry => entry && Number.isFinite(entry.amount) && entry.amount > 0)
+    : [];
+  const resourceRestoredTotal = resourceReturnResult ? resourceReturnResult.totalRestored || 0 : 0;
 
   const consumedResistEntries = resistBonusInfo && Array.isArray(resistBonusInfo.entries)
     ? resistBonusInfo.entries
@@ -841,6 +975,10 @@ function applyDamage(source, target, amount, type, log, context = {}) {
   }
   if (healedAmount > 0) {
     outcome.healedAmount = healedAmount;
+  }
+  if (resourceRestoredEntries.length) {
+    outcome.resourceRestored = resourceRestoredEntries;
+    outcome.resourceRestoredTotal = resourceRestoredTotal;
   }
   outcome.resistIgnored = resistIgnored;
   return outcome;
@@ -935,6 +1073,50 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         }
       }
       return outcome;
+    }
+    case 'ReckoningDamage': {
+      const basePower = computeScaledValue(effect.value, source, effect.scaling || effect.valueScaling);
+      const damageType = effect.damageType === 'magical' ? 'magical' : 'physical';
+      const maxHealth =
+        source && source.derived && Number.isFinite(source.derived.health) ? source.derived.health : null;
+      const currentHealth = source && Number.isFinite(source.health) ? source.health : maxHealth;
+      let missingPercent = 0;
+      if (Number.isFinite(maxHealth) && maxHealth > 0 && currentHealth != null) {
+        missingPercent = Math.max(0, Math.min(1, (maxHealth - currentHealth) / maxHealth));
+      }
+      if (Number.isFinite(effect.missingPercentBonus)) {
+        missingPercent += effect.missingPercentBonus;
+      }
+      const percentMultiplier =
+        Number.isFinite(effect.percentMultiplier) && effect.percentMultiplier > 0 ? effect.percentMultiplier : 1;
+      let effectivePercent = missingPercent * percentMultiplier;
+      if (Number.isFinite(effect.minPercent)) {
+        effectivePercent = Math.max(effect.minPercent, effectivePercent);
+      }
+      if (Number.isFinite(effect.maxPercent)) {
+        effectivePercent = Math.min(effect.maxPercent, effectivePercent);
+      }
+      effectivePercent = Math.max(0, effectivePercent);
+      const damageAmount = Number.isFinite(basePower) ? basePower * effectivePercent : 0;
+      if (damageAmount <= 0) {
+        const resolution = resolveAttack(source, target, damageType, log, context.resolution);
+        const resolvedType = resolution.damageType || damageType;
+        if (!resolution.hit) {
+          return { hit: false, amount: 0, damageType: resolvedType, resolution };
+        }
+        if (source && source.character && target && target.character) {
+          pushLog(log, `${source.character.name}'s reckoning fizzles against ${target.character.name}`, {
+            sourceId: source.character.id,
+            targetId: target.character.id,
+            kind: 'damage',
+            damageType: resolvedType,
+            amount: 0,
+          });
+        }
+        return { hit: true, amount: 0, damageType: resolvedType, resolution };
+      }
+      const damageContext = { ...context, effect, now, allowZeroBase: true };
+      return applyDamage(source, target, damageAmount, damageType, log, damageContext);
     }
     case 'Heal': {
       const amount = typeof effect.value === 'number' ? effect.value : 0;
@@ -1301,6 +1483,75 @@ function applyEffect(source, target, effect, now, log, context = {}) {
           targetId: recipient.character.id,
           kind: 'buff',
         });
+      }
+      return null;
+    }
+    case 'DamageResourceReturn': {
+      const recipient = resolveEffectTarget(effect, source, target) || source;
+      if (!recipient) return null;
+      const resourceKey = normalizeResourceKey(effect.resource || 'stamina');
+      if (!resourceKey) {
+        return null;
+      }
+      const basePercent =
+        effect.percent != null ? Number(effect.percent) : effect.value != null ? Number(effect.value) : 0;
+      const scaledPercent = computeScaledValue(
+        basePercent,
+        source,
+        effect.scaling || effect.percentScaling || effect.valueScaling,
+      );
+      const percentCap = Number.isFinite(effect.maxPercent) ? effect.maxPercent : 0.95;
+      const percent = clampPercent(scaledPercent, percentCap);
+      if (percent <= 0) {
+        return null;
+      }
+      let attackCount = resolveScaledAttackCount(effect, source);
+      if (!Number.isFinite(attackCount) || attackCount <= 0) {
+        attackCount = 1;
+      }
+      const uses = Math.max(1, Math.round(attackCount));
+      const durationContext = {
+        ...context,
+        source: recipient,
+        actor: recipient,
+        user: recipient,
+      };
+      const durationReference = {
+        ...effect,
+        durationCount: Number.isFinite(effect.durationCount) ? effect.durationCount : uses,
+      };
+      const durationSeconds = resolveDurationSeconds(durationReference, durationContext);
+      const expiresAt = Number.isFinite(durationSeconds) && durationSeconds > 0 ? now + durationSeconds : null;
+      if (!Array.isArray(recipient.damageResourceReturns)) {
+        recipient.damageResourceReturns = [];
+      }
+      const entry = {
+        resource: resourceKey,
+        percent,
+        remainingAttacks: uses,
+        expiresAt,
+      };
+      if (effect.perHitCap != null && Number.isFinite(effect.perHitCap)) {
+        entry.perHitCap = Math.max(0, effect.perHitCap);
+      }
+      if (effect.logLabel) {
+        entry.logLabel = effect.logLabel;
+      }
+      recipient.damageResourceReturns.push(entry);
+      if (recipient.character) {
+        const percentText = Math.round(percent * 100);
+        const attackText = formatAttackCount(uses) || 'attacks';
+        const label = formatResourceLabel(resourceKey);
+        const descriptor = effect.logLabel || 'second wind';
+        pushLog(
+          log,
+          `${recipient.character.name} gains ${descriptor}, recovering ${percentText}% of damage dealt as ${label.toLowerCase()} for ${attackText}`,
+          {
+            sourceId: recipient.character.id,
+            targetId: recipient.character.id,
+            kind: 'buff',
+          },
+        );
       }
       return null;
     }
@@ -2119,6 +2370,25 @@ function tick(combatant, now, log) {
     }
     if (combatant.character) {
       pushLog(log, `${combatant.character.name}'s blessing fades`, {
+        sourceId: combatant.character.id,
+        targetId: combatant.character.id,
+        kind: 'buffEnd',
+      });
+    }
+    return false;
+  });
+  if (!Array.isArray(combatant.damageResourceReturns)) {
+    combatant.damageResourceReturns = [];
+  }
+  combatant.damageResourceReturns = combatant.damageResourceReturns.filter(entry => {
+    if (!entry) return false;
+    const expires = Number.isFinite(entry.expiresAt) ? entry.expiresAt : Infinity;
+    if (now < expires) {
+      return true;
+    }
+    if (combatant.character) {
+      const label = entry.logLabel || 'second wind';
+      pushLog(log, `${combatant.character.name}'s ${label} fades`, {
         sourceId: combatant.character.id,
         targetId: combatant.character.id,
         kind: 'buffEnd',

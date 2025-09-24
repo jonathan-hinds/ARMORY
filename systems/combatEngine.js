@@ -149,6 +149,7 @@ function createCombatant(character, equipmentMap) {
     damageGuards: [],
     damageReflections: [],
     damageHealShields: [],
+    damageResourceReturns: [],
     attackIntervalAdjustments: [],
     tookDamageSinceLastTurn: false,
     damageTakenLastTurn: false,

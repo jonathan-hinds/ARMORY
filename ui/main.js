@@ -463,6 +463,42 @@ function computeScaledEffectValue(baseValue, derived, scaling) {
   return base + computeScalingBonusLocal(derived, scaling);
 }
 
+function resolveEffectAttackCountWithDerived(effect, derived) {
+  if (!effect || typeof effect !== 'object') return 0;
+  if (Number.isFinite(effect.attacks)) {
+    return effect.attacks;
+  }
+  if (Number.isFinite(effect.attackCount)) {
+    return effect.attackCount;
+  }
+  const base = Number.isFinite(effect.attackCountBase)
+    ? effect.attackCountBase
+    : Number.isFinite(effect.baseAttacks)
+    ? effect.baseAttacks
+    : Number.isFinite(effect.durationCount)
+    ? effect.durationCount
+    : 1;
+  if (!derived) {
+    return base;
+  }
+  const scaling = effect.attackCountScaling || effect.durationCountScaling;
+  const scaled = computeScaledEffectValue(base, derived, scaling);
+  let count = Number.isFinite(scaled) ? scaled : base;
+  if (Number.isFinite(effect.attackCountMin)) {
+    count = Math.max(effect.attackCountMin, count);
+  }
+  if (Number.isFinite(effect.minAttacks)) {
+    count = Math.max(effect.minAttacks, count);
+  }
+  if (Number.isFinite(effect.attackCountMax)) {
+    count = Math.min(effect.attackCountMax, count);
+  }
+  if (Number.isFinite(effect.maxAttacks)) {
+    count = Math.min(effect.maxAttacks, count);
+  }
+  return count;
+}
+
 function formatRange(min, max) {
   const minFinite = Number.isFinite(min);
   const maxFinite = Number.isFinite(max);
@@ -601,6 +637,62 @@ function describeEffect(effect, options = {}) {
     });
     if (triggerText) {
       baseText += `. ${triggerText}`;
+    }
+    return applyEffectChance(baseText);
+  }
+  if (effect.type === 'ReckoningDamage') {
+    const baseAmount = effect.value != null ? effect.value : effect.damage;
+    const scaling = effect.scaling || effect.valueScaling;
+    const percentMultiplier =
+      Number.isFinite(effect.percentMultiplier) && effect.percentMultiplier > 0 ? effect.percentMultiplier : 1;
+    const minPercent = Number.isFinite(effect.minPercent) ? effect.minPercent : null;
+    const maxPercent = Number.isFinite(effect.maxPercent) ? effect.maxPercent : null;
+    const typeLabel = effect.damageType === 'magical' ? 'Magic' : 'Physical';
+    if (derived) {
+      const scaled = computeScaledEffectValue(baseAmount, derived, scaling);
+      const formatted = formatNumericValue(Math.round(scaled));
+      const scalingText = formatScalingEntries(scaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      let baseText = `${typeLabel} damage equal to your missing health % × ${formatted}${suffix}`;
+      if (percentMultiplier !== 1) {
+        baseText += ` × ${formatNumericValue(percentMultiplier)}`;
+      }
+      if (minPercent != null || maxPercent != null) {
+        const rangeParts = [];
+        if (minPercent != null) {
+          rangeParts.push(`minimum ${formatChanceValue(minPercent * 100)}`);
+        }
+        if (maxPercent != null) {
+          rangeParts.push(`maximum ${formatChanceValue(maxPercent * 100)}`);
+        }
+        if (rangeParts.length) {
+          baseText += ` (${rangeParts.join(', ')})`;
+        }
+      }
+      return applyEffectChance(baseText);
+    }
+    const valueText = formatValueWithScaling(baseAmount, scaling);
+    let baseText = valueText
+      ? `${typeLabel} damage equal to your missing health % × ${valueText}`
+      : `${typeLabel} damage equal to your missing health %`;
+    if (percentMultiplier !== 1) {
+      baseText += ` × ${formatNumericValue(percentMultiplier)}`;
+    }
+    const scalingText = formatScalingEntries(scaling);
+    if (!valueText && scalingText.length) {
+      baseText += ` (${scalingText.join(', ')})`;
+    }
+    if (minPercent != null || maxPercent != null) {
+      const rangeParts = [];
+      if (minPercent != null) {
+        rangeParts.push(`minimum ${formatChanceValue(minPercent * 100)}`);
+      }
+      if (maxPercent != null) {
+        rangeParts.push(`maximum ${formatChanceValue(maxPercent * 100)}`);
+      }
+      if (rangeParts.length) {
+        baseText += ` (${rangeParts.join(', ')})`;
+      }
     }
     return applyEffectChance(baseText);
   }
@@ -773,6 +865,60 @@ function describeEffect(effect, options = {}) {
     const scalingText = formatScalingEntries(scaling);
     const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
     return applyEffectChance(`Heal ${formatChanceValue(basePct)} of damage taken${suffix}${durationText}`);
+  }
+  if (effect.type === 'DamageResourceReturn') {
+    const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
+    const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
+    const scaling = effect.scaling || effect.percentScaling || effect.valueScaling;
+    const basePercent = effect.percent != null ? effect.percent : effect.value;
+    let percentText;
+    if (derived) {
+      const scaled = computeScaledEffectValue(basePercent, derived, scaling);
+      const pct = Math.max(0, Math.round(scaled * 100));
+      const scalingText = formatScalingEntries(scaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      percentText = `${formatChanceValue(pct)}${suffix}`;
+    } else {
+      const pct = Number.isFinite(basePercent) ? basePercent * 100 : 0;
+      const scalingText = formatScalingEntries(scaling);
+      const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
+      percentText = `${formatChanceValue(pct)}${suffix}`;
+    }
+    const attackScaling = effect.attackCountScaling || effect.durationCountScaling;
+    const attackCountDerived = derived ? resolveEffectAttackCountWithDerived(effect, derived) : null;
+    const baseAttackCount = resolveEffectAttackCount(effect);
+    let attackText;
+    if (derived && Number.isFinite(attackCountDerived)) {
+      const rounded = Math.max(1, Math.round(attackCountDerived));
+      attackText = `${formatNumericValue(rounded)} attacks`;
+    } else {
+      const scalingText = formatScalingEntries(attackScaling);
+      const baseText = formatNumericValue(Number.isFinite(baseAttackCount) ? baseAttackCount : 1);
+      attackText = scalingText.length ? `${baseText} attacks (${scalingText.join(', ')})` : `${baseText} attacks`;
+    }
+    const maxAttacks = Number.isFinite(effect.attackCountMax)
+      ? effect.attackCountMax
+      : Number.isFinite(effect.maxAttacks)
+      ? effect.maxAttacks
+      : null;
+    let baseText = `Recover ${percentText} of damage dealt as ${label}`;
+    if (attackText) {
+      baseText += ` for up to ${attackText}`;
+    }
+    if (Number.isFinite(maxAttacks)) {
+      const displayedCount = derived && Number.isFinite(attackCountDerived)
+        ? Math.max(1, Math.round(attackCountDerived))
+        : Number.isFinite(baseAttackCount)
+        ? Math.round(baseAttackCount)
+        : null;
+      if (displayedCount == null || Math.round(maxAttacks) !== displayedCount) {
+        baseText += ` (capped at ${formatNumericValue(maxAttacks)} attacks)`;
+      }
+    }
+    if (Number.isFinite(effect.perHitCap)) {
+      baseText += ` (max ${formatNumericValue(effect.perHitCap)} ${label} per hit)`;
+    }
+    return applyEffectChance(baseText);
   }
   if (effect.type === 'BuffChance') {
     const stat = typeof effect.stat === 'string' ? effect.stat : '';
