@@ -1,4 +1,5 @@
 const CharacterModel = require('../models/Character');
+const PlayerModel = require('../models/Player');
 const {
   ensureEquipmentShape,
   ensureUseableShape,
@@ -11,6 +12,7 @@ const { getEquipmentMap } = require('./equipmentService');
 const { getMaterialMap } = require('./materialService');
 const { compute } = require('./derivedStats');
 const { processJobForCharacter } = require('./jobService');
+const { buildStashView } = require('./stashService');
 
 function slotOrder(slot) {
   const order = [...EQUIPMENT_SLOTS, 'useable'];
@@ -22,7 +24,10 @@ async function getInventory(playerId, characterId) {
   if (!playerId || !characterId) {
     throw new Error('playerId and characterId required');
   }
-  const characterDoc = await CharacterModel.findOne({ characterId, playerId });
+  const [characterDoc, playerDoc] = await Promise.all([
+    CharacterModel.findOne({ characterId, playerId }),
+    PlayerModel.findOne({ playerId }),
+  ]);
   if (!characterDoc) {
     throw new Error('character not found');
   }
@@ -126,6 +131,8 @@ async function getInventory(playerId, characterId) {
     })
   );
 
+  const stash = playerDoc ? buildStashView(playerDoc.stash || {}, equipmentMap, materialMap) : null;
+
   return {
     gold: typeof character.gold === 'number' ? character.gold : 0,
     character: sanitizedCharacter,
@@ -136,6 +143,7 @@ async function getInventory(playerId, characterId) {
     ownedCounts,
     materials,
     ownedMaterials: ownedMaterialCounts,
+    stash,
   };
 }
 

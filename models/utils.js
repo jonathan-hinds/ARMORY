@@ -2,6 +2,7 @@ const EQUIPMENT_SLOTS = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands'];
 const USEABLE_SLOTS = ['useable1', 'useable2'];
 const STATS = ['strength', 'stamina', 'agility', 'intellect', 'wisdom'];
 const ITEM_AUGMENT_SEPARATOR = '::bs::';
+const DEFAULT_STASH_EQUIPMENT_SLOTS = 5;
 
 function normalizeDate(value) {
   if (!value) return null;
@@ -56,6 +57,49 @@ function ensureMaterialShape(materials = {}) {
     });
   }
   return shaped;
+}
+
+function ensureCountMap(map = {}) {
+  const shaped = {};
+  if (!map || typeof map !== 'object') {
+    return shaped;
+  }
+  const assignIfValid = (id, value) => {
+    if (id == null) return;
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      shaped[id] = Math.floor(numeric);
+    }
+  };
+  if (map instanceof Map) {
+    map.forEach((value, key) => assignIfValid(key, value));
+  } else {
+    Object.entries(map).forEach(([id, value]) => assignIfValid(id, value));
+  }
+  return shaped;
+}
+
+function ensureStashEquipmentShape(equipment = {}) {
+  return ensureCountMap(equipment);
+}
+
+function ensureStashShape(stash = {}) {
+  if (!stash || typeof stash !== 'object') {
+    return {
+      gold: 0,
+      equipmentSlots: DEFAULT_STASH_EQUIPMENT_SLOTS,
+      equipment: {},
+      materials: {},
+    };
+  }
+  const gold = Number(stash.gold);
+  const slots = Number(stash.equipmentSlots);
+  return {
+    gold: Number.isFinite(gold) ? gold : 0,
+    equipmentSlots: Number.isFinite(slots) && slots > 0 ? Math.floor(slots) : DEFAULT_STASH_EQUIPMENT_SLOTS,
+    equipment: ensureStashEquipmentShape(stash.equipment),
+    materials: ensureMaterialShape(stash.materials),
+  };
 }
 
 function readMaterialCount(materials, id) {
@@ -269,4 +313,8 @@ module.exports = {
   matchesItemId,
   findItemIndex,
   countItems,
+  ensureStashShape,
+  ensureStashEquipmentShape,
+  ensureCountMap,
+  DEFAULT_STASH_EQUIPMENT_SLOTS,
 };

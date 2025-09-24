@@ -104,6 +104,7 @@
               Show Filters ▾
             </button>
             <div class="inventory-controls-actions">
+              <button id="inventory-stash-button" class="inventory-stash-button" type="button">View Stash</button>
               <button id="inventory-filter-reset" class="filter-reset" type="button">Reset Filters</button>
             </div>
           </div>
@@ -134,6 +135,7 @@
         </div>
         <div class="inventory-results-header">
           <div id="inventory-results-summary"></div>
+          <div id="inventory-stash-summary" class="inventory-stash-summary"></div>
         </div>
         <div class="inventory-layout">
           <div class="inventory-column">
@@ -265,6 +267,34 @@
         </div>
       </div>
     </section>
+  </div>
+  <div id="stash-dialog" class="stash-dialog-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="stash-dialog-title">
+    <div class="stash-dialog">
+      <div class="stash-dialog-header">
+        <h2 id="stash-dialog-title">Account Stash</h2>
+        <button type="button" id="stash-dialog-close">Close</button>
+      </div>
+      <div id="stash-dialog-message" class="message hidden"></div>
+      <div class="stash-dialog-summary" id="stash-dialog-summary"></div>
+      <div class="stash-dialog-actions">
+        <div class="stash-gold-transfer">
+          <label for="stash-gold-input">Deposit Gold</label>
+          <div class="stash-gold-field">
+            <input id="stash-gold-input" type="number" min="1" step="1" />
+            <button type="button" id="stash-deposit-gold">Deposit</button>
+          </div>
+        </div>
+        <button type="button" id="stash-expand" class="stash-expand-button">Unlock Slot</button>
+      </div>
+      <div class="stash-section">
+        <h3>Stored Equipment</h3>
+        <div id="stash-equipment-grid" class="stash-grid"></div>
+      </div>
+      <div class="stash-section">
+        <h3>Stored Materials</h3>
+        <div id="stash-material-grid" class="stash-grid stash-material-grid"></div>
+      </div>
+    </div>
   </div>
   <script src="tooltip.js"></script>
   <script src="main.js"></script>

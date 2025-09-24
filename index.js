@@ -12,6 +12,7 @@ const { queueMatch, cancelMatchmaking } = require("./systems/matchmaking");
 const { getEquipmentCatalog } = require("./systems/equipmentService");
 const { purchaseItem } = require("./systems/shopService");
 const { getInventory, setEquipment } = require("./systems/inventoryService");
+const { depositToStash, getStash, expandStash } = require("./systems/stashService");
 const { getChallengeStatus, runChallengeFight, startChallenge } = require("./systems/challengeGA");
 const {
   getJobStatus,
@@ -165,6 +166,59 @@ app.get("/players/:playerId/inventory", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/players/:playerId/stash", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  if (!playerId) {
+    return res.status(400).json({ error: "playerId required" });
+  }
+  try {
+    const stash = await getStash(playerId);
+    res.json(stash);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to load stash" });
+  }
+});
+
+app.post("/players/:playerId/stash/deposit", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  const { characterId, items, materials, gold } = req.body || {};
+  const cid = parseInt(characterId, 10);
+  if (!playerId || !cid) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    await depositToStash(playerId, cid, { items, materials, gold });
+    const data = await getInventory(playerId, cid);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to deposit" });
+  }
+});
+
+app.post("/players/:playerId/stash/expand", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  const { characterId } = req.body || {};
+  const cid = characterId != null ? parseInt(characterId, 10) : null;
+  if (!playerId) {
+    return res.status(400).json({ error: "playerId required" });
+  }
+  try {
+    await expandStash(playerId);
+    if (cid) {
+      const data = await getInventory(playerId, cid);
+      res.json(data);
+    } else {
+      const stash = await getStash(playerId);
+      res.json({ stash });
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to expand stash" });
   }
 });
 
