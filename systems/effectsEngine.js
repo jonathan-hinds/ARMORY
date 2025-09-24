@@ -1177,11 +1177,15 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       }
       const interval = Number.isFinite(effect.interval) && effect.interval > 0 ? effect.interval : 1;
       const rawDuration = Number.isFinite(effect.duration) && effect.duration >= 0 ? effect.duration : null;
-      const explicitTicks =
-        Number.isFinite(effect.ticks) && effect.ticks > 0 ? Math.floor(effect.ticks) : null;
+      const explicitTicksRaw =
+        Number.isFinite(effect.ticks) && effect.ticks > 0 ? effect.ticks : null;
+      const explicitTicks = explicitTicksRaw != null ? Math.max(1, Math.floor(explicitTicksRaw)) : null;
       let totalDuration = rawDuration;
-      if (totalDuration == null && explicitTicks != null) {
+      if ((totalDuration == null || totalDuration <= 0) && explicitTicks != null) {
         totalDuration = interval * explicitTicks;
+      }
+      if (totalDuration != null && totalDuration < interval) {
+        totalDuration = interval;
       }
       let ticksRemaining = explicitTicks;
       if (ticksRemaining == null && totalDuration != null && interval > 0) {

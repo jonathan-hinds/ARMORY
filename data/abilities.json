@@ -209,6 +209,8 @@
         "type": "NextAbilityDamage",
         "value": 10,
         "scaling": { "agility": 0.75 },
+        "appliesTo": "any",
+        "matchLastDamageType": false,
         "matchLastResult": true,
         "target": "self"
       }
