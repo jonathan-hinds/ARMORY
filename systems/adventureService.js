@@ -215,7 +215,7 @@ function createBaseState(characterId, config) {
 
 function isStateActive(state) {
   if (!state || !state.active) return false;
-  if (state.endsAt && Date.now() >= state.endsAt) return false;
+  if (state.completedAt != null && state.completedAt <= Date.now()) return false;
   return true;
 }
 
