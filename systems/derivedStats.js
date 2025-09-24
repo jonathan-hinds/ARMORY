@@ -191,7 +191,9 @@ function compute(character, equipped = {}) {
   let maxMeleeAttack = attributes.strength * 2 + 4;
   let minMagicAttack = attributes.intellect * 2;
   let maxMagicAttack = attributes.intellect * 2 + 4;
-  let basicAttackEffectType = character.basicType === 'melee' ? 'PhysicalDamage' : 'MagicDamage';
+  const normalizedBasicType =
+    character.basicType === 'magic' ? 'magic' : character.basicType === 'melee' ? 'melee' : null;
+  let basicAttackEffectType = normalizedBasicType === 'magic' ? 'MagicDamage' : 'PhysicalDamage';
   let weaponDamageType = null;
 
   if (weapon) {
@@ -199,13 +201,17 @@ function compute(character, equipped = {}) {
     if (weapon.damageType === 'magical') {
       minMagicAttack = minDamage;
       maxMagicAttack = maxDamage;
-      basicAttackEffectType = 'MagicDamage';
       weaponDamageType = 'magical';
+      if (!normalizedBasicType) {
+        basicAttackEffectType = 'MagicDamage';
+      }
     } else {
       minMeleeAttack = minDamage;
       maxMeleeAttack = maxDamage;
-      basicAttackEffectType = 'PhysicalDamage';
       weaponDamageType = 'physical';
+      if (!normalizedBasicType) {
+        basicAttackEffectType = 'PhysicalDamage';
+      }
     }
   }
 

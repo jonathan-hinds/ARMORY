@@ -15,6 +15,16 @@ function normalizeDamageType(value) {
   return value === 'magic' ? 'magic' : 'melee';
 }
 
+function basicAttackTypeLabel(value) {
+  const normalized = normalizeDamageType(value);
+  return normalized === 'magic' ? 'Magic' : 'Physical';
+}
+
+function formatBasicAttackName(baseName, typeValue) {
+  const label = basicAttackTypeLabel(typeValue);
+  return `${baseName} (${label})`;
+}
+
 function setRotationDamageType(value) {
   rotationDamageType = normalizeDamageType(value);
   if (rotationDamageTypeSelect) {
@@ -748,20 +758,36 @@ function describeEffect(effect, options = {}) {
   if (effect.type === 'ResourceOverTime') {
     const resource = typeof effect.resource === 'string' ? effect.resource.toLowerCase() : '';
     const label = RESOURCE_LABELS[resource] || titleCase(resource || 'Resource');
-    const interval = effect.interval != null ? effect.interval : 1;
-    const duration = effect.duration != null ? effect.duration : 0;
+    const intervalValue = Number.isFinite(effect.interval) && effect.interval > 0 ? effect.interval : 1;
+    const rawDuration = Number.isFinite(effect.duration) && effect.duration >= 0 ? effect.duration : null;
+    const rawTicks =
+      Number.isFinite(effect.ticks) && effect.ticks > 0 ? Math.max(1, Math.floor(effect.ticks)) : null;
+    let durationSeconds = rawDuration;
+    if ((durationSeconds == null || durationSeconds <= 0) && rawTicks != null) {
+      durationSeconds = intervalValue * rawTicks;
+    }
+    if (durationSeconds == null || durationSeconds < intervalValue) {
+      durationSeconds = intervalValue;
+    }
+    const tickCount = rawTicks != null ? rawTicks : Math.max(1, Math.round(durationSeconds / intervalValue));
     const amount = effect.value != null ? effect.value : effect.amount;
+    const intervalText = formatNumericValue(intervalValue);
+    const durationText = formatNumericValue(durationSeconds);
     if (derived) {
       const scaled = computeScaledEffectValue(amount, derived, effect.scaling || effect.valueScaling);
       const perTick = Math.max(0, Math.round(scaled));
       const scalingText = formatScalingEntries(effect.scaling || effect.valueScaling);
       const suffix = scalingText.length ? ` (${scalingText.join(', ')})` : '';
-      return applyEffectChance(`Restore ${formatNumericValue(perTick)} ${label} every ${interval}s for ${duration}s${suffix}`);
+      const tickInfo = tickCount > 1 ? ` (${tickCount} ticks)` : '';
+      return applyEffectChance(
+        `Restore ${formatNumericValue(perTick)} ${label} every ${intervalText}s for ${durationText}s${tickInfo}${suffix}`,
+      );
     }
     const valueText = formatValueWithScaling(amount, effect.scaling || effect.valueScaling);
+    const tickInfo = tickCount > 1 ? ` (${tickCount} ticks)` : '';
     const base = valueText
-      ? `Restore ${valueText} ${label} every ${interval}s for ${duration}s`
-      : `Restore ${label} every ${interval}s for ${duration}s`;
+      ? `Restore ${valueText} ${label} every ${intervalText}s for ${durationText}s${tickInfo}`
+      : `Restore ${label} every ${intervalText}s for ${durationText}s${tickInfo}`;
     return applyEffectChance(base);
   }
   if (effect.type === 'ResistShield') {
@@ -4585,13 +4611,19 @@ function createAbilityCard(ability) {
   card.addEventListener('dragstart', handleDragStart);
   const name = document.createElement('div');
   name.className = 'ability-name';
-  name.textContent = ability.name;
+  if (ability && ability.isBasicAttack) {
+    name.textContent = formatBasicAttackName(ability.name, rotationDamageType);
+  } else {
+    name.textContent = ability.name;
+  }
   card.appendChild(name);
   const metaParts = [];
-  if (ability.school) {
+  if (ability && ability.isBasicAttack) {
+    metaParts.push(`${basicAttackTypeLabel(rotationDamageType)} Damage`);
+  } else if (ability.school) {
     metaParts.push(titleCase(ability.school));
   }
-  if (Number.isFinite(ability.cooldown)) {
+  if (!ability.isBasicAttack && Number.isFinite(ability.cooldown)) {
     metaParts.push(`${ability.cooldown}s CD`);
   }
   const costText = formatAbilityCost(ability);
@@ -4646,7 +4678,11 @@ function renderRotationList() {
     li.appendChild(order);
     const name = document.createElement('div');
     name.className = 'rotation-name';
-    name.textContent = ability.name;
+    if (ability.isBasicAttack) {
+      name.textContent = formatBasicAttackName(ability.name, rotationDamageType);
+    } else {
+      name.textContent = ability.name;
+    }
     li.appendChild(name);
     const actions = document.createElement('div');
     actions.className = 'rotation-actions ability-actions';
@@ -4910,7 +4946,11 @@ function renderRotationVisualization() {
     labelText.setAttribute('fill', '#fff');
     labelText.setAttribute('font-size', '11');
     labelText.setAttribute('font-weight', 'bold');
-    labelText.textContent = trackInfo.ability.name;
+    if (trackInfo.ability && trackInfo.ability.isBasicAttack) {
+      labelText.textContent = formatBasicAttackName(trackInfo.ability.name, rotationDamageType);
+    } else {
+      labelText.textContent = trackInfo.ability.name;
+    }
     timelineSvg.appendChild(labelText);
 
     const connector = create('line');
@@ -5126,7 +5166,11 @@ function renderRotationVisualization() {
     nameText.setAttribute('fill', '#000');
     nameText.setAttribute('font-size', '12');
     nameText.setAttribute('font-weight', 'bold');
-    nameText.textContent = entry.ability.name;
+    if (entry.ability && entry.ability.isBasicAttack) {
+      nameText.textContent = formatBasicAttackName(entry.ability.name, rotationDamageType);
+    } else {
+      nameText.textContent = entry.ability.name;
+    }
     timelineSvg.appendChild(nameText);
 
     const snapshot = entry.resourceSnapshot || {};
