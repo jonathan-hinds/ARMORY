@@ -396,5 +396,35 @@
         "target": "enemy"
       }
     ]
+  },
+  {
+    "id": 24,
+    "name": "Sanguine Strike",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 25,
+    "cooldown": 15,
+    "scaling": ["agility"],
+    "conditionalCost": {
+      "type": "WaiveIfNoDamageLastTurn",
+      "resources": ["stamina"]
+    },
+    "effects": [
+      {
+        "type": "PhysicalDamage",
+        "value": 8,
+        "scaling": { "agility": 0.65 },
+        "critEffects": [
+          {
+            "type": "Bleed",
+            "percentPerBonus": 0.01,
+            "duration": 6,
+            "interval": 2,
+            "damageType": "bleed",
+            "logLabel": "bleed damage"
+          }
+        ]
+      }
+    ]
   }
 ]

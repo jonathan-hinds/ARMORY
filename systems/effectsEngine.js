@@ -361,6 +361,32 @@ function cloneEffectDescriptor(effect) {
   return JSON.parse(JSON.stringify(effect));
 }
 
+function triggerFollowUpEffects(source, target, effects, baseContext, now, log) {
+  if (!Array.isArray(effects) || effects.length === 0) {
+    return;
+  }
+  let lastResolution = baseContext && baseContext.resolution ? { ...baseContext.resolution } : null;
+  let lastResult = baseContext && baseContext.lastResult ? baseContext.lastResult : null;
+  effects.forEach((entry, idx) => {
+    if (!entry) return;
+    const descriptor = cloneEffectDescriptor(entry);
+    if (!descriptor || !descriptor.type) return;
+    const nestedContext = {
+      ...baseContext,
+      resolution: lastResolution,
+      lastResult,
+      effectIndex: idx,
+    };
+    const result = applyEffect(source, target, descriptor, now, log, nestedContext);
+    if (result && result.resolution) {
+      lastResolution = result.resolution;
+    }
+    if (result) {
+      lastResult = result;
+    }
+  });
+}
+
 function processConsumedBonusEffects(source, target, details, baseOutcome, effectContext, now, log) {
   if (!source || !Array.isArray(details) || details.length === 0) {
     return { stunApplied: false };
@@ -850,6 +876,20 @@ function applyEffect(source, target, effect, now, log, context = {}) {
           outcome.additionalStun = true;
         }
       }
+      if (outcome && outcome.crit) {
+        const critEffects = Array.isArray(effect.critEffects) ? effect.critEffects : [];
+        if (critEffects.length) {
+          const followUpContext = {
+            ...context,
+            abilityBonus: scaledBonus,
+            resolution: outcome.resolution,
+            lastResult: outcome,
+            consumeDamageBonus: false,
+            trigger: 'crit',
+          };
+          triggerFollowUpEffects(source, target, critEffects, followUpContext, now, log);
+        }
+      }
       return outcome;
     }
     case 'MagicDamage': {
@@ -878,6 +918,20 @@ function applyEffect(source, target, effect, now, log, context = {}) {
         const bonusOutcome = processConsumedBonusEffects(source, target, bonusDetails, outcome, context, now, log);
         if (bonusOutcome && bonusOutcome.stunApplied) {
           outcome.additionalStun = true;
+        }
+      }
+      if (outcome && outcome.crit) {
+        const critEffects = Array.isArray(effect.critEffects) ? effect.critEffects : [];
+        if (critEffects.length) {
+          const followUpContext = {
+            ...context,
+            abilityBonus: scaledBonus,
+            resolution: outcome.resolution,
+            lastResult: outcome,
+            consumeDamageBonus: false,
+            trigger: 'crit',
+          };
+          triggerFollowUpEffects(source, target, critEffects, followUpContext, now, log);
         }
       }
       return outcome;
@@ -1305,6 +1359,85 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       pushLog(log, message, logDetails);
       const resultResolution = { ...resolution, damageType: resolution.damageType };
       return { hit: true, amount: 0, damageType: resultResolution.damageType, resolution: resultResolution };
+    }
+    case 'Bleed': {
+      const resolvedTarget = resolveEffectTarget(effect, source, target) || target;
+      if (!resolvedTarget) {
+        return null;
+      }
+      const basePercent = Number(effect.percent);
+      let percent = Number.isFinite(basePercent) ? basePercent : 0;
+      const perBonus = Number(effect.percentPerBonus);
+      const abilityBonus = Number.isFinite(context.abilityBonus) ? context.abilityBonus : null;
+      if (abilityBonus != null && Number.isFinite(perBonus) && perBonus !== 0) {
+        percent += abilityBonus * perBonus;
+      }
+      if (Number.isFinite(effect.percentBonus)) {
+        percent += effect.percentBonus;
+      }
+      const normalizedPercent = Math.max(0, percent);
+      if (normalizedPercent <= 0) {
+        const passthroughResolution = context && context.resolution ? context.resolution : { hit: true };
+        return { hit: true, amount: 0, damageType: passthroughResolution.damageType, resolution: passthroughResolution };
+      }
+      const maxHealth =
+        resolvedTarget.derived && Number.isFinite(resolvedTarget.derived.health)
+          ? resolvedTarget.derived.health
+          : Number.isFinite(resolvedTarget.health)
+          ? resolvedTarget.health
+          : 0;
+      if (!Number.isFinite(maxHealth) || maxHealth <= 0) {
+        const passthroughResolution = context && context.resolution ? context.resolution : { hit: true };
+        return { hit: true, amount: 0, damageType: passthroughResolution.damageType, resolution: passthroughResolution };
+      }
+      const totalDamage = Math.max(0, Math.round(maxHealth * normalizedPercent));
+      if (totalDamage <= 0) {
+        const passthroughResolution = context && context.resolution ? context.resolution : { hit: true };
+        return { hit: true, amount: 0, damageType: passthroughResolution.damageType, resolution: passthroughResolution };
+      }
+      const interval = Number.isFinite(effect.interval) && effect.interval > 0 ? effect.interval : 2;
+      const duration = Number.isFinite(effect.duration) && effect.duration > 0 ? effect.duration : interval;
+      const tickCount = Math.max(1, Math.floor(duration / interval));
+      const damagePerTick = Math.max(1, Math.round(totalDamage / tickCount));
+      const expiresAt = now + duration;
+      const dotEntry = {
+        damage: damagePerTick,
+        interval,
+        nextTick: now + interval,
+        expires: expiresAt,
+        resistType: 'melee',
+        damageType: typeof effect.damageType === 'string' ? effect.damageType : 'bleed',
+        logLabel: effect.logLabel || 'bleed damage',
+      };
+      if (!Array.isArray(resolvedTarget.dots)) {
+        resolvedTarget.dots = [];
+      }
+      resolvedTarget.dots.push(dotEntry);
+      if (resolvedTarget.character) {
+        const totalTicks = damagePerTick * tickCount;
+        const sourceName = source && source.character ? source.character.name : 'An attack';
+        const durationText = duration > 0 ? ` over ${Math.round(duration * 10) / 10}s` : '';
+        pushLog(
+          log,
+          `${sourceName} causes ${resolvedTarget.character.name} to bleed for ${totalTicks} damage${durationText}`,
+          {
+            sourceId: source && source.character ? source.character.id : resolvedTarget.character.id,
+            targetId: resolvedTarget.character.id,
+            kind: 'bleed',
+            amount: totalTicks,
+            duration,
+            interval,
+          },
+        );
+      }
+      const passthroughResolution = context && context.resolution ? context.resolution : { hit: true };
+      return {
+        hit: true,
+        amount: 0,
+        damageType: passthroughResolution.damageType,
+        resolution: passthroughResolution,
+        appliedEffect: 'Bleed',
+      };
     }
     case 'Poison': {
       const type = getDamageType(source, effect.type);
@@ -2011,6 +2144,12 @@ function tick(combatant, now, log) {
       const baseDamage = Number.isFinite(d.damage) ? d.damage : 0;
       const dmg = Math.max(1, Math.round(baseDamage * (1 - resist)));
       combatant.health -= dmg;
+      if (combatant) {
+        combatant.tookDamageSinceLastTurn = true;
+        if (Number.isFinite(now)) {
+          combatant.lastDamageTakenTime = now;
+        }
+      }
       const label = d.logLabel || `${d.damageType || 'damage'} damage`;
       pushLog(log, `${combatant.character.name} takes ${dmg} ${label}`, {
         sourceId: combatant.character.id,

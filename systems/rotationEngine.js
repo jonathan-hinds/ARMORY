@@ -1,3 +1,65 @@
+function normalizeResource(value) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
+function getConditionalCostEntries(ability) {
+  if (!ability) return [];
+  if (Array.isArray(ability.conditionalCosts) && ability.conditionalCosts.length) {
+    return ability.conditionalCosts;
+  }
+  if (ability.conditionalCost) {
+    return [ability.conditionalCost];
+  }
+  return [];
+}
+
+function appliesToResource(entry, resource) {
+  if (!entry) return false;
+  const normalizedResource = normalizeResource(resource);
+  if (!normalizedResource) return false;
+  if (!Array.isArray(entry.resources) || entry.resources.length === 0) {
+    return true;
+  }
+  return entry.resources.some(res => normalizeResource(res) === normalizedResource);
+}
+
+function evaluateConditionalCost(ability, combatant, resource, baseCost) {
+  const entries = getConditionalCostEntries(ability);
+  if (!entries.length) return null;
+  const normalizedResource = normalizeResource(resource);
+  let override = null;
+  let waived = false;
+  let matchedType = null;
+  entries.forEach(entry => {
+    if (!entry || !appliesToResource(entry, normalizedResource)) return;
+    const type = typeof entry.type === 'string' ? entry.type : null;
+    switch (type) {
+      case 'waiveIfNoDamageLastTurn':
+      case 'waiveifnodamagelastturn': {
+        const tookDamage = combatant && combatant.damageTakenLastTurn;
+        if (!tookDamage) {
+          override = 0;
+          waived = true;
+          matchedType = 'waiveIfNoDamageLastTurn';
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  });
+  if (override == null) {
+    return null;
+  }
+  return {
+    base: Math.max(0, Number.isFinite(override) ? override : baseCost),
+    waived,
+    type: matchedType,
+  };
+}
+
 function getAction(combatant, now, abilityMap) {
   if (!combatant.character.rotation || combatant.character.rotation.length === 0) {
     return { type: 'basic', reason: 'noRotation' };
@@ -28,7 +90,7 @@ function getAction(combatant, now, abilityMap) {
       : [];
   const modifiers = combatant.resourceCostModifiers || {};
   const payments = costs.map(entry => {
-    const resource = typeof entry.type === 'string' ? entry.type : null;
+    const resource = normalizeResource(entry.type);
     const baseCost = Number.isFinite(entry.value) ? entry.value : 0;
     if (!resource || baseCost <= 0) {
       return {
@@ -39,9 +101,14 @@ function getAction(combatant, now, abilityMap) {
         hasEnough: true,
       };
     }
+    const conditional = evaluateConditionalCost(ability, combatant, resource, baseCost);
+    const adjustedBase = conditional && Number.isFinite(conditional.base) ? conditional.base : baseCost;
     const modifierValue = Number.isFinite(modifiers[resource]) ? modifiers[resource] : 0;
     const costReduction = Math.max(0, Math.min(1, modifierValue));
-    const effective = Math.max(0, Math.ceil(baseCost * (1 - costReduction)));
+    let effective = Math.max(0, Math.ceil(adjustedBase * (1 - costReduction)));
+    if (conditional && conditional.waived) {
+      effective = 0;
+    }
     const available = Number.isFinite(combatant[resource]) ? combatant[resource] : 0;
     return {
       resource,
@@ -49,6 +116,8 @@ function getAction(combatant, now, abilityMap) {
       required: effective,
       available,
       hasEnough: available >= effective,
+      waived: conditional ? conditional.waived : false,
+      conditionalType: conditional ? conditional.type : null,
     };
   });
   const hasResources = payments.every(payment => payment.hasEnough !== false);

@@ -150,6 +150,10 @@ function createCombatant(character, equipmentMap) {
     damageReflections: [],
     damageHealShields: [],
     attackIntervalAdjustments: [],
+    tookDamageSinceLastTurn: false,
+    damageTakenLastTurn: false,
+    lastDamageTakenTime: null,
+    lastTurnDamageTime: null,
   };
   if (negationDetails) {
     combatant.negation = { ...negationDetails };
@@ -189,6 +193,12 @@ function executeCombatAction(actor, target, now, abilityMap, log) {
     summary.logs = [];
     return summary;
   }
+
+  actor.damageTakenLastTurn = !!actor.tookDamageSinceLastTurn;
+  if (Number.isFinite(actor.lastDamageTakenTime)) {
+    actor.lastTurnDamageTime = actor.lastDamageTakenTime;
+  }
+  actor.tookDamageSinceLastTurn = false;
 
   if ((actor.stunnedAttacksRemaining || 0) > 0) {
     const remainingBefore = Number.isFinite(actor.stunnedAttacksRemaining)
@@ -572,6 +582,10 @@ function tryUseCombatantItem(combatant, enemy, now, log, context = {}) {
 
 function handleDamageTaken(victim, attacker, damageType, amount, now, log) {
   if (!victim || !Number.isFinite(amount) || amount <= 0) return;
+  victim.tookDamageSinceLastTurn = true;
+  if (Number.isFinite(now)) {
+    victim.lastDamageTakenTime = now;
+  }
   const context = {
     event: 'damageTaken',
     damageType,
