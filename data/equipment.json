@@ -74,6 +74,93 @@
       ]
     },
     {
+      "id": "weapon_sanctified_sabre",
+      "name": "Sanctified Sabre",
+      "slot": "weapon",
+      "type": "sword",
+      "rarity": "Uncommon",
+      "cost": 150,
+      "damageType": "physical",
+      "baseDamage": { "min": 7, "max": 13 },
+      "scaling": { "strength": "D", "wisdom": "C" },
+      "attributeBonuses": { "wisdom": 2, "stamina": 1 },
+      "resourceBonuses": { "mana": 10 },
+      "chanceBonuses": { "hitChance": 3, "blockChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.4,
+          "effect": {
+            "type": "DamageHeal",
+            "percent": 0.08,
+            "scaling": { "wisdom": 0.0015 },
+            "attackCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon_harmonic_focus",
+      "name": "Harmonic Focus",
+      "slot": "weapon",
+      "type": "focus",
+      "rarity": "Uncommon",
+      "cost": 160,
+      "damageType": "magical",
+      "baseDamage": { "min": 6, "max": 11 },
+      "scaling": { "wisdom": "C", "intellect": "D" },
+      "attributeBonuses": { "wisdom": 2, "intellect": 1 },
+      "resourceBonuses": { "mana": 20 },
+      "chanceBonuses": { "hitChance": 4, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.35,
+          "effect": {
+            "type": "ResourceOverTime",
+            "resource": "mana",
+            "value": 4,
+            "scaling": { "wisdom": 0.35 },
+            "interval": 6,
+            "ticks": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon_stormlash_wand",
+      "name": "Stormlash Wand",
+      "slot": "weapon",
+      "type": "wand",
+      "rarity": "Uncommon",
+      "cost": 145,
+      "damageType": "magical",
+      "baseDamage": { "min": 5, "max": 10 },
+      "scaling": { "intellect": "C", "agility": "D" },
+      "attributeBonuses": { "intellect": 2, "agility": 1 },
+      "resourceBonuses": { "mana": 12 },
+      "chanceBonuses": { "hitChance": 5, "critChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.4,
+          "effect": {
+            "type": "BuffChance",
+            "stat": "critChance",
+            "amount": 4,
+            "amountScaling": { "intellect": 0.1 },
+            "durationType": "selfAttackIntervals",
+            "durationCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
       "id": "weapon_brutal_battleaxe",
       "name": "Brutal Battleaxe",
       "slot": "weapon",
@@ -113,6 +200,60 @@
           "chance": 0.25,
           "conditions": { "school": "magical" },
           "effect": { "type": "BuffDamagePct", "amount": 0.15, "duration": 4 }
+        }
+      ]
+    },
+    {
+      "id": "weapon_skysplitter_pike",
+      "name": "Skysplitter Pike",
+      "slot": "weapon",
+      "type": "spear",
+      "rarity": "Rare",
+      "cost": 290,
+      "damageType": "physical",
+      "baseDamage": { "min": 11, "max": 18 },
+      "scaling": { "agility": "B", "stamina": "C" },
+      "attributeBonuses": { "agility": 3, "stamina": 2 },
+      "resourceBonuses": { "stamina": 12 },
+      "chanceBonuses": { "critChance": 4, "hitChance": 4, "dodgeChance": 3 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.2,
+          "effect": {
+            "type": "AttackIntervalDebuff",
+            "value": 0.25,
+            "durationType": "enemyAttackIntervals",
+            "durationCount": 2,
+            "attacks": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon_nightshade_dirks",
+      "name": "Nightshade Dirks",
+      "slot": "weapon",
+      "type": "dagger",
+      "rarity": "Rare",
+      "cost": 300,
+      "damageType": "physical",
+      "baseDamage": { "min": 7, "max": 12 },
+      "scaling": { "agility": "A" },
+      "attributeBonuses": { "agility": 4, "intellect": 1 },
+      "resourceBonuses": { "stamina": 8 },
+      "chanceBonuses": { "critChance": 7, "hitChance": 4, "dodgeChance": 3 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.35,
+          "effect": {
+            "type": "Poison",
+            "damage": 4,
+            "duration": 8,
+            "interval": 2,
+            "damageScaling": { "agility": 0.5 }
+          }
         }
       ]
     },
@@ -211,6 +352,18 @@
       "chanceBonuses": { "blockChance": 3 }
     },
     {
+      "id": "armor_whisperwind_hood",
+      "name": "Whisperwind Hood",
+      "slot": "helmet",
+      "type": "leather",
+      "rarity": "Uncommon",
+      "cost": 125,
+      "attributeBonuses": { "agility": 2, "intellect": 1 },
+      "resourceBonuses": { "stamina": 10 },
+      "resistances": { "melee": 0.04, "magic": 0.02 },
+      "chanceBonuses": { "critChance": 3, "dodgeChance": 3, "hitChance": 2 }
+    },
+    {
       "id": "armor_travelers_vest",
       "name": "Traveler's Vest",
       "slot": "chest",
@@ -233,6 +386,52 @@
       "resourceBonuses": { "health": 60 },
       "resistances": { "melee": 0.1, "magic": 0.03 },
       "chanceBonuses": { "blockChance": 4, "critChance": 2 }
+    },
+    {
+      "id": "armor_celestial_vestments",
+      "name": "Celestial Vestments",
+      "slot": "chest",
+      "type": "cloth",
+      "rarity": "Uncommon",
+      "cost": 150,
+      "attributeBonuses": { "wisdom": 3, "intellect": 1 },
+      "resourceBonuses": { "mana": 30 },
+      "resistances": { "magic": 0.08 },
+      "chanceBonuses": { "hitChance": 2, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "ResistShield",
+            "amount": 0.08,
+            "scaling": { "wisdom": 0.0015 },
+            "attackCount": 2,
+            "damageType": "any",
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_serpentmail_jerkin",
+      "name": "Serpentmail Jerkin",
+      "slot": "chest",
+      "type": "leather",
+      "rarity": "Rare",
+      "cost": 260,
+      "attributeBonuses": { "agility": 3, "stamina": 1 },
+      "resourceBonuses": { "stamina": 12 },
+      "resistances": { "melee": 0.07, "magic": 0.03 },
+      "chanceBonuses": { "critChance": 5, "dodgeChance": 4, "hitChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.25,
+          "effect": { "type": "Poison", "damage": 3, "duration": 6, "interval": 2, "damageScaling": { "agility": 0.3 } }
+        }
+      ]
     },
     {
       "id": "armor_scout_trousers",
@@ -259,6 +458,18 @@
       "chanceBonuses": { "hitChance": 3, "dodgeChance": 2 }
     },
     {
+      "id": "armor_bastion_legplates",
+      "name": "Bastion Legplates",
+      "slot": "legs",
+      "type": "plate",
+      "rarity": "Uncommon",
+      "cost": 140,
+      "attributeBonuses": { "stamina": 3 },
+      "resourceBonuses": { "health": 35 },
+      "resistances": { "melee": 0.07, "magic": 0.02 },
+      "chanceBonuses": { "blockChance": 3 }
+    },
+    {
       "id": "armor_leather_boots",
       "name": "Leather Boots",
       "slot": "feet",
@@ -270,6 +481,34 @@
       "resistances": { "melee": 0.02 },
       "attackIntervalModifier": -0.1,
       "chanceBonuses": { "dodgeChance": 2, "hitChance": 1 }
+    },
+    {
+      "id": "armor_aurora_sandals",
+      "name": "Aurora Sandals",
+      "slot": "feet",
+      "type": "cloth",
+      "rarity": "Epic",
+      "cost": 380,
+      "attributeBonuses": { "wisdom": 4, "intellect": 2 },
+      "resourceBonuses": { "mana": 30 },
+      "resistances": { "magic": 0.07 },
+      "attackIntervalModifier": -0.15,
+      "chanceBonuses": { "hitChance": 4, "dodgeChance": 3 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "ResourceOverTime",
+            "resource": "mana",
+            "value": 5,
+            "scaling": { "wisdom": 0.3 },
+            "interval": 5,
+            "ticks": 3
+          }
+        }
+      ]
     },
     {
       "id": "armor_tempest_greaves",
