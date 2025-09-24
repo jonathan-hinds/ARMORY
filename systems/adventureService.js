@@ -183,6 +183,15 @@ async function persistState(state) {
   if (!state || typeof state.characterId !== 'number') {
     throw new Error('invalid adventure state');
   }
+  const nullableNumbers = ['startedAt', 'endsAt', 'nextEventAt', 'completedAt'];
+  nullableNumbers.forEach(key => {
+    if (!Number.isFinite(state[key])) {
+      state[key] = null;
+    }
+  });
+  if (state.outcome == null) {
+    state.outcome = null;
+  }
   const payload = JSON.parse(JSON.stringify(state));
   payload.characterId = state.characterId;
   await AdventureStateModel.updateOne(
@@ -1163,6 +1172,7 @@ async function startAdventure(characterId, options = {}) {
     dayDurationMs,
     totalDays,
     nextEventAt,
+    completedAt: null,
     events: [],
     history: baseHistory,
     finalized: false,
