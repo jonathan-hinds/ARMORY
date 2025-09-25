@@ -439,6 +439,34 @@ function formatValueWithScaling(baseValue, scaling) {
   return '';
 }
 
+function formatPercentScalingEntries(scaling) {
+  if (!scaling || typeof scaling !== 'object') return [];
+  return Object.entries(scaling)
+    .filter(([, amount]) => Number.isFinite(amount) && amount !== 0)
+    .map(([stat, amount]) => {
+      const label = statLabel(stat);
+      const percent = formatNumericValue(Math.abs(amount * 100));
+      const sign = amount >= 0 ? '+' : '-';
+      return `${sign}${percent}% × ${label}`;
+    });
+}
+
+function formatPercentWithScaling(baseValue, scaling) {
+  const hasBase = Number.isFinite(baseValue);
+  const baseText = hasBase ? `${formatNumericValue(baseValue * 100)}%` : '';
+  const scalingParts = formatPercentScalingEntries(scaling);
+  if (hasBase && scalingParts.length) {
+    return `${baseText} (${scalingParts.join(', ')})`;
+  }
+  if (hasBase) {
+    return baseText;
+  }
+  if (scalingParts.length) {
+    return scalingParts.join(', ');
+  }
+  return '';
+}
+
 function normalizeStatKey(stat) {
   if (typeof stat !== 'string') return '';
   return stat.trim().toLowerCase();
@@ -706,6 +734,38 @@ function describeEffect(effect, options = {}) {
     }
     return applyEffectChance(baseText);
   }
+  if (effect.type === 'StatDifferenceDamage') {
+    const statKey = typeof effect.stat === 'string' ? effect.stat : 'strength';
+    const statLabelText = statLabel(statKey) || 'Strength';
+    const typeLabel = effect.damageType === 'magical' ? 'Magic Damage' : 'Physical Damage';
+    const multiplier = Number.isFinite(effect.multiplier) ? effect.multiplier : 1;
+    const differenceLabel =
+      effect.absolute === true || effect.useAbsoluteDifference === true
+        ? `|${statLabelText} - enemy ${statLabelText}|`
+        : `${statLabelText} - enemy ${statLabelText}`;
+    const multiplierText = formatNumericValue(multiplier);
+    const baseComponent = Number.isFinite(effect.base) ? effect.base : 0;
+    const baseScaling = effect.baseScaling || effect.bonusScaling || null;
+    const baseText = formatValueWithScaling(baseComponent, baseScaling);
+    const pieces = [`${multiplierText}× ${differenceLabel}`];
+    if (baseText) {
+      pieces.push(baseText);
+    }
+    let description = `${typeLabel} equal to ${pieces.join(' + ')}`;
+    const minDamage = Number.isFinite(effect.minDamage) ? effect.minDamage : Number.isFinite(effect.minimum) ? effect.minimum : null;
+    const maxDamage = Number.isFinite(effect.maxDamage) ? effect.maxDamage : null;
+    const bounds = [];
+    if (minDamage != null) {
+      bounds.push(`minimum ${formatNumericValue(minDamage)}`);
+    }
+    if (maxDamage != null) {
+      bounds.push(`maximum ${formatNumericValue(maxDamage)}`);
+    }
+    if (bounds.length) {
+      description += ` (${bounds.join(', ')})`;
+    }
+    return applyEffectChance(description);
+  }
   if (effect.type === 'Bleed') {
     const abilityBonus = options && Number.isFinite(options.abilityBonus) ? options.abilityBonus : null;
     const basePercent = effect.percent != null ? Number(effect.percent) : null;
@@ -845,6 +905,76 @@ function describeEffect(effect, options = {}) {
     }
     return applyEffectChance(base);
   }
+  if (effect.type === 'ResistDebuff') {
+    const scaling = effect.percentScaling || effect.scaling || effect.valueScaling;
+    const basePercent = effect.percent != null ? effect.percent : effect.value;
+    const maxPercent = Number.isFinite(effect.maxPercent)
+      ? effect.maxPercent
+      : Number.isFinite(effect.percentMax)
+      ? effect.percentMax
+      : null;
+    let percentText;
+    if (derived) {
+      let scaled = computeScaledEffectValue(basePercent, derived, scaling);
+      if (!Number.isFinite(scaled)) {
+        scaled = 0;
+      }
+      if (scaled < 0) {
+        scaled = 0;
+      }
+      if (maxPercent != null) {
+        scaled = Math.min(maxPercent, scaled);
+      }
+      percentText = formatChanceValue(scaled * 100);
+    } else {
+      percentText = formatPercentWithScaling(basePercent, scaling) || `${formatNumericValue((basePercent || 0) * 100)}%`;
+    }
+    const maxText = maxPercent != null ? ` (max ${formatChanceValue(maxPercent * 100)})` : '';
+    const resistLabel =
+      effect.damageType === 'magical'
+        ? 'magical resistance'
+        : effect.damageType === 'physical'
+        ? 'physical resistance'
+        : 'resistance';
+    let base = `Reduce target ${resistLabel} by ${percentText}${maxText}`;
+    const windowText = formatAttackWindow(effect, 'enemy attack');
+    if (windowText) {
+      base += ` for the ${windowText}`;
+    }
+    return applyEffectChance(base);
+  }
+  if (effect.type === 'AttackIntervalPercentDebuff') {
+    const scaling = effect.percentScaling || effect.scaling || effect.valueScaling;
+    const basePercent = effect.percent != null ? effect.percent : effect.value;
+    const maxPercent = Number.isFinite(effect.maxPercent)
+      ? effect.maxPercent
+      : Number.isFinite(effect.percentMax)
+      ? effect.percentMax
+      : null;
+    let percentLabel;
+    if (derived) {
+      let scaled = computeScaledEffectValue(basePercent, derived, scaling);
+      if (!Number.isFinite(scaled)) {
+        scaled = 0;
+      }
+      if (scaled < 0) {
+        scaled = 0;
+      }
+      if (maxPercent != null) {
+        scaled = Math.min(maxPercent, scaled);
+      }
+      percentLabel = formatChanceValue(scaled * 100);
+    } else {
+      percentLabel = formatPercentWithScaling(basePercent, scaling) || `${formatNumericValue((basePercent || 0) * 100)}%`;
+    }
+    const maxText = maxPercent != null ? ` (max ${formatChanceValue(maxPercent * 100)})` : '';
+    let base = `Increase enemy attack interval by ${percentLabel}${maxText}`;
+    const windowText = formatAttackWindow(effect, 'enemy attack');
+    if (windowText) {
+      base += ` for the ${windowText}`;
+    }
+    return applyEffectChance(base);
+  }
   if (effect.type === 'DamageFloor') {
     const scaling = effect.scaling || effect.percentScaling || effect.valueScaling;
     const basePercent = effect.percent != null ? effect.percent : effect.value;
@@ -945,6 +1075,36 @@ function describeEffect(effect, options = {}) {
       baseText += ` (max ${formatNumericValue(effect.perHitCap)} ${label} per hit)`;
     }
     return applyEffectChance(baseText);
+  }
+  if (effect.type === 'DamageRetaliationStore') {
+    const scaling = effect.percentScaling || effect.scaling || effect.valueScaling;
+    const basePercent = effect.percent != null ? effect.percent : effect.value;
+    const maxPercent = Number.isFinite(effect.maxPercent)
+      ? effect.maxPercent
+      : Number.isFinite(effect.percentMax)
+      ? effect.percentMax
+      : null;
+    let percentLabel;
+    if (derived) {
+      let scaled = computeScaledEffectValue(basePercent, derived, scaling);
+      if (!Number.isFinite(scaled)) {
+        scaled = 0;
+      }
+      if (scaled < 0) {
+        scaled = 0;
+      }
+      if (maxPercent != null) {
+        scaled = Math.min(maxPercent, scaled);
+      }
+      percentLabel = formatChanceValue(scaled * 100);
+    } else {
+      percentLabel = formatPercentWithScaling(basePercent, scaling) || `${formatNumericValue((basePercent || 0) * 100)}%`;
+    }
+    const maxText = maxPercent != null ? ` (max ${formatChanceValue(maxPercent * 100)})` : '';
+    const windowText = formatAttackWindow(effect) || 'next attacks';
+    const clause = windowText.startsWith('next') ? `the ${windowText}` : windowText;
+    const message = `Store damage from ${clause} and retaliate with ${percentLabel}${maxText}`;
+    return applyEffectChance(message);
   }
   if (effect.type === 'BuffChance') {
     const stat = typeof effect.stat === 'string' ? effect.stat : '';
