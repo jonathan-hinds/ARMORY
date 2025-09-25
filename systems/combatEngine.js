@@ -636,8 +636,10 @@ function processDamageRetaliationStores(victim, attacker, amount, now, log) {
   if (!victim || !Array.isArray(victim.damageRetaliationStores) || victim.damageRetaliationStores.length === 0) {
     return;
   }
+  const stores = victim.damageRetaliationStores.slice();
   const remaining = [];
-  victim.damageRetaliationStores.forEach(entry => {
+  victim.damageRetaliationStores = remaining;
+  stores.forEach(entry => {
     if (!entry) return;
     const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : Infinity;
     const expired = Number.isFinite(now) && now >= expiresAt;
@@ -662,7 +664,6 @@ function processDamageRetaliationStores(victim, attacker, amount, now, log) {
       remaining.push(entry);
     }
   });
-  victim.damageRetaliationStores = remaining;
 }
 
 function handleDamageTaken(victim, attacker, damageType, amount, now, log) {
