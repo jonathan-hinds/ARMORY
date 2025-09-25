@@ -468,5 +468,103 @@
         "logLabel": "Second Wind"
       }
     ]
+  },
+  {
+    "id": 27,
+    "name": "Crushing Blow",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 19,
+    "cooldown": 18,
+    "scaling": ["strength"],
+    "effects": [
+      {
+        "type": "PhysicalDamage",
+        "value": 14,
+        "scaling": { "strength": 0.6 }
+      },
+      {
+        "type": "ResistDebuff",
+        "damageType": "physical",
+        "percent": 0.12,
+        "percentScaling": { "strength": 0.0008 },
+        "maxPercent": 0.4,
+        "chance": 0.45,
+        "attackCountBase": 4,
+        "attackCountScaling": { "strength": 0.04 },
+        "attackCountMax": 8,
+        "durationType": "enemyAttackIntervals",
+        "target": "enemy",
+        "logLabel": "armor break"
+      }
+    ]
+  },
+  {
+    "id": 28,
+    "name": "Overthrow",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 22,
+    "cooldown": 18,
+    "scaling": ["strength"],
+    "effects": [
+      {
+        "type": "StatDifferenceDamage",
+        "stat": "strength",
+        "multiplier": 1.2,
+        "base": 6,
+        "minDamage": 8,
+        "damageType": "physical",
+        "logLabel": "overthrow"
+      }
+    ]
+  },
+  {
+    "id": 29,
+    "name": "Blood Thirst",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 16,
+    "cooldown": 22,
+    "scaling": ["strength"],
+    "effects": [
+      {
+        "type": "DamageRetaliationStore",
+        "percent": 0.35,
+        "percentScaling": { "strength": 0.002 },
+        "maxPercent": 0.75,
+        "attackCountBase": 4,
+        "attackCountScaling": { "strength": 0.06 },
+        "attackCountMax": 10,
+        "target": "self",
+        "logLabel": "blood thirst"
+      }
+    ]
+  },
+  {
+    "id": 30,
+    "name": "Bone Shatter",
+    "school": "physical",
+    "costType": "stamina",
+    "costValue": 18,
+    "cooldown": 18,
+    "scaling": ["strength"],
+    "effects": [
+      {
+        "type": "PhysicalDamage",
+        "value": 11,
+        "scaling": { "strength": 0.5 }
+      },
+      {
+        "type": "AttackIntervalPercentDebuff",
+        "percent": 0.2,
+        "percentScaling": { "strength": 0.0015 },
+        "maxPercent": 0.45,
+        "attacks": 3,
+        "durationType": "enemyAttackIntervals",
+        "target": "enemy",
+        "logLabel": "bone shatter slow"
+      }
+    ]
   }
 ]

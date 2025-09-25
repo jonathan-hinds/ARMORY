@@ -581,12 +581,97 @@ function tryUseCombatantItem(combatant, enemy, now, log, context = {}) {
   });
 }
 
+function clampRetaliationPercent(value, cap = 1) {
+  if (!Number.isFinite(value)) return 0;
+  const upper = Number.isFinite(cap) ? Math.max(0, cap) : 1;
+  const clamped = Math.max(0, Math.min(upper, value));
+  return clamped;
+}
+
+function triggerDamageRetaliation(owner, attacker, entry, now, log, reason) {
+  if (!entry || !owner) {
+    return;
+  }
+  const target = attacker || entry.lastAttacker || null;
+  const percentCap = Number.isFinite(entry.maxPercent) ? entry.maxPercent : null;
+  const percent = clampRetaliationPercent(entry.percent, percentCap != null ? percentCap : 1);
+  const storedDamage = Number.isFinite(entry.storedDamage) ? entry.storedDamage : 0;
+  const damageType = entry.damageType === 'magical' ? 'magical' : 'physical';
+  const abilityLabel = entry.logLabel || entry.abilityName || 'retaliation';
+  if (target && target.character && storedDamage > 0 && percent > 0) {
+    const retaliation = Math.max(0, Math.round(storedDamage * percent));
+    if (retaliation > 0) {
+      const before = Number.isFinite(target.health) ? target.health : 0;
+      const updated = Math.max(0, before - retaliation);
+      target.health = updated;
+      if (owner.character) {
+        pushLog(log, `${owner.character.name}'s ${abilityLabel} retaliates for ${retaliation} damage`, {
+          sourceId: owner.character.id,
+          targetId: target.character.id,
+          kind: 'damage',
+          damageType,
+          amount: retaliation,
+        });
+      }
+      if (target !== owner) {
+        handleDamageTaken(target, owner, damageType, retaliation, now, log);
+      }
+      return;
+    }
+  }
+  if (owner.character) {
+    const fadeMessage =
+      reason === 'expire'
+        ? `${owner.character.name}'s ${abilityLabel} fades without release`
+        : `${owner.character.name}'s ${abilityLabel} dissipates`;
+    pushLog(log, fadeMessage, {
+      sourceId: owner.character.id,
+      targetId: owner.character.id,
+      kind: 'buffEnd',
+    });
+  }
+}
+
+function processDamageRetaliationStores(victim, attacker, amount, now, log) {
+  if (!victim || !Array.isArray(victim.damageRetaliationStores) || victim.damageRetaliationStores.length === 0) {
+    return;
+  }
+  const remaining = [];
+  victim.damageRetaliationStores.forEach(entry => {
+    if (!entry) return;
+    const expiresAt = Number.isFinite(entry.expiresAt) ? entry.expiresAt : Infinity;
+    const expired = Number.isFinite(now) && now >= expiresAt;
+    let uses = Number.isFinite(entry.remainingAttacks) ? entry.remainingAttacks : null;
+    if (!expired) {
+      const storedBefore = Number.isFinite(entry.storedDamage) ? entry.storedDamage : 0;
+      entry.storedDamage = storedBefore + Math.max(0, amount);
+      if (attacker) {
+        entry.lastAttacker = attacker;
+      }
+      if (uses != null) {
+        uses -= 1;
+      }
+    }
+    const shouldTrigger = expired || (uses != null && uses <= 0);
+    if (shouldTrigger) {
+      triggerDamageRetaliation(victim, attacker, entry, now, log, expired ? 'expire' : 'complete');
+    } else {
+      if (uses != null) {
+        entry.remainingAttacks = uses;
+      }
+      remaining.push(entry);
+    }
+  });
+  victim.damageRetaliationStores = remaining;
+}
+
 function handleDamageTaken(victim, attacker, damageType, amount, now, log) {
   if (!victim || !Number.isFinite(amount) || amount <= 0) return;
   victim.tookDamageSinceLastTurn = true;
   if (Number.isFinite(now)) {
     victim.lastDamageTakenTime = now;
   }
+  processDamageRetaliationStores(victim, attacker, amount, now, log);
   const context = {
     event: 'damageTaken',
     damageType,
