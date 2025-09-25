@@ -1770,6 +1770,28 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       const expiresAt = Number.isFinite(durationSeconds) && durationSeconds > 0 ? now + durationSeconds : null;
       if (!Array.isArray(recipient.damageResourceReturns)) {
         recipient.damageResourceReturns = [];
+      } else {
+        const abilityId = context && context.ability ? context.ability.id : null;
+        const normalizedLabel = effect.logLabel ? String(effect.logLabel).trim().toLowerCase() : null;
+        if (abilityId != null || normalizedLabel) {
+          recipient.damageResourceReturns = recipient.damageResourceReturns.filter(existing => {
+            if (!existing) {
+              return false;
+            }
+            if (abilityId != null && existing.abilityId === abilityId) {
+              return false;
+            }
+            if (abilityId == null && normalizedLabel) {
+              const existingLabel = existing.logLabel
+                ? String(existing.logLabel).trim().toLowerCase()
+                : null;
+              if (existingLabel && existingLabel === normalizedLabel && existing.abilityId == null) {
+                return false;
+              }
+            }
+            return true;
+          });
+        }
       }
       const entry = {
         resource: resourceKey,
@@ -1782,6 +1804,10 @@ function applyEffect(source, target, effect, now, log, context = {}) {
       }
       if (effect.logLabel) {
         entry.logLabel = effect.logLabel;
+      }
+      if (context && context.ability) {
+        entry.abilityId = context.ability.id;
+        entry.abilityName = context.ability.name;
       }
       recipient.damageResourceReturns.push(entry);
       if (recipient.character) {

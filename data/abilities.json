@@ -461,6 +461,7 @@
         "type": "DamageResourceReturn",
         "resource": "stamina",
         "percent": 0.35,
+        "target": "self",
         "attackCountBase": 4,
         "attackCountScaling": { "stamina": 0.12 },
         "attackCountMax": 16,
