@@ -2510,7 +2510,9 @@ function createInventoryItemCard(entry, messageEl) {
   if (!entry || !entry.item) return null;
   const { item, count } = entry;
   const card = document.createElement('div');
-  card.className = 'shop-item-card inventory-item-card';
+  card.className = 'shop-item-card inventory-item-card rarity-card';
+  const rarityKey = (item.rarity || 'Common').toLowerCase();
+  card.dataset.rarity = rarityKey;
 
   const header = document.createElement('div');
   header.className = 'card-header';
@@ -2520,7 +2522,7 @@ function createInventoryItemCard(entry, messageEl) {
   header.appendChild(name);
   const rarity = document.createElement('div');
   rarity.className = 'card-rarity';
-  rarity.textContent = item.rarity || 'Common';
+  rarity.textContent = titleCase(item.rarity || 'Common');
   header.appendChild(rarity);
   card.appendChild(header);
 
@@ -2610,7 +2612,9 @@ function createInventoryItemCard(entry, messageEl) {
 function createInventoryMaterialCard(material, count) {
   if (!material) return null;
   const card = document.createElement('div');
-  card.className = 'shop-item-card inventory-material-card';
+  card.className = 'shop-item-card inventory-material-card rarity-card';
+  const rarityKey = (material.rarity || 'Common').toLowerCase();
+  card.dataset.rarity = rarityKey;
 
   const header = document.createElement('div');
   header.className = 'card-header';
@@ -2620,7 +2624,7 @@ function createInventoryMaterialCard(material, count) {
   header.appendChild(name);
   const rarity = document.createElement('div');
   rarity.className = 'card-rarity';
-  rarity.textContent = material.rarity || 'Common';
+  rarity.textContent = titleCase(material.rarity || 'Common');
   header.appendChild(rarity);
   card.appendChild(header);
 
@@ -4229,7 +4233,9 @@ function createTag(text) {
 
 function buildShopItemCard(item, messageEl) {
   const card = document.createElement('div');
-  card.className = 'shop-item-card';
+  card.className = 'shop-item-card rarity-card';
+  const rarityKey = (item.rarity || 'Common').toLowerCase();
+  card.dataset.rarity = rarityKey;
 
   const header = document.createElement('div');
   header.className = 'card-header';
@@ -4239,7 +4245,7 @@ function buildShopItemCard(item, messageEl) {
   header.appendChild(name);
   const rarity = document.createElement('div');
   rarity.className = 'card-rarity';
-  rarity.textContent = item.rarity || 'Common';
+  rarity.textContent = titleCase(item.rarity || 'Common');
   header.appendChild(rarity);
   card.appendChild(header);
 
@@ -8050,12 +8056,11 @@ function launchAdventureReplay(event) {
 function createAdventureItemCard(item) {
   if (!item) return null;
   const card = document.createElement('div');
-  card.className = 'event-card item-card';
+  card.className = 'event-card item-card rarity-card';
   card.tabIndex = 0;
   card.setAttribute('role', 'button');
-  if (item.rarity) {
-    card.dataset.rarity = String(item.rarity).toLowerCase();
-  }
+  const rarityKey = (item.rarity || 'Common').toLowerCase();
+  card.dataset.rarity = rarityKey;
   const title = document.createElement('div');
   title.className = 'card-title';
   title.textContent = 'Item Found';
@@ -8081,12 +8086,11 @@ function createAdventureItemCard(item) {
 function createAdventureMaterialCard(material) {
   if (!material) return null;
   const card = document.createElement('div');
-  card.className = 'event-card item-card';
+  card.className = 'event-card item-card rarity-card';
   card.tabIndex = 0;
   card.setAttribute('role', 'button');
-  if (material.rarity) {
-    card.dataset.rarity = String(material.rarity).toLowerCase();
-  }
+  const rarityKey = (material.rarity || 'Common').toLowerCase();
+  card.dataset.rarity = rarityKey;
   const title = document.createElement('div');
   title.className = 'card-title';
   title.textContent = 'Material Found';

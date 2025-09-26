@@ -1359,7 +1359,9 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   align-self:flex-start;
 }
 
+
 .inventory-item-card.equipped {
+  --rarity-accent:#fff;
   background:#000;
   color:#fff;
   border-color:#fff;
@@ -1370,16 +1372,15 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   color:#f2f2f2;
 }
 
-.inventory-item-card.equipped .card-rarity,
 .inventory-item-card.equipped .card-tag {
-  border-color:#fff;
-  color:#fff;
+  border-color:var(--rarity-accent);
+  color:var(--rarity-accent);
 }
 
 .inventory-item-card.equipped .inventory-card-status,
 .inventory-item-card.equipped .inventory-card-count {
-  border-color:#fff;
-  color:#fff;
+  border-color:var(--rarity-accent);
+  color:var(--rarity-accent);
 }
 
 .inventory-item-card.equipped button {
@@ -1435,7 +1436,86 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .shop-item-card { border:2px solid #000; background:#fff; box-shadow:4px 4px 0 #000; padding:10px; display:flex; flex-direction:column; gap:8px; min-height:0; }
 .shop-item-card .card-header { display:flex; justify-content:space-between; align-items:flex-start; text-transform:uppercase; font-weight:bold; letter-spacing:1px; gap:8px; }
 .shop-item-card .card-name { flex:1; font-size:14px; line-height:1.2; }
-.shop-item-card .card-rarity { border:2px solid #000; padding:2px 6px; font-size:11px; }
+.rarity-card { position:relative; --rarity-accent:#000; }
+.rarity-card::before,
+.rarity-card::after { content:none; }
+.rarity-card[data-rarity]::before,
+.rarity-card[data-rarity]::after {
+  position:absolute;
+  pointer-events:none;
+}
+.shop-item-card .card-rarity {
+  border:2px solid var(--rarity-accent);
+  color:var(--rarity-accent);
+  padding:2px 6px;
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:1px;
+  font-weight:bold;
+}
+.rarity-card[data-rarity='uncommon']::after {
+  content:'';
+  inset:4px;
+  border:2px solid var(--rarity-accent);
+}
+.rarity-card[data-rarity='rare']::after {
+  content:'';
+  inset:4px;
+  border:2px solid var(--rarity-accent);
+}
+.rarity-card[data-rarity='rare']::before {
+  content:'';
+  inset:0;
+  background:
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top left/16px 2px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top left/2px 16px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top right/16px 2px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top right/2px 16px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom left/16px 2px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom left/2px 16px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom right/16px 2px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom right/2px 16px no-repeat;
+}
+.rarity-card[data-rarity='epic']::after {
+  content:'';
+  inset:4px;
+  border:3px double var(--rarity-accent);
+}
+.rarity-card[data-rarity='epic']::before {
+  content:'';
+  inset:0;
+  background:
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top left/18px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top left/3px 18px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top right/18px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top right/3px 18px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom left/18px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom left/3px 18px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom right/18px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom right/3px 18px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) center/100% 2px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) center/2px 100% no-repeat;
+}
+.rarity-card[data-rarity='legendary']::after {
+  content:'';
+  inset:4px;
+  border:4px double var(--rarity-accent);
+}
+.rarity-card[data-rarity='legendary']::before {
+  content:'';
+  inset:0;
+  background:
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top left/20px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top left/3px 20px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top right/20px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) top right/3px 20px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom left/20px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom left/3px 20px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom right/20px 3px no-repeat,
+    linear-gradient(var(--rarity-accent), var(--rarity-accent)) bottom right/3px 20px no-repeat,
+    linear-gradient(45deg, transparent calc(50% - 1px), var(--rarity-accent) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+    linear-gradient(135deg, transparent calc(50% - 1px), var(--rarity-accent) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px));
+}
 .shop-item-card .card-tags { display:flex; flex-wrap:wrap; gap:4px; font-size:10px; text-transform:uppercase; letter-spacing:1px; }
 .shop-item-card .card-tag { border:1px solid #000; padding:2px 6px; }
 .shop-item-card .card-description { font-size:12px; color:#333; }
