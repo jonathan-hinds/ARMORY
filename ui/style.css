@@ -769,6 +769,42 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #battle-log .log-message.opponent, .battle-log .log-message.opponent, .battle-log .log-message.boss { align-self:flex-end; background:#fff; color:#000; border-color:#000; text-align:right; }
 #battle-log .log-message.neutral, .battle-log .log-message.neutral { align-self:center; background:#fff; color:#000; border-style:dashed; text-align:center; }
 #battle-dialog .dialog-buttons, #dungeon-dialog .dialog-buttons { text-align:right; margin-top:16px; }
+.battlefield-panel { border:1px solid #000; background:#fff; padding:16px; display:flex; flex-direction:column; gap:16px; }
+.battlefield-header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+.battlefield-timing, .battlefield-pot { border:1px solid #000; background:#fff; padding:8px 12px; display:flex; flex-direction:column; gap:4px; text-transform:uppercase; }
+.battlefield-label { font-size:12px; font-weight:bold; }
+.battlefield-value { font-size:20px; font-weight:bold; text-transform:none; }
+.battlefield-entry { font-size:12px; }
+.battlefield-body { display:flex; gap:24px; }
+.battlefield-map { position:relative; flex:1; min-height:360px; border:1px solid #000; background:#fff; }
+.battlefield-sidebar { width:220px; display:flex; flex-direction:column; gap:12px; }
+.battlefield-notice { font-size:12px; text-transform:uppercase; }
+.battlefield-your-points { font-weight:bold; }
+.battlefield-leave { border:1px solid #000; background:#000; color:#fff; padding:6px 8px; cursor:pointer; text-transform:uppercase; }
+.battlefield-leave.hidden { display:none; }
+.battlefield-score-title { font-size:12px; text-transform:uppercase; }
+.battlefield-scoreboard { border:1px solid #000; background:#fff; padding:8px; display:flex; flex-direction:column; gap:4px; max-height:260px; overflow-y:auto; }
+.battlefield-score-row { display:flex; justify-content:space-between; gap:8px; font-size:12px; padding:2px 0; }
+.battlefield-score-row .rank { min-width:24px; }
+.battlefield-score-row .name { flex:1; text-align:left; }
+.battlefield-score-row .points { font-weight:bold; }
+.battlefield-score-row.you { background:#000; color:#fff; padding:4px; }
+.battlefield-score-row.holding { border:1px dashed #000; }
+.battlefield-score-empty { font-size:11px; text-transform:uppercase; }
+.battlefield-last-winner { font-size:12px; }
+.battlefield-message { min-height:24px; }
+.battlefield-spot { position:absolute; transform:translate(-50%, -50%); width:160px; }
+.battlefield-tile { border:2px solid #000; background:#fff; padding:8px; display:flex; flex-direction:column; align-items:center; gap:4px; text-align:center; }
+.battlefield-spot.occupied .battlefield-tile { border-style:solid; }
+.battlefield-spot.yours .battlefield-tile { background:#000; color:#fff; }
+.battlefield-spot.yours .battlefield-action { background:#fff; color:#000; }
+.battlefield-tile-title { font-size:12px; font-weight:bold; text-transform:uppercase; }
+.battlefield-tile-name { font-size:16px; font-weight:bold; }
+.battlefield-tile-meta { font-size:12px; text-transform:uppercase; }
+.battlefield-tile-points { font-size:14px; font-weight:bold; }
+.battlefield-tile-empty { font-size:14px; text-transform:uppercase; }
+.battlefield-action { border:1px solid #000; background:#fff; color:#000; padding:4px 8px; cursor:pointer; text-transform:uppercase; font-size:12px; }
+.battlefield-action:hover { background:#000; color:#fff; }
 
 .matchmaking-panel {
   border:1px solid #000;

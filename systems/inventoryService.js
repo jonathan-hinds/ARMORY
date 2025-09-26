@@ -11,6 +11,7 @@ const { getEquipmentMap } = require('./equipmentService');
 const { getMaterialMap } = require('./materialService');
 const { compute } = require('./derivedStats');
 const { processJobForCharacter } = require('./jobService');
+const { ensureBattlefieldIdle } = require('./battlefieldService');
 
 function slotOrder(slot) {
   const order = [...EQUIPMENT_SLOTS, 'useable'];
@@ -147,6 +148,7 @@ async function setEquipment(playerId, characterId, slot, itemId) {
   if (!allSlots.includes(slot)) {
     throw new Error('invalid equipment slot');
   }
+  await ensureBattlefieldIdle(characterId);
   const [characterDoc, equipmentMap] = await Promise.all([
     CharacterModel.findOne({ characterId, playerId }),
     getEquipmentMap(),

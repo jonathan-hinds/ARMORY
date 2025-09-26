@@ -1,0 +1,7 @@
+{
+  "spotCount": 5,
+  "entryCost": 50,
+  "rewardIntervalMinutes": 5,
+  "eventDurationMinutes": 120,
+  "pointsPerInterval": 5
+}

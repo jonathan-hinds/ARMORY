@@ -38,6 +38,13 @@ const {
   readyForDungeonDecision,
   getDungeonStatus,
 } = require("./systems/dungeonService");
+const {
+  getBattlefieldStatus,
+  claimBattlefieldSpot,
+  leaveBattlefield,
+  ensureBattlefieldIdle,
+  startBattlefieldChallenge,
+} = require("./systems/battlefieldService");
 const app = express();
 const connectDB = require("./db");
 
@@ -145,6 +152,7 @@ app.post("/characters/:characterId/levelup", async (req, res) => {
   const characterId = parseInt(req.params.characterId, 10);
   const { allocations } = req.body || {};
   try {
+    await ensureBattlefieldIdle(characterId);
     const character = await levelUp(characterId, allocations || {});
     res.json(character);
   } catch (err) {
@@ -224,6 +232,7 @@ app.post("/characters/:characterId/job/start", async (req, res) => {
     return res.status(400).json({ error: "playerId and characterId required" });
   }
   try {
+    await ensureBattlefieldIdle(characterId);
     await ensureAdventureIdle(characterId);
     const status = await startJobWork(pid, characterId);
     res.json(status);
@@ -346,6 +355,7 @@ app.get("/matchmaking/queue", async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
   try {
+    await ensureBattlefieldIdle(characterId);
     await ensureAdventureIdle(characterId);
     await ensureJobIdle(characterId);
   } catch (err) {
@@ -408,6 +418,7 @@ app.get("/dungeon/queue", async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
   try {
+    await ensureBattlefieldIdle(characterId);
     await ensureAdventureIdle(characterId);
     await ensureJobIdle(characterId);
   } catch (err) {
@@ -517,6 +528,7 @@ app.post("/challenge/start", async (req, res) => {
   }
   const force = !!(req.body && req.body.force);
   try {
+    await ensureBattlefieldIdle(characterId);
     await ensureAdventureIdle(characterId);
     await ensureJobIdle(characterId);
     const status = await startChallenge(characterId, { force });
@@ -542,6 +554,7 @@ app.get("/challenge/fight", async (req, res) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
   try {
+    await ensureBattlefieldIdle(characterId);
     await ensureAdventureIdle(characterId);
     await ensureJobIdle(characterId);
   } catch (err) {
@@ -554,6 +567,84 @@ app.get("/challenge/fight", async (req, res) => {
   } catch (err) {
     console.error(err);
     send({ type: "error", message: err.message || "challenge failed" });
+  }
+  res.end();
+});
+
+app.get("/battlefield/status", async (req, res) => {
+  const characterId = req.query.characterId != null ? parseInt(req.query.characterId, 10) : null;
+  try {
+    const status = await getBattlefieldStatus(characterId);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || "failed to load battlefield" });
+  }
+});
+
+app.post("/battlefield/claim", async (req, res) => {
+  const { characterId, spotId } = req.body || {};
+  const cid = parseInt(characterId, 10);
+  const sid = parseInt(spotId, 10);
+  if (!Number.isFinite(cid) || !Number.isFinite(sid)) {
+    return res.status(400).json({ error: "characterId and spotId required" });
+  }
+  try {
+    await ensureBattlefieldIdle(cid);
+    await ensureAdventureIdle(cid);
+    await ensureJobIdle(cid);
+    const result = await claimBattlefieldSpot(cid, sid);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to claim battlefield spot" });
+  }
+});
+
+app.post("/battlefield/leave", async (req, res) => {
+  const { characterId } = req.body || {};
+  const cid = parseInt(characterId, 10);
+  if (!Number.isFinite(cid)) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  try {
+    const status = await leaveBattlefield(cid);
+    res.json(status);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to leave battlefield" });
+  }
+});
+
+app.get("/battlefield/challenge", async (req, res) => {
+  const characterId = parseInt(req.query.characterId, 10);
+  const spotId = parseInt(req.query.spotId, 10);
+  if (!Number.isFinite(characterId) || !Number.isFinite(spotId)) {
+    return res.status(400).end();
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  const send = data => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    await ensureBattlefieldIdle(characterId);
+    await ensureAdventureIdle(characterId);
+    await ensureJobIdle(characterId);
+  } catch (err) {
+    send({ type: "error", message: err.message || "character unavailable" });
+    res.end();
+    return;
+  }
+  try {
+    await startBattlefieldChallenge(characterId, spotId, send);
+  } catch (err) {
+    console.error(err);
+    send({ type: "error", message: err.message || "battle failed" });
   }
   res.end();
 });
@@ -579,6 +670,7 @@ app.post("/adventure/start", async (req, res) => {
   }
   try {
     const days = req.body && req.body.days != null ? parseInt(req.body.days, 10) : undefined;
+    await ensureBattlefieldIdle(characterId);
     await ensureJobIdle(characterId);
     const status = await startAdventure(characterId, { days });
     res.json(status);

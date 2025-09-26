@@ -128,6 +128,11 @@ let dungeonBossBars = null;
 let dungeonLogElement = null;
 let dungeonCloseButton = null;
 let matchmakingState = null;
+let battlefieldState = null;
+let battlefieldElements = null;
+let battlefieldPollTimer = null;
+let battlefieldTickTimer = null;
+let battlefieldPollInFlight = false;
 
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
@@ -8605,6 +8610,513 @@ async function renderAdventurePanel() {
   ensureAdventureTimers(status);
 }
 
+function stopBattlefieldPolling() {
+  if (battlefieldPollTimer) {
+    clearInterval(battlefieldPollTimer);
+    battlefieldPollTimer = null;
+  }
+  if (battlefieldTickTimer) {
+    clearInterval(battlefieldTickTimer);
+    battlefieldTickTimer = null;
+  }
+  battlefieldPollInFlight = false;
+  battlefieldElements = null;
+}
+
+function normalizeBattlefieldStatus(status) {
+  if (!status || typeof status !== 'object') return null;
+  const endsAtMs = status.endsAt ? Date.parse(status.endsAt) : null;
+  const nextAwardAtMs = status.nextAwardAt ? Date.parse(status.nextAwardAt) : null;
+  return {
+    ...status,
+    endsAtMs: Number.isFinite(endsAtMs) ? endsAtMs : null,
+    nextAwardAtMs: Number.isFinite(nextAwardAtMs) ? nextAwardAtMs : null,
+  };
+}
+
+function updateBattlefieldCountdown() {
+  if (!battlefieldElements || !battlefieldState) return;
+  const now = Date.now();
+  const remainingMs = battlefieldState.endsAtMs != null ? battlefieldState.endsAtMs - now : null;
+  const nextMs = battlefieldState.nextAwardAtMs != null ? battlefieldState.nextAwardAtMs - now : null;
+  if (battlefieldElements.endsValue) {
+    battlefieldElements.endsValue.textContent =
+      remainingMs != null ? formatDuration(Math.max(0, remainingMs)) : '—';
+  }
+  if (battlefieldElements.nextValue) {
+    battlefieldElements.nextValue.textContent =
+      nextMs != null ? formatDuration(Math.max(0, nextMs)) : '—';
+  }
+}
+
+function challengeBattlefieldSpot(spot, button) {
+  if (!currentCharacter) {
+    if (battlefieldElements && battlefieldElements.message) {
+      showMessage(battlefieldElements.message, 'Select a character to challenge a defender.', true);
+    }
+    return;
+  }
+  if (!spot || !Number.isFinite(spot.spotId)) return;
+  const messageEl = battlefieldElements ? battlefieldElements.message : null;
+  if (messageEl) {
+    showMessage(messageEl, `Challenging ${spot.occupantName || 'defender'}...`, false);
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Challenging...';
+  }
+  launchCombatStream(
+    `/battlefield/challenge?characterId=${currentCharacter.id}&spotId=${spot.spotId}`,
+    {
+      waitingText: 'Preparing battlefield duel...',
+      updateArea: false,
+      onStart: () => {
+        if (messageEl) {
+          showMessage(messageEl, 'Engaging defender...', false);
+        }
+      },
+      onEnd: data => {
+        if (data && data.character) {
+          updateAfterBattleEnd(data);
+        }
+        if (data && data.battlefield) {
+          const normalized = normalizeBattlefieldStatus(data.battlefield);
+          renderBattlefieldStatus(normalized);
+          ensureBattlefieldTimers(normalized);
+        } else {
+          refreshBattlefieldStatus();
+        }
+        if (messageEl) {
+          const win = data && data.winnerId === currentCharacter.id;
+          const text = win ? 'Victory on the battlefield!' : 'Battle resolved.';
+          showMessage(messageEl, text, false);
+        }
+      },
+      onError: err => {
+        if (messageEl) {
+          showMessage(messageEl, err && err.message ? err.message : 'Battle failed.', true);
+        }
+        refreshBattlefieldStatus();
+      },
+    },
+  );
+}
+
+function createBattlefieldSpot(status, spot) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'battlefield-spot';
+  wrapper.style.left = `${spot.x != null ? spot.x : 50}%`;
+  wrapper.style.top = `${spot.y != null ? spot.y : 50}%`;
+  wrapper.dataset.id = spot.spotId;
+
+  const tile = document.createElement('div');
+  tile.className = 'battlefield-tile';
+  const title = document.createElement('div');
+  title.className = 'battlefield-tile-title';
+  title.textContent = `Position ${spot.spotId}`;
+  tile.appendChild(title);
+
+  if (spot.occupantId != null) {
+    wrapper.classList.add('occupied');
+    const name = document.createElement('div');
+    name.className = 'battlefield-tile-name';
+    name.textContent = spot.occupantName || 'Unknown';
+    tile.appendChild(name);
+    const meta = document.createElement('div');
+    meta.className = 'battlefield-tile-meta';
+    meta.textContent = `Lv ${spot.occupantLevel || 1}`;
+    tile.appendChild(meta);
+    const points = document.createElement('div');
+    points.className = 'battlefield-tile-points';
+    points.textContent = `${spot.battlePoints || 0} pts`;
+    tile.appendChild(points);
+    const defending = currentCharacter && spot.occupantId === currentCharacter.id;
+    if (defending) {
+      wrapper.classList.add('yours');
+    } else if (currentCharacter && !battlefieldState?.defending) {
+      const challengeBtn = document.createElement('button');
+      challengeBtn.type = 'button';
+      challengeBtn.className = 'battlefield-action';
+      challengeBtn.textContent = 'Challenge';
+      challengeBtn.addEventListener('click', () => challengeBattlefieldSpot(spot, challengeBtn));
+      tile.appendChild(challengeBtn);
+    }
+    if (spot.snapshot) {
+      attachTooltip(tile, () => buildCombatantPreview(spot.snapshot, { theme: 'dark' }));
+    }
+  } else {
+    const empty = document.createElement('div');
+    empty.className = 'battlefield-tile-empty';
+    empty.textContent = 'Unclaimed';
+    tile.appendChild(empty);
+    if (currentCharacter && !battlefieldState?.defending) {
+      const claimBtn = document.createElement('button');
+      claimBtn.type = 'button';
+      claimBtn.className = 'battlefield-action';
+      claimBtn.textContent = `Claim (${status.entryCost} GP)`;
+      claimBtn.addEventListener('click', () => claimBattlefieldPosition(spot, claimBtn));
+      tile.appendChild(claimBtn);
+    }
+  }
+
+  wrapper.appendChild(tile);
+  return wrapper;
+}
+
+function renderBattlefieldMap(status) {
+  if (!battlefieldElements || !battlefieldElements.map) return;
+  const map = battlefieldElements.map;
+  map.innerHTML = '';
+  const spots = Array.isArray(status.spots) ? status.spots : [];
+  spots.forEach(spot => {
+    if (!spot) return;
+    const node = createBattlefieldSpot(status, spot);
+    map.appendChild(node);
+  });
+}
+
+function renderBattlefieldScoreboard(status) {
+  if (!battlefieldElements || !battlefieldElements.scoreboard) return;
+  const container = battlefieldElements.scoreboard;
+  container.innerHTML = '';
+  const participants = Array.isArray(status.participants) ? status.participants : [];
+  if (!participants.length) {
+    const empty = document.createElement('div');
+    empty.className = 'battlefield-score-empty';
+    empty.textContent = 'No contenders have scored yet.';
+    container.appendChild(empty);
+    return;
+  }
+  participants.forEach((entry, index) => {
+    const row = document.createElement('div');
+    row.className = 'battlefield-score-row';
+    if (entry.occupying) {
+      row.classList.add('holding');
+    }
+    if (currentCharacter && entry.characterId === currentCharacter.id) {
+      row.classList.add('you');
+    }
+    const rank = document.createElement('span');
+    rank.className = 'rank';
+    rank.textContent = `${index + 1}.`;
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = entry.name || 'Unknown';
+    const points = document.createElement('span');
+    points.className = 'points';
+    points.textContent = `${entry.points || 0} pts`;
+    row.append(rank, name, points);
+    container.appendChild(row);
+  });
+}
+
+function renderBattlefieldStatus(status) {
+  const normalized = normalizeBattlefieldStatus(status);
+  battlefieldState = normalized;
+  if (!battlefieldElements || !normalized) {
+    return;
+  }
+  clearMessage(battlefieldElements.message);
+  if (battlefieldElements.potValue) {
+    battlefieldElements.potValue.textContent = `${normalized.pot || 0} Gold`;
+  }
+  if (battlefieldElements.entryCost) {
+    battlefieldElements.entryCost.textContent = `War bond: ${normalized.entryCost || 0} Gold`;
+  }
+  const defending =
+    currentCharacter &&
+    Array.isArray(normalized.spots) &&
+    normalized.spots.some(spot => spot && spot.occupantId === currentCharacter.id);
+  battlefieldState.defending = defending;
+  renderBattlefieldMap(normalized);
+  renderBattlefieldScoreboard(normalized);
+  if (battlefieldElements.yourPoints) {
+    const pointsText = Number.isFinite(normalized.yourPoints) ? normalized.yourPoints : 0;
+    battlefieldElements.yourPoints.textContent = currentCharacter
+      ? `Your battle points: ${pointsText}`
+      : 'Select a character to join the battle.';
+  }
+  if (battlefieldElements.leaveButton) {
+    if (defending) {
+      battlefieldElements.leaveButton.classList.remove('hidden');
+      battlefieldElements.leaveButton.disabled = false;
+    } else {
+      battlefieldElements.leaveButton.classList.add('hidden');
+    }
+  }
+  if (battlefieldElements.notice) {
+    if (!currentCharacter) {
+      battlefieldElements.notice.textContent = 'Log in and select a character to fight for the battlefield.';
+    } else if (defending) {
+      battlefieldElements.notice.textContent = 'You are defending a battlefield position.';
+    } else {
+      battlefieldElements.notice.textContent = 'Spend a war bond to claim a position or challenge a defender.';
+    }
+  }
+  if (battlefieldElements.lastWinner) {
+    if (normalized.lastEvent && normalized.lastEvent.winnerName) {
+      const event = normalized.lastEvent;
+      const potText = Number.isFinite(event.pot) ? `${event.pot} Gold` : 'the war chest';
+      battlefieldElements.lastWinner.textContent = `Previous victor: ${event.winnerName} claimed ${potText}.`;
+      battlefieldElements.lastWinner.classList.remove('hidden');
+    } else {
+      battlefieldElements.lastWinner.textContent = '';
+      battlefieldElements.lastWinner.classList.add('hidden');
+    }
+  }
+  updateBattlefieldCountdown();
+}
+
+function ensureBattlefieldTimers(status) {
+  if (!status) {
+    stopBattlefieldPolling();
+    return;
+  }
+  if (!battlefieldTickTimer) {
+    battlefieldTickTimer = setInterval(updateBattlefieldCountdown, 1000);
+  }
+  if (!battlefieldPollTimer) {
+    battlefieldPollTimer = setInterval(() => {
+      if (battlefieldPollInFlight || !battlefieldElements) return;
+      battlefieldPollInFlight = true;
+      fetchBattlefieldStatus()
+        .then(data => {
+          const normalized = normalizeBattlefieldStatus(data);
+          renderBattlefieldStatus(normalized);
+        })
+        .catch(err => {
+          if (battlefieldElements && battlefieldElements.message) {
+            showMessage(
+              battlefieldElements.message,
+              err && err.message ? err.message : 'Failed to refresh battlefield.',
+              true,
+            );
+          }
+        })
+        .finally(() => {
+          battlefieldPollInFlight = false;
+        });
+    }, 30000);
+  }
+}
+
+async function fetchBattlefieldStatus() {
+  const characterId = currentCharacter && currentCharacter.id != null ? currentCharacter.id : null;
+  const url = characterId != null ? `/battlefield/status?characterId=${characterId}` : '/battlefield/status';
+  const res = await fetch(url);
+  if (!res.ok) {
+    let message = 'Failed to load battlefield.';
+    try {
+      const err = await res.json();
+      if (err && err.error) message = err.error;
+    } catch {}
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+async function refreshBattlefieldStatus() {
+  try {
+    const status = await fetchBattlefieldStatus();
+    const normalized = normalizeBattlefieldStatus(status);
+    if (battlefieldElements) {
+      renderBattlefieldStatus(normalized);
+    } else {
+      battlefieldState = normalized;
+    }
+    ensureBattlefieldTimers(normalized);
+  } catch (err) {
+    if (battlefieldElements && battlefieldElements.message) {
+      showMessage(battlefieldElements.message, err.message || 'Failed to refresh battlefield.', true);
+    }
+  }
+}
+
+async function claimBattlefieldPosition(spot, button) {
+  if (!currentCharacter) {
+    if (battlefieldElements && battlefieldElements.message) {
+      showMessage(battlefieldElements.message, 'Select a character to claim a position.', true);
+    }
+    return;
+  }
+  if (!spot || !Number.isFinite(spot.spotId)) return;
+  const messageEl = battlefieldElements ? battlefieldElements.message : null;
+  const entryCostLabel =
+    battlefieldState && battlefieldState.entryCost != null ? battlefieldState.entryCost : '?';
+  if (messageEl) {
+    showMessage(messageEl, 'Purchasing war bond...', false);
+  }
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Claiming...';
+  }
+  try {
+    const result = await postJSON('/battlefield/claim', {
+      characterId: currentCharacter.id,
+      spotId: spot.spotId,
+    });
+    if (result && result.character) {
+      updateAfterBattleEnd({ character: result.character, gold: result.gold });
+    }
+    if (result && result.status) {
+      const normalized = normalizeBattlefieldStatus(result.status);
+      renderBattlefieldStatus(normalized);
+      ensureBattlefieldTimers(normalized);
+    } else {
+      await refreshBattlefieldStatus();
+    }
+    if (messageEl) {
+      showMessage(messageEl, 'Position secured.', false);
+    }
+  } catch (err) {
+    if (messageEl) {
+      showMessage(messageEl, err.message || 'Failed to claim position.', true);
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = `Claim (${entryCostLabel} GP)`;
+    }
+  }
+}
+
+async function leaveBattlefieldPosition(button) {
+  if (!currentCharacter) return;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Leaving...';
+  }
+  const messageEl = battlefieldElements ? battlefieldElements.message : null;
+  if (messageEl) {
+    showMessage(messageEl, 'Withdrawing from the battlefield...', false);
+  }
+  try {
+    const status = await postJSON('/battlefield/leave', {
+      characterId: currentCharacter.id,
+    });
+    const normalized = normalizeBattlefieldStatus(status);
+    renderBattlefieldStatus(normalized);
+    ensureBattlefieldTimers(normalized);
+    if (messageEl) {
+      showMessage(messageEl, 'You have vacated the position.', false);
+    }
+  } catch (err) {
+    if (messageEl) {
+      showMessage(messageEl, err.message || 'Failed to leave battlefield.', true);
+    }
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Leave Position';
+    }
+  }
+}
+
+function initializeBattlefieldPanel(status) {
+  battleArea.innerHTML = '';
+  const panel = document.createElement('div');
+  panel.className = 'battlefield-panel';
+
+  const header = document.createElement('div');
+  header.className = 'battlefield-header';
+
+  const timing = document.createElement('div');
+  timing.className = 'battlefield-timing';
+  const endsLabel = document.createElement('div');
+  endsLabel.className = 'battlefield-label';
+  endsLabel.textContent = 'Event ends in';
+  const endsValue = document.createElement('div');
+  endsValue.className = 'battlefield-value';
+  timing.appendChild(endsLabel);
+  timing.appendChild(endsValue);
+  const nextLabel = document.createElement('div');
+  nextLabel.className = 'battlefield-label';
+  nextLabel.textContent = 'Next reward in';
+  const nextValue = document.createElement('div');
+  nextValue.className = 'battlefield-value';
+  timing.appendChild(nextLabel);
+  timing.appendChild(nextValue);
+
+  const pot = document.createElement('div');
+  pot.className = 'battlefield-pot';
+  const potLabel = document.createElement('div');
+  potLabel.className = 'battlefield-label';
+  potLabel.textContent = 'War chest';
+  const potValue = document.createElement('div');
+  potValue.className = 'battlefield-value';
+  const entryCost = document.createElement('div');
+  entryCost.className = 'battlefield-entry';
+  pot.append(potLabel, potValue, entryCost);
+
+  header.append(timing, pot);
+  panel.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'battlefield-body';
+  const map = document.createElement('div');
+  map.className = 'battlefield-map';
+  const sidebar = document.createElement('div');
+  sidebar.className = 'battlefield-sidebar';
+  const notice = document.createElement('div');
+  notice.className = 'battlefield-notice';
+  const yourPoints = document.createElement('div');
+  yourPoints.className = 'battlefield-your-points';
+  const leaveButton = document.createElement('button');
+  leaveButton.type = 'button';
+  leaveButton.className = 'battlefield-leave hidden';
+  leaveButton.textContent = 'Leave Position';
+  leaveButton.addEventListener('click', () => leaveBattlefieldPosition(leaveButton));
+  const scoreboardTitle = document.createElement('h3');
+  scoreboardTitle.textContent = 'Battle points';
+  scoreboardTitle.className = 'battlefield-score-title';
+  const scoreboard = document.createElement('div');
+  scoreboard.className = 'battlefield-scoreboard';
+  const lastWinner = document.createElement('div');
+  lastWinner.className = 'battlefield-last-winner hidden';
+  sidebar.append(notice, yourPoints, leaveButton, scoreboardTitle, scoreboard, lastWinner);
+
+  body.append(map, sidebar);
+  panel.appendChild(body);
+
+  const message = document.createElement('div');
+  message.className = 'battlefield-message message hidden';
+  panel.appendChild(message);
+
+  battleArea.appendChild(panel);
+
+  battlefieldElements = {
+    container: panel,
+    endsValue,
+    nextValue,
+    potValue,
+    entryCost,
+    map,
+    scoreboard,
+    yourPoints,
+    leaveButton,
+    message,
+    lastWinner,
+    notice,
+  };
+
+  renderBattlefieldStatus(status);
+}
+
+async function renderBattlefieldPanel() {
+  stopBattlefieldPolling();
+  battleArea.textContent = 'Loading battlefield...';
+  let status;
+  try {
+    status = await fetchBattlefieldStatus();
+  } catch (err) {
+    battleArea.textContent = err.message || 'Failed to load battlefield.';
+    return;
+  }
+  const normalized = normalizeBattlefieldStatus(status);
+  initializeBattlefieldPanel(normalized);
+  ensureBattlefieldTimers(normalized);
+}
+
 // Battle modes
 const battleArea = document.getElementById('battle-area');
 document.querySelectorAll('#battle-modes button').forEach(btn => {
@@ -8614,6 +9126,7 @@ document.querySelectorAll('#battle-modes button').forEach(btn => {
 function selectMode(mode) {
   stopAdventurePolling();
   closeDungeonSource();
+  stopBattlefieldPolling();
   if (mode !== 'dungeon') {
     closeDungeonDialog();
   }
@@ -8629,6 +9142,8 @@ function selectMode(mode) {
     renderAdventurePanel();
   } else if (mode === 'dungeon') {
     renderDungeonPanel();
+  } else if (mode === 'battlefield') {
+    renderBattlefieldPanel();
   } else {
     battleArea.textContent = 'Mode not implemented';
   }
