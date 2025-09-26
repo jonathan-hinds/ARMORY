@@ -133,6 +133,7 @@ let battlefieldElements = null;
 let battlefieldPollTimer = null;
 let battlefieldTickTimer = null;
 let battlefieldPollInFlight = false;
+let battlefieldResourcePromise = null;
 
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
@@ -1764,6 +1765,17 @@ async function loadAbilityCatalog(force = false) {
       });
   }
   return abilityCatalogPromise;
+}
+
+function ensureBattlefieldResources() {
+  if (!battlefieldResourcePromise) {
+    battlefieldResourcePromise = Promise.all([ensureCatalog(), loadAbilityCatalog()])
+      .catch(err => {
+        battlefieldResourcePromise = null;
+        throw err;
+      });
+  }
+  return battlefieldResourcePromise;
 }
 
 function showMessage(el, text, isError = false) {
@@ -8681,8 +8693,20 @@ function challengeBattlefieldSpot(spot, button) {
         }
         if (data && data.battlefield) {
           const normalized = normalizeBattlefieldStatus(data.battlefield);
-          renderBattlefieldStatus(normalized);
-          ensureBattlefieldTimers(normalized);
+          ensureBattlefieldResources()
+            .then(() => {
+              renderBattlefieldStatus(normalized);
+              ensureBattlefieldTimers(normalized);
+            })
+            .catch(resourceErr => {
+              if (messageEl) {
+                showMessage(
+                  messageEl,
+                  resourceErr && resourceErr.message ? resourceErr.message : 'Failed to load battlefield.',
+                  true,
+                );
+              }
+            });
         } else {
           refreshBattlefieldStatus();
         }
@@ -8880,8 +8904,20 @@ function ensureBattlefieldTimers(status) {
       if (battlefieldPollInFlight || !battlefieldElements) return;
       battlefieldPollInFlight = true;
       fetchBattlefieldStatus()
-        .then(data => {
+        .then(async data => {
           const normalized = normalizeBattlefieldStatus(data);
+          try {
+            await ensureBattlefieldResources();
+          } catch (resourceErr) {
+            if (battlefieldElements && battlefieldElements.message) {
+              showMessage(
+                battlefieldElements.message,
+                resourceErr && resourceErr.message ? resourceErr.message : 'Failed to load battlefield.',
+                true,
+              );
+            }
+            return;
+          }
           renderBattlefieldStatus(normalized);
         })
         .catch(err => {
@@ -8919,11 +8955,19 @@ async function refreshBattlefieldStatus() {
   try {
     const status = await fetchBattlefieldStatus();
     const normalized = normalizeBattlefieldStatus(status);
-    if (battlefieldElements) {
-      renderBattlefieldStatus(normalized);
-    } else {
-      battlefieldState = normalized;
+    try {
+      await ensureBattlefieldResources();
+    } catch (resourceErr) {
+      if (battlefieldElements && battlefieldElements.message) {
+        showMessage(
+          battlefieldElements.message,
+          resourceErr && resourceErr.message ? resourceErr.message : 'Failed to load battlefield.',
+          true,
+        );
+      }
+      return;
     }
+    renderBattlefieldStatus(normalized);
     ensureBattlefieldTimers(normalized);
   } catch (err) {
     if (battlefieldElements && battlefieldElements.message) {
@@ -8960,6 +9004,18 @@ async function claimBattlefieldPosition(spot, button) {
     }
     if (result && result.status) {
       const normalized = normalizeBattlefieldStatus(result.status);
+      try {
+        await ensureBattlefieldResources();
+      } catch (resourceErr) {
+        if (messageEl) {
+          showMessage(
+            messageEl,
+            resourceErr && resourceErr.message ? resourceErr.message : 'Failed to load battlefield.',
+            true,
+          );
+        }
+        return;
+      }
       renderBattlefieldStatus(normalized);
       ensureBattlefieldTimers(normalized);
     } else {
@@ -8995,6 +9051,18 @@ async function leaveBattlefieldPosition(button) {
       characterId: currentCharacter.id,
     });
     const normalized = normalizeBattlefieldStatus(status);
+    try {
+      await ensureBattlefieldResources();
+    } catch (resourceErr) {
+      if (messageEl) {
+        showMessage(
+          messageEl,
+          resourceErr && resourceErr.message ? resourceErr.message : 'Failed to load battlefield.',
+          true,
+        );
+      }
+      return;
+    }
     renderBattlefieldStatus(normalized);
     ensureBattlefieldTimers(normalized);
     if (messageEl) {
@@ -9105,9 +9173,16 @@ function initializeBattlefieldPanel(status) {
 async function renderBattlefieldPanel() {
   stopBattlefieldPolling();
   battleArea.textContent = 'Loading battlefield...';
+  const resourcePromise = ensureBattlefieldResources();
   let status;
   try {
     status = await fetchBattlefieldStatus();
+  } catch (err) {
+    battleArea.textContent = err.message || 'Failed to load battlefield.';
+    return;
+  }
+  try {
+    await resourcePromise;
   } catch (err) {
     battleArea.textContent = err.message || 'Failed to load battlefield.';
     return;
