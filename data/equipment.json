@@ -324,6 +324,175 @@
           "effect": { "type": "Stun", "attacks": 2 }
         }
       ]
+    },
+    {
+      "id": "weapon_bastion_cleaver",
+      "name": "Bastion Cleaver",
+      "slot": "weapon",
+      "type": "axe",
+      "rarity": "Uncommon",
+      "cost": 145,
+      "damageType": "physical",
+      "baseDamage": { "min": 8, "max": 14 },
+      "scaling": { "strength": "D", "stamina": "C" },
+      "attributeBonuses": { "stamina": 2, "strength": 1 },
+      "resourceBonuses": { "stamina": 10 },
+      "chanceBonuses": { "blockChance": 3, "hitChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.35,
+          "effect": {
+            "type": "ResistShield",
+            "amount": 0.06,
+            "scaling": { "stamina": 0.0014 },
+            "attackCount": 1,
+            "damageType": "physical",
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon_bloodfeather_dualblades",
+      "name": "Bloodfeather Dualblades",
+      "slot": "weapon",
+      "type": "dualblades",
+      "rarity": "Uncommon",
+      "cost": 150,
+      "damageType": "physical",
+      "baseDamage": { "min": 6, "max": 11 },
+      "scaling": { "agility": "B", "intellect": "E" },
+      "attributeBonuses": { "agility": 2, "intellect": 1 },
+      "resourceBonuses": { "stamina": 6 },
+      "chanceBonuses": { "critChance": 4, "hitChance": 3, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.3,
+          "effect": {
+            "type": "Bleed",
+            "percent": 0.04,
+            "duration": 6,
+            "interval": 2,
+            "damageType": "bleed",
+            "logLabel": "bleed damage"
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon_vigilant_censer",
+      "name": "Vigilant Censer",
+      "slot": "weapon",
+      "type": "focus",
+      "rarity": "Uncommon",
+      "cost": 155,
+      "damageType": "magical",
+      "baseDamage": { "min": 5, "max": 10 },
+      "scaling": { "wisdom": "C", "stamina": "D" },
+      "attributeBonuses": { "wisdom": 2, "stamina": 1 },
+      "resourceBonuses": { "mana": 18, "stamina": 8 },
+      "chanceBonuses": { "hitChance": 4, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.35,
+          "effect": {
+            "type": "DamageHeal",
+            "percent": 0.07,
+            "scaling": { "wisdom": 0.0012, "stamina": 0.001 },
+            "attackCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon_oathbound_blade",
+      "name": "Oathbound Blade",
+      "slot": "weapon",
+      "type": "sword",
+      "rarity": "Rare",
+      "cost": 320,
+      "damageType": "physical",
+      "baseDamage": { "min": 10, "max": 17 },
+      "scaling": { "strength": "C", "wisdom": "B" },
+      "attributeBonuses": { "wisdom": 3, "strength": 1 },
+      "resourceBonuses": { "mana": 22, "stamina": 12 },
+      "chanceBonuses": { "critChance": 3, "blockChance": 3, "hitChance": 5 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.35,
+          "effect": {
+            "type": "ResourceOverTime",
+            "resource": "stamina",
+            "value": 5,
+            "scaling": { "wisdom": 0.4 },
+            "interval": 4,
+            "ticks": 2,
+            "target": "self"
+          }
+        },
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.35,
+          "effect": {
+            "type": "ResourceOverTime",
+            "resource": "mana",
+            "value": 5,
+            "scaling": { "wisdom": 0.4 },
+            "interval": 4,
+            "ticks": 2,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "weapon_ebon_marrow_dirk",
+      "name": "Ebon Marrow Dirk",
+      "slot": "weapon",
+      "type": "dagger",
+      "rarity": "Legendary",
+      "cost": 780,
+      "damageType": "physical",
+      "baseDamage": { "min": 11, "max": 18 },
+      "scaling": { "agility": "S", "intellect": "D" },
+      "attributeBonuses": { "agility": 5, "intellect": 2 },
+      "resourceBonuses": { "stamina": 12, "mana": 12 },
+      "chanceBonuses": { "critChance": 10, "hitChance": 6, "dodgeChance": 5 },
+      "onHitEffects": [
+        {
+          "trigger": "basic",
+          "chance": 0.4,
+          "effect": {
+            "type": "Poison",
+            "damage": 5,
+            "duration": 8,
+            "interval": 2,
+            "damageScaling": { "agility": 0.6 }
+          }
+        },
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "Bleed",
+            "percent": 0.05,
+            "duration": 6,
+            "interval": 2,
+            "damageType": "bleed",
+            "logLabel": "hemorrhage"
+          }
+        }
+      ]
     }
   ],
   "armor": [
@@ -559,6 +728,143 @@
           "chance": 0.2,
           "conditions": { "damageType": "physical" },
           "effect": { "type": "Poison", "damage": 4, "duration": 6, "interval": 2 }
+        }
+      ]
+    },
+    {
+      "id": "armor_bulwark_gauntlets",
+      "name": "Bulwark Gauntlets",
+      "slot": "hands",
+      "type": "plate",
+      "rarity": "Uncommon",
+      "cost": 135,
+      "attributeBonuses": { "stamina": 2, "strength": 1 },
+      "resourceBonuses": { "health": 25 },
+      "resistances": { "melee": 0.05 },
+      "chanceBonuses": { "blockChance": 3, "hitChance": 1 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "DamageReflect",
+            "percent": 0.12,
+            "scaling": { "stamina": 0.0012 },
+            "attackCount": 1,
+            "durationType": "enemyAttackIntervals",
+            "durationCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_runeweave_mantle",
+      "name": "Runeweave Mantle",
+      "slot": "chest",
+      "type": "cloth",
+      "rarity": "Uncommon",
+      "cost": 140,
+      "attributeBonuses": { "intellect": 2, "wisdom": 1 },
+      "resourceBonuses": { "mana": 28 },
+      "resistances": { "magic": 0.07 },
+      "chanceBonuses": { "hitChance": 3, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "AttackIntervalDebuff",
+            "value": 0.25,
+            "valueScaling": { "intellect": 0.005 },
+            "durationType": "enemyAttackIntervals",
+            "durationCount": 1,
+            "attacks": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_skystalker_wraps",
+      "name": "Skystalker Wraps",
+      "slot": "legs",
+      "type": "leather",
+      "rarity": "Uncommon",
+      "cost": 132,
+      "attributeBonuses": { "agility": 2, "wisdom": 1 },
+      "resourceBonuses": { "stamina": 10 },
+      "resistances": { "melee": 0.04, "magic": 0.03 },
+      "chanceBonuses": { "dodgeChance": 4, "hitChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "BuffChance",
+            "stat": "dodgeChance",
+            "amount": 5,
+            "amountScaling": { "wisdom": 0.1 },
+            "durationType": "selfAttackIntervals",
+            "durationCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_sunwarden_hauberk",
+      "name": "Sunwarden Hauberk",
+      "slot": "chest",
+      "type": "plate",
+      "rarity": "Rare",
+      "cost": 275,
+      "attributeBonuses": { "stamina": 3, "wisdom": 1 },
+      "resourceBonuses": { "health": 60, "mana": 15 },
+      "resistances": { "melee": 0.09, "magic": 0.04 },
+      "chanceBonuses": { "blockChance": 4, "hitChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "DamageHeal",
+            "percent": 0.09,
+            "scaling": { "stamina": 0.0015, "wisdom": 0.0015 },
+            "attackCount": 2,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_tempest_cowl",
+      "name": "Tempest Cowl",
+      "slot": "helmet",
+      "type": "cloth",
+      "rarity": "Epic",
+      "cost": 410,
+      "attributeBonuses": { "intellect": 3, "wisdom": 2 },
+      "resourceBonuses": { "mana": 35 },
+      "resistances": { "magic": 0.08, "melee": 0.02 },
+      "chanceBonuses": { "hitChance": 4, "critChance": 3, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "NextAbilityDamage",
+            "value": 9,
+            "scaling": { "intellect": 0.5 },
+            "appliesTo": "magical",
+            "durationType": "selfAttackIntervals",
+            "durationCount": 2,
+            "target": "self"
+          }
         }
       ]
     }
