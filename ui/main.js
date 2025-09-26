@@ -2511,8 +2511,6 @@ function createInventoryItemCard(entry, messageEl) {
   const { item, count } = entry;
   const card = document.createElement('div');
   card.className = 'shop-item-card inventory-item-card';
-  const rarityKey = item.rarity ? String(item.rarity).toLowerCase() : 'common';
-  card.dataset.rarity = rarityKey;
 
   const header = document.createElement('div');
   header.className = 'card-header';
@@ -2522,7 +2520,6 @@ function createInventoryItemCard(entry, messageEl) {
   header.appendChild(name);
   const rarity = document.createElement('div');
   rarity.className = 'card-rarity';
-  rarity.dataset.rarity = rarityKey;
   rarity.textContent = item.rarity || 'Common';
   header.appendChild(rarity);
   card.appendChild(header);
@@ -2614,8 +2611,6 @@ function createInventoryMaterialCard(material, count) {
   if (!material) return null;
   const card = document.createElement('div');
   card.className = 'shop-item-card inventory-material-card';
-  const rarityKey = material.rarity ? String(material.rarity).toLowerCase() : 'common';
-  card.dataset.rarity = rarityKey;
 
   const header = document.createElement('div');
   header.className = 'card-header';
@@ -2625,7 +2620,6 @@ function createInventoryMaterialCard(material, count) {
   header.appendChild(name);
   const rarity = document.createElement('div');
   rarity.className = 'card-rarity';
-  rarity.dataset.rarity = rarityKey;
   rarity.textContent = material.rarity || 'Common';
   header.appendChild(rarity);
   card.appendChild(header);
@@ -4236,8 +4230,6 @@ function createTag(text) {
 function buildShopItemCard(item, messageEl) {
   const card = document.createElement('div');
   card.className = 'shop-item-card';
-  const rarityKey = item.rarity ? String(item.rarity).toLowerCase() : 'common';
-  card.dataset.rarity = rarityKey;
 
   const header = document.createElement('div');
   header.className = 'card-header';
@@ -4247,7 +4239,6 @@ function buildShopItemCard(item, messageEl) {
   header.appendChild(name);
   const rarity = document.createElement('div');
   rarity.className = 'card-rarity';
-  rarity.dataset.rarity = rarityKey;
   rarity.textContent = item.rarity || 'Common';
   header.appendChild(rarity);
   card.appendChild(header);
