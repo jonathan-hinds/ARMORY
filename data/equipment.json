@@ -639,6 +639,61 @@
       "chanceBonuses": { "blockChance": 3 }
     },
     {
+      "id": "armor_veilpiercer_leggings",
+      "name": "Veilpiercer Leggings",
+      "slot": "legs",
+      "type": "leather",
+      "rarity": "Uncommon",
+      "cost": 138,
+      "attributeBonuses": { "agility": 2, "intellect": 1 },
+      "resourceBonuses": { "stamina": 10 },
+      "resistances": { "melee": 0.04, "magic": 0.03 },
+      "chanceBonuses": { "dodgeChance": 4, "hitChance": 3 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "BuffChance",
+            "stat": "critChance",
+            "amount": 4,
+            "amountScaling": { "intellect": 0.1 },
+            "durationType": "selfAttackIntervals",
+            "durationCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_crucible_greaves",
+      "name": "Crucible Greaves",
+      "slot": "legs",
+      "type": "plate",
+      "rarity": "Rare",
+      "cost": 255,
+      "attributeBonuses": { "strength": 3, "stamina": 2 },
+      "resourceBonuses": { "health": 45, "stamina": 10 },
+      "resistances": { "melee": 0.08, "magic": 0.03 },
+      "chanceBonuses": { "blockChance": 4, "hitChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "AttackIntervalDebuff",
+            "value": 0.25,
+            "valueScaling": { "strength": 0.005 },
+            "durationType": "enemyAttackIntervals",
+            "durationCount": 1,
+            "attacks": 1
+          }
+        }
+      ]
+    },
+    {
       "id": "armor_leather_boots",
       "name": "Leather Boots",
       "slot": "feet",
@@ -700,6 +755,110 @@
       ]
     },
     {
+      "id": "armor_nightwind_treads",
+      "name": "Nightwind Treads",
+      "slot": "feet",
+      "type": "leather",
+      "rarity": "Uncommon",
+      "cost": 138,
+      "attributeBonuses": { "agility": 2, "stamina": 1 },
+      "resourceBonuses": { "stamina": 12 },
+      "resistances": { "melee": 0.04, "magic": 0.02 },
+      "attackIntervalModifier": -0.13,
+      "chanceBonuses": { "critChance": 3, "dodgeChance": 3, "hitChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": { "type": "Bleed", "damage": 3, "duration": 6, "interval": 2, "damageScaling": { "agility": 0.35 } }
+        }
+      ]
+    },
+    {
+      "id": "armor_frostbinder_slippers",
+      "name": "Frostbinder Slippers",
+      "slot": "feet",
+      "type": "cloth",
+      "rarity": "Uncommon",
+      "cost": 140,
+      "attributeBonuses": { "intellect": 2, "wisdom": 1 },
+      "resourceBonuses": { "mana": 22 },
+      "resistances": { "magic": 0.06 },
+      "attackIntervalModifier": -0.12,
+      "chanceBonuses": { "hitChance": 3, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "AttackIntervalDebuff",
+            "value": 0.2,
+            "valueScaling": { "intellect": 0.004 },
+            "durationType": "enemyAttackIntervals",
+            "durationCount": 1,
+            "attacks": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_battleguard_sabatons",
+      "name": "Battleguard Sabatons",
+      "slot": "feet",
+      "type": "plate",
+      "rarity": "Uncommon",
+      "cost": 128,
+      "attributeBonuses": { "strength": 2, "stamina": 1 },
+      "resourceBonuses": { "health": 20 },
+      "resistances": { "melee": 0.05 },
+      "attackIntervalModifier": -0.11,
+      "chanceBonuses": { "blockChance": 3, "hitChance": 1 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "ResistShield",
+            "amount": 0.08,
+            "scaling": { "stamina": 0.001 },
+            "attackCount": 1,
+            "damageType": "melee",
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_oathbound_sabatons",
+      "name": "Oathbound Sabatons",
+      "slot": "feet",
+      "type": "plate",
+      "rarity": "Rare",
+      "cost": 245,
+      "attributeBonuses": { "stamina": 3, "wisdom": 1 },
+      "resourceBonuses": { "health": 45, "mana": 15 },
+      "resistances": { "melee": 0.07, "magic": 0.03 },
+      "attackIntervalModifier": -0.15,
+      "chanceBonuses": { "blockChance": 4, "hitChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "DamageHeal",
+            "percent": 0.08,
+            "scaling": { "stamina": 0.0015, "wisdom": 0.0015 },
+            "attackCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
       "id": "armor_gripwrap_gloves",
       "name": "Gripwrap Gloves",
       "slot": "hands",
@@ -754,6 +913,80 @@
             "attackCount": 1,
             "durationType": "enemyAttackIntervals",
             "durationCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_soulthread_wraps",
+      "name": "Soulthread Wraps",
+      "slot": "hands",
+      "type": "cloth",
+      "rarity": "Uncommon",
+      "cost": 138,
+      "attributeBonuses": { "wisdom": 2, "intellect": 1 },
+      "resourceBonuses": { "mana": 18 },
+      "resistances": { "magic": 0.05 },
+      "chanceBonuses": { "hitChance": 3, "dodgeChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "ResourceOverTime",
+            "resource": "mana",
+            "value": 4,
+            "scaling": { "wisdom": 0.4 },
+            "interval": 5,
+            "ticks": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_radiant_vow_gauntlets",
+      "name": "Radiant Vow Gauntlets",
+      "slot": "hands",
+      "type": "plate",
+      "rarity": "Rare",
+      "cost": 235,
+      "attributeBonuses": { "wisdom": 3, "stamina": 1 },
+      "resourceBonuses": { "health": 25, "mana": 20 },
+      "resistances": { "melee": 0.06, "magic": 0.04 },
+      "chanceBonuses": { "blockChance": 3, "hitChance": 3, "critChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.25,
+          "effect": { "type": "Ignite", "damage": 5, "duration": 6, "interval": 2, "damageScaling": { "wisdom": 0.3 } }
+        }
+      ]
+    },
+    {
+      "id": "armor_aeon_guard_gloves",
+      "name": "Aeon Guard Gloves",
+      "slot": "hands",
+      "type": "cloth",
+      "rarity": "Epic",
+      "cost": 385,
+      "attributeBonuses": { "wisdom": 3, "stamina": 2 },
+      "resourceBonuses": { "mana": 30, "health": 20 },
+      "resistances": { "magic": 0.07, "melee": 0.03 },
+      "chanceBonuses": { "hitChance": 4, "dodgeChance": 3, "blockChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.35,
+          "effect": {
+            "type": "ResistShield",
+            "amount": 0.12,
+            "scaling": { "wisdom": 0.002 },
+            "attackCount": 2,
+            "damageType": "any",
             "target": "self"
           }
         }
@@ -865,6 +1098,64 @@
             "durationCount": 2,
             "target": "self"
           }
+        }
+      ]
+    },
+    {
+      "id": "armor_dawnwatch_hood",
+      "name": "Dawnwatch Hood",
+      "slot": "helmet",
+      "type": "cloth",
+      "rarity": "Uncommon",
+      "cost": 118,
+      "attributeBonuses": { "wisdom": 2, "stamina": 1 },
+      "resourceBonuses": { "mana": 18, "health": 15 },
+      "resistances": { "magic": 0.05, "melee": 0.02 },
+      "chanceBonuses": { "hitChance": 2, "blockChance": 2 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.3,
+          "effect": {
+            "type": "DamageHeal",
+            "percent": 0.06,
+            "scaling": { "wisdom": 0.0012, "stamina": 0.0012 },
+            "attackCount": 1,
+            "target": "self"
+          }
+        }
+      ]
+    },
+    {
+      "id": "armor_solaris_headdress",
+      "name": "Solaris Headdress",
+      "slot": "helmet",
+      "type": "cloth",
+      "rarity": "Legendary",
+      "cost": 540,
+      "attributeBonuses": { "wisdom": 4, "stamina": 3 },
+      "resourceBonuses": { "mana": 40, "health": 50 },
+      "resistances": { "magic": 0.1, "melee": 0.05 },
+      "chanceBonuses": { "hitChance": 5, "critChance": 3, "blockChance": 4 },
+      "onHitEffects": [
+        {
+          "trigger": "ability",
+          "conditions": { "school": "magical" },
+          "chance": 0.35,
+          "effect": {
+            "type": "DamageHeal",
+            "percent": 0.1,
+            "scaling": { "wisdom": 0.0018, "stamina": 0.0012 },
+            "attackCount": 2,
+            "target": "self"
+          }
+        },
+        {
+          "trigger": "ability",
+          "conditions": { "school": "physical" },
+          "chance": 0.3,
+          "effect": { "type": "Ignite", "damage": 6, "duration": 6, "interval": 2, "damageScaling": { "wisdom": 0.35 } }
         }
       ]
     }
