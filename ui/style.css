@@ -1335,8 +1335,101 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 }
 
 .inventory-item-card,
-.inventory-material-card {
+.inventory-material-card,
+.shop-item-card {
   position:relative;
+}
+
+.shop-item-card > *,
+.inventory-item-card > *,
+.inventory-material-card > * {
+  position:relative;
+  z-index:1;
+}
+
+.shop-item-card::after,
+.inventory-item-card::after,
+.inventory-material-card::after,
+.shop-item-card::before,
+.inventory-item-card::before,
+.inventory-material-card::before {
+  content:'';
+  position:absolute;
+  pointer-events:none;
+  opacity:0;
+  z-index:0;
+  border:2px solid transparent;
+}
+
+.shop-item-card::after,
+.inventory-item-card::after,
+.inventory-material-card::after {
+  inset:6px;
+}
+
+.shop-item-card::before,
+.inventory-item-card::before,
+.inventory-material-card::before {
+  inset:14px;
+}
+
+.shop-item-card.rarity-uncommon,
+.inventory-item-card.rarity-uncommon,
+.inventory-material-card.rarity-uncommon,
+.shop-item-card.rarity-epic,
+.inventory-item-card.rarity-epic,
+.inventory-material-card.rarity-epic {
+  padding:12px;
+}
+
+.shop-item-card.rarity-rare,
+.inventory-item-card.rarity-rare,
+.inventory-material-card.rarity-rare,
+.shop-item-card.rarity-legendary,
+.inventory-item-card.rarity-legendary,
+.inventory-material-card.rarity-legendary {
+  padding:18px;
+}
+
+.shop-item-card.rarity-uncommon::after,
+.inventory-item-card.rarity-uncommon::after,
+.inventory-material-card.rarity-uncommon::after,
+.shop-item-card.rarity-rare::after,
+.inventory-item-card.rarity-rare::after,
+.inventory-material-card.rarity-rare::after,
+.shop-item-card.rarity-epic::after,
+.inventory-item-card.rarity-epic::after,
+.inventory-material-card.rarity-epic::after,
+.shop-item-card.rarity-legendary::after,
+.inventory-item-card.rarity-legendary::after,
+.inventory-material-card.rarity-legendary::after {
+  opacity:1;
+  border-color:currentColor;
+}
+
+.shop-item-card.rarity-epic::after,
+.inventory-item-card.rarity-epic::after,
+.inventory-material-card.rarity-epic::after,
+.shop-item-card.rarity-legendary::after,
+.inventory-item-card.rarity-legendary::after,
+.inventory-material-card.rarity-legendary::after {
+  border-style:dotted;
+}
+
+.shop-item-card.rarity-rare::before,
+.inventory-item-card.rarity-rare::before,
+.inventory-material-card.rarity-rare::before,
+.shop-item-card.rarity-legendary::before,
+.inventory-item-card.rarity-legendary::before,
+.inventory-material-card.rarity-legendary::before {
+  opacity:1;
+  border-color:currentColor;
+}
+
+.shop-item-card.rarity-legendary::before,
+.inventory-item-card.rarity-legendary::before,
+.inventory-material-card.rarity-legendary::before {
+  border-style:dotted;
 }
 
 .inventory-card-meta {
