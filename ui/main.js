@@ -109,6 +109,10 @@ let materialsCatalog = [];
 let materialIndex = null;
 let inventoryView = null;
 let inventoryPromise = null;
+let stashView = null;
+let stashPromise = null;
+let stashDialog = null;
+let stashKeyHandler = null;
 let tabsInitialized = false;
 let jobStatusCache = null;
 let jobStatusPromise = null;
@@ -1798,6 +1802,79 @@ function clearMessage(el) {
   showMessage(el, '');
 }
 
+function updateInventoryHeader() {
+  const goldDisplay = document.getElementById('inventory-gold-display');
+  if (goldDisplay) {
+    let goldValue = 0;
+    if (inventoryView && typeof inventoryView.gold === 'number') {
+      goldValue = inventoryView.gold;
+    } else if (currentCharacter && typeof currentCharacter.gold === 'number') {
+      goldValue = currentCharacter.gold;
+    }
+    const safeGold = Number.isFinite(goldValue) ? Math.max(0, Math.floor(goldValue)) : 0;
+    goldDisplay.textContent = `Gold: ${safeGold}`;
+  }
+  const stashButton = document.getElementById('inventory-stash-button');
+  if (stashButton) {
+    if (stashView && Number.isFinite(stashView.equipmentSlots)) {
+      const slotsUsed = Number.isFinite(stashView.slotsUsed) ? stashView.slotsUsed : 0;
+      stashButton.textContent = `Stash (${slotsUsed}/${stashView.equipmentSlots})`;
+    } else {
+      stashButton.textContent = 'Open Stash';
+    }
+  }
+}
+
+const SAFE_MAX_QUANTITY = typeof Number.MAX_SAFE_INTEGER === 'number'
+  ? Number.MAX_SAFE_INTEGER
+  : 9007199254740991;
+
+function createStashDomId(prefix, key) {
+  const raw = typeof key === 'string' || typeof key === 'number' ? String(key) : '';
+  const sanitized = raw.replace(/[^a-zA-Z0-9_-]+/g, '_');
+  if (sanitized && sanitized === raw) {
+    return `${prefix}-${sanitized}`;
+  }
+  let hash = 0;
+  for (let i = 0; i < raw.length; i += 1) {
+    hash = (hash * 31 + raw.charCodeAt(i)) >>> 0;
+  }
+  const suffix = hash ? `-${hash.toString(36)}` : '';
+  const base = sanitized || 'entry';
+  return `${prefix}-${base}${suffix}`;
+}
+
+function normalizeQuantityInput(input, options = {}) {
+  const {
+    min = 1,
+    max = null,
+    defaultValue = min,
+  } = options;
+  const rawMax = Number.isFinite(max) ? Math.floor(max) : null;
+  const effectiveMax = Number.isFinite(rawMax) ? Math.max(rawMax, min) : null;
+  const rawValue = input ? parseInt(input.value, 10) : NaN;
+  let quantity = Number.isFinite(rawValue) ? Math.floor(rawValue) : defaultValue;
+  if (!Number.isFinite(quantity)) {
+    quantity = defaultValue;
+  }
+  if (!Number.isFinite(quantity)) {
+    quantity = min;
+  }
+  if (quantity < min) {
+    quantity = min;
+  }
+  if (Number.isFinite(effectiveMax) && quantity > effectiveMax) {
+    quantity = effectiveMax;
+  }
+  if (quantity > SAFE_MAX_QUANTITY) {
+    quantity = SAFE_MAX_QUANTITY;
+  }
+  if (input) {
+    input.value = String(quantity);
+  }
+  return quantity;
+}
+
 function applyInventoryData(data) {
   if (!data) return;
   const previousCharacter = currentCharacter;
@@ -1830,6 +1907,7 @@ function applyInventoryData(data) {
   if (jobStateChanged) {
     clearJobStatusCache();
   }
+  updateInventoryHeader();
 }
 
 async function ensureCatalog() {
@@ -2435,6 +2513,10 @@ function ensureInventoryFilterControls() {
       updateInventoryDisplay();
     });
   }
+  const stashButton = document.getElementById('inventory-stash-button');
+  if (stashButton) {
+    stashButton.addEventListener('click', () => openStashDialog());
+  }
   inventoryFiltersInitialized = true;
 }
 
@@ -2617,6 +2699,61 @@ function createInventoryItemCard(entry, messageEl) {
     actions.appendChild(equipButton);
   }
 
+  const stashEligibleCount = Math.max(0, count - countEquippedCopiesForItem(item.id));
+  const stashControls = document.createElement('div');
+  stashControls.className = 'inventory-stash-controls';
+  const quantityField = document.createElement('div');
+  quantityField.className = 'blacksmith-quantity-field';
+  const quantityId = createStashDomId('stash-qty', item.id);
+  const quantityLabel = document.createElement('label');
+  quantityLabel.className = 'blacksmith-quantity-label';
+  quantityLabel.setAttribute('for', quantityId);
+  quantityLabel.textContent = 'Qty';
+  const quantityInput = document.createElement('input');
+  quantityInput.type = 'number';
+  quantityInput.id = quantityId;
+  quantityInput.className = 'blacksmith-quantity-input';
+  quantityInput.min = '1';
+  quantityInput.value = stashEligibleCount > 0 ? '1' : '0';
+  if (stashEligibleCount > 0) {
+    quantityInput.max = String(stashEligibleCount);
+  } else {
+    quantityInput.disabled = true;
+  }
+  const enforceBounds = () => {
+    normalizeQuantityInput(quantityInput, {
+      min: stashEligibleCount > 0 ? 1 : 0,
+      max: stashEligibleCount > 0 ? stashEligibleCount : 0,
+      defaultValue: stashEligibleCount > 0 ? 1 : 0,
+    });
+  };
+  quantityInput.addEventListener('change', enforceBounds);
+  quantityInput.addEventListener('blur', enforceBounds);
+  quantityField.appendChild(quantityLabel);
+  quantityField.appendChild(quantityInput);
+  stashControls.appendChild(quantityField);
+
+  const stashButton = document.createElement('button');
+  stashButton.textContent = 'Add to Stash';
+  let stashFull = false;
+  if (stashView) {
+    const alreadyStored = Array.isArray(stashView.equipment)
+      ? stashView.equipment.some(entry => entry && entry.item && entry.item.id === item.id)
+      : false;
+    stashFull = !alreadyStored && Number.isFinite(stashView.slotsUsed) && Number.isFinite(stashView.equipmentSlots)
+      ? stashView.slotsUsed >= stashView.equipmentSlots
+      : false;
+  }
+  if (!stashEligibleCount || stashFull) {
+    stashButton.disabled = true;
+    if (stashFull) {
+      stashButton.title = 'Stash is out of equipment slots';
+    }
+  }
+  stashButton.addEventListener('click', () => handleInventoryStashDeposit(item, quantityInput, stashButton, messageEl));
+  stashControls.appendChild(stashButton);
+  actions.appendChild(stashControls);
+
   footer.appendChild(actions);
   card.appendChild(footer);
 
@@ -2624,7 +2761,7 @@ function createInventoryItemCard(entry, messageEl) {
   return card;
 }
 
-function createInventoryMaterialCard(material, count) {
+function createInventoryMaterialCard(material, count, messageEl) {
   if (!material) return null;
   const card = document.createElement('div');
   card.className = 'shop-item-card inventory-material-card';
@@ -2667,6 +2804,51 @@ function createInventoryMaterialCard(material, count) {
   countLabel.className = 'card-cost inventory-card-count';
   countLabel.textContent = `Owned ×${count}`;
   footer.appendChild(countLabel);
+
+  const actions = document.createElement('div');
+  actions.className = 'inventory-card-actions';
+  const stashControls = document.createElement('div');
+  stashControls.className = 'inventory-stash-controls';
+  const quantityField = document.createElement('div');
+  quantityField.className = 'blacksmith-quantity-field';
+  const quantityId = createStashDomId('stash-material', material.id);
+  const quantityLabel = document.createElement('label');
+  quantityLabel.className = 'blacksmith-quantity-label';
+  quantityLabel.setAttribute('for', quantityId);
+  quantityLabel.textContent = 'Qty';
+  const quantityInput = document.createElement('input');
+  quantityInput.type = 'number';
+  quantityInput.id = quantityId;
+  quantityInput.className = 'blacksmith-quantity-input';
+  quantityInput.min = '1';
+  quantityInput.value = count > 0 ? '1' : '0';
+  if (count > 0) {
+    quantityInput.max = String(count);
+  } else {
+    quantityInput.disabled = true;
+  }
+  const enforceBounds = () => {
+    normalizeQuantityInput(quantityInput, {
+      min: count > 0 ? 1 : 0,
+      max: count > 0 ? count : 0,
+      defaultValue: count > 0 ? 1 : 0,
+    });
+  };
+  quantityInput.addEventListener('change', enforceBounds);
+  quantityInput.addEventListener('blur', enforceBounds);
+  quantityField.appendChild(quantityLabel);
+  quantityField.appendChild(quantityInput);
+  stashControls.appendChild(quantityField);
+
+  const stashButton = document.createElement('button');
+  stashButton.textContent = 'Add to Stash';
+  if (!count) {
+    stashButton.disabled = true;
+  }
+  stashButton.addEventListener('click', () => handleInventoryMaterialDeposit(material, quantityInput, stashButton, messageEl));
+  stashControls.appendChild(stashButton);
+  actions.appendChild(stashControls);
+  footer.appendChild(actions);
   card.appendChild(footer);
 
   attachTooltip(card, () => itemTooltip(material));
@@ -4344,6 +4526,89 @@ async function ensureInventory() {
   return refreshInventory(true);
 }
 
+function applyStashData(data) {
+  if (!data) {
+    stashView = null;
+  } else {
+    const gold = Number.isFinite(data.gold) ? Math.max(0, Math.floor(data.gold)) : 0;
+    const equipmentSlots = Number.isFinite(data.equipmentSlots)
+      ? Math.max(5, Math.floor(data.equipmentSlots))
+      : 5;
+    const slotsUsedRaw = Number.isFinite(data.slotsUsed) ? Math.max(0, Math.floor(data.slotsUsed)) : 0;
+    const slotsUsed = Math.min(slotsUsedRaw, equipmentSlots);
+    const nextSlotCost = Number.isFinite(data.nextSlotCost) && data.nextSlotCost > 0
+      ? Math.min(Math.floor(data.nextSlotCost), SAFE_MAX_QUANTITY)
+      : null;
+    const equipment = Array.isArray(data.equipment)
+      ? data.equipment
+          .filter(entry => entry && entry.item && Number.isFinite(entry.count) && entry.count > 0)
+          .map(entry => ({
+            ...entry,
+            count: Math.min(Math.floor(entry.count), SAFE_MAX_QUANTITY),
+          }))
+      : [];
+    const materials = Array.isArray(data.materials)
+      ? data.materials
+          .filter(entry => entry && entry.material && Number.isFinite(entry.count) && entry.count > 0)
+          .map(entry => ({
+            ...entry,
+            count: Math.min(Math.floor(entry.count), SAFE_MAX_QUANTITY),
+          }))
+      : [];
+    stashView = {
+      ...data,
+      gold,
+      equipmentSlots,
+      slotsUsed,
+      nextSlotCost,
+      equipment,
+      materials,
+    };
+  }
+  updateInventoryHeader();
+  if (stashDialog) {
+    renderStashDialog(stashDialog, stashView);
+  }
+}
+
+async function refreshStash(force = false) {
+  if (!currentPlayer || !currentCharacter) return null;
+  if (!force && stashView) {
+    return stashView;
+  }
+  if (!stashPromise) {
+    const url = `/players/${currentPlayer.id}/stash?characterId=${currentCharacter.id}`;
+    stashPromise = (async () => {
+      const res = await fetch(url);
+      if (!res.ok) {
+        let message = 'failed to load stash';
+        try {
+          const err = await res.json();
+          if (err && err.error) message = err.error;
+        } catch {}
+        throw new Error(message);
+      }
+      const data = await res.json();
+      applyStashData(data);
+      return stashView;
+    })()
+      .catch(err => {
+        stashView = null;
+        updateInventoryHeader();
+        throw err;
+      })
+      .finally(() => {
+        stashPromise = null;
+      });
+  }
+  return stashPromise;
+}
+
+async function ensureStash() {
+  if (stashView) return stashView;
+  return refreshStash(true);
+}
+
 function getEquippedSlotItem(slot) {
   if (!inventoryView) return null;
   if (EQUIPMENT_SLOTS.includes(slot)) {
@@ -4361,6 +4626,28 @@ function getUseableSlotsForItem(itemId) {
     const entry = inventoryView.useables[slot];
     return entry && entry.id === itemId;
   });
+}
+
+function countEquippedCopiesForItem(itemId) {
+  if (!inventoryView || !itemId) return 0;
+  let total = 0;
+  if (inventoryView.equipped) {
+    EQUIPMENT_SLOTS.forEach(slot => {
+      const equipped = inventoryView.equipped[slot];
+      if (equipped && equipped.id === itemId) {
+        total += 1;
+      }
+    });
+  }
+  if (inventoryView.useables) {
+    USEABLE_SLOTS.forEach(slot => {
+      const equipped = inventoryView.useables[slot];
+      if (equipped && equipped.id === itemId) {
+        total += 1;
+      }
+    });
+  }
+  return total;
 }
 
 function isTabActive(id) {
@@ -4601,6 +4888,8 @@ async function enterGame(character) {
   charSelectDiv.classList.add('hidden');
   gameDiv.classList.remove('hidden');
   inventoryView = null;
+  stashView = null;
+  closeStashDialog();
   rotationInitialized = false;
   rotation = [];
   try {
@@ -4622,6 +4911,8 @@ function exitToCharacterSelect() {
   currentCharacter = null;
   clearJobStatusCache();
   inventoryView = null;
+  stashView = null;
+  closeStashDialog();
   rotation = [];
   rotationInitialized = false;
   adventureElements = null;
@@ -9429,6 +9720,7 @@ async function renderInventory() {
     return;
   }
   clearMessage(message);
+  updateInventoryHeader();
   grid.innerHTML = '';
   materialGrid.innerHTML = '';
   const inventoryItems = Array.isArray(inventoryView.inventory) ? inventoryView.inventory : [];
@@ -9445,7 +9737,7 @@ async function renderInventory() {
     materialGrid.appendChild(emptyMaterial);
   } else {
     materialItems.forEach(({ material, count }) => {
-      const card = createInventoryMaterialCard(material, count);
+      const card = createInventoryMaterialCard(material, count, message);
       if (card) {
         materialGrid.appendChild(card);
       }
@@ -9603,6 +9895,586 @@ async function unequipSlot(slot, messageEl) {
   } catch (err) {
     showMessage(messageEl, err.message || 'Unequip failed', true);
   }
+}
+
+async function mutateStash(action, payload, options = {}) {
+  if (!currentPlayer || !currentCharacter) return null;
+  const { messageEl, button, pendingText, successMessage, errorMessage, onSuccess } = options;
+  if (messageEl) clearMessage(messageEl);
+  const originalText = button ? button.textContent : null;
+  if (button) {
+    button.disabled = true;
+    if (pendingText) {
+      button.textContent = pendingText;
+    }
+  }
+  let responsePayload = null;
+  try {
+    const res = await fetch(`/players/${currentPlayer.id}/stash/${action}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, characterId: currentCharacter.id }),
+    });
+    try {
+      responsePayload = await res.json();
+    } catch {
+      responsePayload = null;
+    }
+    if (!res.ok) {
+      const message = responsePayload && responsePayload.error
+        ? responsePayload.error
+        : errorMessage || 'Stash update failed';
+      throw new Error(message);
+    }
+    if (responsePayload && responsePayload.inventory) {
+      applyInventoryData(responsePayload.inventory);
+    }
+    if (responsePayload && responsePayload.stash) {
+      applyStashData(responsePayload.stash);
+    } else {
+      updateInventoryHeader();
+    }
+    const shouldRender = {
+      inventory: isTabActive('inventory'),
+      shop: isTabActive('shop'),
+      character: isTabActive('character'),
+    };
+    if (shouldRender.inventory) {
+      await renderInventory();
+    }
+    if (shouldRender.shop) {
+      renderShop();
+    }
+    if (shouldRender.character) {
+      renderCharacter();
+    }
+    if (typeof onSuccess === 'function') {
+      onSuccess(responsePayload);
+    }
+    if (messageEl && successMessage) {
+      const text = typeof successMessage === 'function' ? successMessage(responsePayload) : successMessage;
+      showMessage(messageEl, text, false);
+    }
+    return responsePayload;
+  } catch (err) {
+    if (messageEl) {
+      showMessage(messageEl, err && err.message ? err.message : errorMessage || 'Stash update failed', true);
+    } else {
+      alert(err && err.message ? err.message : errorMessage || 'Stash update failed');
+    }
+    return null;
+  } finally {
+    if (button) {
+      button.disabled = false;
+      if (originalText != null) {
+        button.textContent = originalText;
+      }
+    }
+  }
+}
+
+async function handleInventoryStashDeposit(item, quantityInput, button, messageEl) {
+  if (!item) return;
+  const quantity = quantityInput
+    ? normalizeQuantityInput(quantityInput, {
+        min: 1,
+        max: quantityInput.max ? parseInt(quantityInput.max, 10) : null,
+        defaultValue: 1,
+      })
+    : 1;
+  await mutateStash('deposit', { kind: 'equipment', itemId: item.id, count: quantity }, {
+    messageEl,
+    button,
+    pendingText: 'Stashing...',
+    successMessage: () => `Added ${quantity} × ${item.name} to stash.`,
+    errorMessage: 'Failed to add item to stash',
+    onSuccess: () => {
+      if (quantityInput) quantityInput.value = '1';
+    },
+  });
+}
+
+async function handleInventoryMaterialDeposit(material, quantityInput, button, messageEl) {
+  if (!material) return;
+  const quantity = quantityInput
+    ? normalizeQuantityInput(quantityInput, {
+        min: 1,
+        max: quantityInput.max ? parseInt(quantityInput.max, 10) : null,
+        defaultValue: 1,
+      })
+    : 1;
+  await mutateStash('deposit', { kind: 'material', materialId: material.id, count: quantity }, {
+    messageEl,
+    button,
+    pendingText: 'Stashing...',
+    successMessage: () => `Added ${quantity} × ${material.name} to stash.`,
+    errorMessage: 'Failed to add material to stash',
+    onSuccess: () => {
+      if (quantityInput) quantityInput.value = '1';
+    },
+  });
+}
+
+async function handleStashWithdrawEquipment(item, quantityInput, button, messageEl) {
+  if (!item) return;
+  const quantity = quantityInput
+    ? normalizeQuantityInput(quantityInput, {
+        min: 1,
+        max: quantityInput.max ? parseInt(quantityInput.max, 10) : null,
+        defaultValue: 1,
+      })
+    : 1;
+  await mutateStash('withdraw', { kind: 'equipment', itemId: item.id, count: quantity }, {
+    messageEl,
+    button,
+    pendingText: 'Withdrawing...',
+    successMessage: () => `Withdrew ${quantity} × ${item.name} from stash.`,
+    errorMessage: 'Failed to withdraw item',
+    onSuccess: () => {
+      if (quantityInput) quantityInput.value = '1';
+    },
+  });
+}
+
+async function handleStashWithdrawMaterial(material, quantityInput, button, messageEl) {
+  if (!material) return;
+  const quantity = quantityInput
+    ? normalizeQuantityInput(quantityInput, {
+        min: 1,
+        max: quantityInput.max ? parseInt(quantityInput.max, 10) : null,
+        defaultValue: 1,
+      })
+    : 1;
+  await mutateStash('withdraw', { kind: 'material', materialId: material.id, count: quantity }, {
+    messageEl,
+    button,
+    pendingText: 'Withdrawing...',
+    successMessage: () => `Withdrew ${quantity} × ${material.name} from stash.`,
+    errorMessage: 'Failed to withdraw material',
+    onSuccess: () => {
+      if (quantityInput) quantityInput.value = '1';
+    },
+  });
+}
+
+async function handleStashGoldTransfer(direction, input, button, messageEl) {
+  if (!input) return;
+  const raw = parseInt(input.value, 10);
+  let amount = Number.isFinite(raw) && raw > 0 ? raw : 0;
+  if (!amount) {
+    showMessage(messageEl, 'Enter an amount greater than zero', true);
+    return;
+  }
+  if (direction === 'deposit') {
+    const available = inventoryView && typeof inventoryView.gold === 'number'
+      ? inventoryView.gold
+      : currentCharacter && typeof currentCharacter.gold === 'number'
+        ? currentCharacter.gold
+        : 0;
+    const maxAmount = Math.max(0, Math.floor(available));
+    if (maxAmount <= 0) {
+      showMessage(messageEl, 'No gold available to stash', true);
+      return;
+    }
+    if (amount > maxAmount) {
+      amount = maxAmount;
+      input.value = String(amount);
+    }
+  } else {
+    const stashGold = stashView && Number.isFinite(stashView.gold) ? stashView.gold : 0;
+    const maxAmount = Math.max(0, Math.floor(stashGold));
+    if (maxAmount <= 0) {
+      showMessage(messageEl, 'No gold stored in stash', true);
+      return;
+    }
+    if (amount > maxAmount) {
+      amount = maxAmount;
+      input.value = String(amount);
+    }
+  }
+  if (amount > SAFE_MAX_QUANTITY) {
+    amount = SAFE_MAX_QUANTITY;
+    input.value = String(amount);
+  }
+  const action = direction === 'deposit' ? 'deposit' : 'withdraw';
+  const pendingText = direction === 'deposit' ? 'Depositing...' : 'Withdrawing...';
+  const successMessage = direction === 'deposit'
+    ? () => `Deposited ${amount} gold into stash.`
+    : () => `Withdrew ${amount} gold from stash.`;
+  const errorMessage = direction === 'deposit' ? 'Failed to deposit gold' : 'Failed to withdraw gold';
+  await mutateStash(action, { kind: 'gold', amount }, {
+    messageEl,
+    button,
+    pendingText,
+    successMessage,
+    errorMessage,
+    onSuccess: () => {
+      input.value = '';
+    },
+  });
+}
+
+async function handleStashExpand(button, messageEl) {
+  await mutateStash('slots', {}, {
+    messageEl,
+    button,
+    pendingText: 'Unlocking...',
+    successMessage: 'Unlocked a new equipment slot.',
+    errorMessage: 'Failed to unlock slot',
+  });
+}
+
+function renderStashDialog(dialogEl, data) {
+  if (!dialogEl) return;
+  const goldSummary = dialogEl.querySelector('#stash-gold-total');
+  if (goldSummary) {
+    const gold = data && Number.isFinite(data.gold) ? Math.max(0, Math.floor(data.gold)) : 0;
+    goldSummary.textContent = `Stash Gold: ${gold}`;
+  }
+  const charGoldValue = inventoryView && typeof inventoryView.gold === 'number'
+    ? inventoryView.gold
+    : currentCharacter && typeof currentCharacter.gold === 'number'
+      ? currentCharacter.gold
+      : 0;
+  const characterGold = Math.max(0, Math.floor(charGoldValue));
+  const charSummary = dialogEl.querySelector('#stash-character-gold');
+  if (charSummary) {
+    charSummary.textContent = `Character Gold: ${characterGold}`;
+  }
+  const slotSummary = dialogEl.querySelector('#stash-slot-summary');
+  if (slotSummary) {
+    if (data && Number.isFinite(data.equipmentSlots)) {
+      const used = Number.isFinite(data.slotsUsed) ? data.slotsUsed : 0;
+      slotSummary.textContent = `Equipment Slots: ${used} / ${data.equipmentSlots}`;
+    } else {
+      slotSummary.textContent = 'Equipment Slots: —';
+    }
+  }
+  const expandButton = dialogEl.querySelector('#stash-expand-button');
+  if (expandButton) {
+    if (data && Number.isFinite(data.nextSlotCost)) {
+      const cost = Math.max(0, Math.floor(data.nextSlotCost));
+      expandButton.textContent = `Unlock Slot (${cost}g)`;
+      const canAfford = data.gold >= cost;
+      expandButton.disabled = !canAfford;
+      expandButton.title = canAfford ? '' : 'Not enough stash gold';
+    } else {
+      expandButton.textContent = 'Unlock Slot';
+      expandButton.disabled = true;
+      expandButton.title = '';
+    }
+  }
+
+  const equipmentGrid = dialogEl.querySelector('#stash-equipment-grid');
+  if (equipmentGrid) {
+    equipmentGrid.innerHTML = '';
+    if (!data) {
+      const loading = document.createElement('div');
+      loading.className = 'stash-empty';
+      loading.textContent = 'Loading stash...';
+      equipmentGrid.appendChild(loading);
+    } else if (!data.equipment.length) {
+      const empty = document.createElement('div');
+      empty.className = 'stash-empty';
+      empty.textContent = 'No equipment stored.';
+      equipmentGrid.appendChild(empty);
+    } else {
+      data.equipment.forEach(entry => {
+        if (!entry || !entry.item) return;
+        const card = document.createElement('div');
+        card.className = 'stash-card';
+        const name = document.createElement('div');
+        name.className = 'stash-card-name';
+        name.textContent = entry.item.name || 'Equipment';
+        card.appendChild(name);
+        const meta = document.createElement('div');
+        meta.className = 'stash-card-meta';
+        const metaParts = [];
+        if (entry.item.rarity) metaParts.push(entry.item.rarity);
+        if (entry.item.slot) {
+          const slotText = slotLabel(entry.item.slot);
+          if (slotText) metaParts.push(slotText);
+        }
+        if (entry.item.type && entry.item.slot !== 'useable') metaParts.push(titleCase(entry.item.type));
+        meta.textContent = metaParts.join(' • ');
+        card.appendChild(meta);
+        const countLabel = document.createElement('div');
+        countLabel.className = 'stash-card-count';
+        countLabel.textContent = `Stored ×${entry.count}`;
+        card.appendChild(countLabel);
+        const controls = document.createElement('div');
+        controls.className = 'stash-card-controls';
+        const quantityField = document.createElement('div');
+        quantityField.className = 'blacksmith-quantity-field';
+        const quantityId = createStashDomId('stash-withdraw', entry.item.id);
+        const quantityLabel = document.createElement('label');
+        quantityLabel.className = 'blacksmith-quantity-label';
+        quantityLabel.setAttribute('for', quantityId);
+        quantityLabel.textContent = 'Qty';
+        const quantityInput = document.createElement('input');
+        quantityInput.type = 'number';
+        quantityInput.id = quantityId;
+        quantityInput.className = 'blacksmith-quantity-input';
+        quantityInput.min = '1';
+        quantityInput.max = String(entry.count);
+        quantityInput.value = entry.count > 0 ? '1' : '0';
+        if (!entry.count) {
+          quantityInput.disabled = true;
+        }
+        const enforceBounds = () => {
+          normalizeQuantityInput(quantityInput, {
+            min: entry.count > 0 ? 1 : 0,
+            max: entry.count > 0 ? entry.count : 0,
+            defaultValue: entry.count > 0 ? 1 : 0,
+          });
+        };
+        quantityInput.addEventListener('change', enforceBounds);
+        quantityInput.addEventListener('blur', enforceBounds);
+        quantityField.appendChild(quantityLabel);
+        quantityField.appendChild(quantityInput);
+        controls.appendChild(quantityField);
+        const withdrawButton = document.createElement('button');
+        withdrawButton.textContent = 'Withdraw';
+        if (!entry.count) {
+          withdrawButton.disabled = true;
+        }
+        const messageEl = dialogEl.querySelector('#stash-message');
+        withdrawButton.addEventListener('click', () => handleStashWithdrawEquipment(entry.item, quantityInput, withdrawButton, messageEl));
+        controls.appendChild(withdrawButton);
+        card.appendChild(controls);
+        attachTooltip(card, () => itemTooltip(entry.item));
+        equipmentGrid.appendChild(card);
+      });
+    }
+  }
+
+  const materialGrid = dialogEl.querySelector('#stash-material-grid');
+  if (materialGrid) {
+    materialGrid.innerHTML = '';
+    if (!data) {
+      const loading = document.createElement('div');
+      loading.className = 'stash-empty';
+      loading.textContent = 'Loading stash...';
+      materialGrid.appendChild(loading);
+    } else if (!data.materials.length) {
+      const empty = document.createElement('div');
+      empty.className = 'stash-empty';
+      empty.textContent = 'No materials stored.';
+      materialGrid.appendChild(empty);
+    } else {
+      data.materials.forEach(entry => {
+        if (!entry || !entry.material) return;
+        const card = document.createElement('div');
+        card.className = 'stash-card';
+        const name = document.createElement('div');
+        name.className = 'stash-card-name';
+        name.textContent = entry.material.name || 'Material';
+        card.appendChild(name);
+        const meta = document.createElement('div');
+        meta.className = 'stash-card-meta';
+        const metaParts = [];
+        metaParts.push('Material');
+        if (entry.material.rarity) metaParts.push(entry.material.rarity);
+        meta.textContent = metaParts.join(' • ');
+        card.appendChild(meta);
+        const countLabel = document.createElement('div');
+        countLabel.className = 'stash-card-count';
+        countLabel.textContent = `Stored ×${entry.count}`;
+        card.appendChild(countLabel);
+        const controls = document.createElement('div');
+        controls.className = 'stash-card-controls';
+        const quantityField = document.createElement('div');
+        quantityField.className = 'blacksmith-quantity-field';
+        const quantityId = createStashDomId('stash-material-withdraw', entry.material.id);
+        const quantityLabel = document.createElement('label');
+        quantityLabel.className = 'blacksmith-quantity-label';
+        quantityLabel.setAttribute('for', quantityId);
+        quantityLabel.textContent = 'Qty';
+        const quantityInput = document.createElement('input');
+        quantityInput.type = 'number';
+        quantityInput.id = quantityId;
+        quantityInput.className = 'blacksmith-quantity-input';
+        quantityInput.min = '1';
+        quantityInput.max = String(entry.count);
+        quantityInput.value = entry.count > 0 ? '1' : '0';
+        if (!entry.count) {
+          quantityInput.disabled = true;
+        }
+        const enforceBounds = () => {
+          normalizeQuantityInput(quantityInput, {
+            min: entry.count > 0 ? 1 : 0,
+            max: entry.count > 0 ? entry.count : 0,
+            defaultValue: entry.count > 0 ? 1 : 0,
+          });
+        };
+        quantityInput.addEventListener('change', enforceBounds);
+        quantityInput.addEventListener('blur', enforceBounds);
+        quantityField.appendChild(quantityLabel);
+        quantityField.appendChild(quantityInput);
+        controls.appendChild(quantityField);
+        const withdrawButton = document.createElement('button');
+        withdrawButton.textContent = 'Withdraw';
+        if (!entry.count) {
+          withdrawButton.disabled = true;
+        }
+        const messageEl = dialogEl.querySelector('#stash-message');
+        withdrawButton.addEventListener('click', () => handleStashWithdrawMaterial(entry.material, quantityInput, withdrawButton, messageEl));
+        controls.appendChild(withdrawButton);
+        card.appendChild(controls);
+        attachTooltip(card, () => itemTooltip(entry.material));
+        materialGrid.appendChild(card);
+      });
+    }
+  }
+
+  const depositInput = dialogEl.querySelector('#stash-gold-deposit-amount');
+  const depositButton = dialogEl.querySelector('#stash-gold-deposit button[type="submit"]');
+  if (depositInput) {
+    const canDeposit = characterGold > 0;
+    depositInput.value = '';
+    depositInput.placeholder = `Max ${characterGold}`;
+    if (canDeposit) {
+      depositInput.max = String(characterGold);
+      depositInput.disabled = false;
+    } else {
+      depositInput.removeAttribute('max');
+      depositInput.disabled = true;
+    }
+    if (depositButton) depositButton.disabled = !canDeposit;
+  }
+
+  const stashGoldValue = data && Number.isFinite(data.gold) ? Math.max(0, Math.floor(data.gold)) : 0;
+  const withdrawInput = dialogEl.querySelector('#stash-gold-withdraw-amount');
+  const withdrawButton = dialogEl.querySelector('#stash-gold-withdraw button[type="submit"]');
+  if (withdrawInput) {
+    const canWithdraw = stashGoldValue > 0;
+    withdrawInput.value = '';
+    withdrawInput.placeholder = `Max ${stashGoldValue}`;
+    if (canWithdraw) {
+      withdrawInput.max = String(stashGoldValue);
+      withdrawInput.disabled = false;
+    } else {
+      withdrawInput.removeAttribute('max');
+      withdrawInput.disabled = true;
+    }
+    if (withdrawButton) withdrawButton.disabled = !canWithdraw;
+  }
+}
+
+async function openStashDialog() {
+  if (!currentPlayer || !currentCharacter) return;
+  closeStashDialog();
+  try {
+    await ensureInventory();
+  } catch (err) {
+    alert(err && err.message ? err.message : 'Failed to load inventory');
+    return;
+  }
+  const overlay = document.createElement('div');
+  overlay.id = 'stash-dialog';
+  overlay.className = 'stash-overlay';
+  overlay.innerHTML = `
+    <div class="stash-dialog">
+      <div class="stash-header">
+        <div class="stash-title">Account Stash</div>
+        <button type="button" class="stash-close">Close</button>
+      </div>
+      <div id="stash-message" class="message hidden"></div>
+      <div class="stash-content">
+        <div class="stash-summary">
+          <div class="stash-summary-item" id="stash-gold-total">Stash Gold: 0</div>
+          <div class="stash-summary-item" id="stash-character-gold">Character Gold: 0</div>
+          <div class="stash-summary-item" id="stash-slot-summary">Equipment Slots: —</div>
+          <button type="button" id="stash-expand-button">Unlock Slot</button>
+        </div>
+        <div class="stash-sections">
+          <div class="stash-section">
+            <h3>Stored Equipment</h3>
+            <div id="stash-equipment-grid" class="stash-grid"></div>
+          </div>
+          <div class="stash-section">
+            <h3>Stored Materials</h3>
+            <div id="stash-material-grid" class="stash-grid"></div>
+          </div>
+          <div class="stash-section">
+            <h3>Gold Transfer</h3>
+            <div class="stash-gold-forms">
+              <form id="stash-gold-deposit" autocomplete="off">
+                <label for="stash-gold-deposit-amount" class="blacksmith-quantity-label">Deposit</label>
+                <input id="stash-gold-deposit-amount" type="number" min="1" />
+                <button type="submit">Add to Stash</button>
+              </form>
+              <form id="stash-gold-withdraw" autocomplete="off">
+                <label for="stash-gold-withdraw-amount" class="blacksmith-quantity-label">Withdraw</label>
+                <input id="stash-gold-withdraw-amount" type="number" min="1" />
+                <button type="submit">Take Out</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  stashDialog = overlay;
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) {
+      closeStashDialog();
+    }
+  });
+  const closeButton = overlay.querySelector('.stash-close');
+  if (closeButton) {
+    closeButton.addEventListener('click', () => closeStashDialog());
+  }
+  const messageEl = overlay.querySelector('#stash-message');
+  const depositForm = overlay.querySelector('#stash-gold-deposit');
+  if (depositForm) {
+    const depositInput = depositForm.querySelector('input');
+    const depositButton = depositForm.querySelector('button[type="submit"]');
+    depositForm.addEventListener('submit', event => {
+      event.preventDefault();
+      handleStashGoldTransfer('deposit', depositInput, depositButton, messageEl);
+    });
+  }
+  const withdrawForm = overlay.querySelector('#stash-gold-withdraw');
+  if (withdrawForm) {
+    const withdrawInput = withdrawForm.querySelector('input');
+    const withdrawButton = withdrawForm.querySelector('button[type="submit"]');
+    withdrawForm.addEventListener('submit', event => {
+      event.preventDefault();
+      handleStashGoldTransfer('withdraw', withdrawInput, withdrawButton, messageEl);
+    });
+  }
+  const expandButton = overlay.querySelector('#stash-expand-button');
+  if (expandButton) {
+    expandButton.addEventListener('click', () => handleStashExpand(expandButton, messageEl));
+  }
+  stashKeyHandler = event => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeStashDialog();
+    }
+  };
+  document.addEventListener('keydown', stashKeyHandler);
+  renderStashDialog(overlay, stashView);
+  try {
+    await refreshStash(true);
+  } catch (err) {
+    if (stashDialog && messageEl) {
+      showMessage(messageEl, err && err.message ? err.message : 'Failed to load stash', true);
+    }
+  }
+}
+
+function closeStashDialog() {
+  if (stashKeyHandler) {
+    document.removeEventListener('keydown', stashKeyHandler);
+    stashKeyHandler = null;
+  }
+  if (stashDialog && stashDialog.parentNode) {
+    stashDialog.parentNode.removeChild(stashDialog);
+  }
+  stashDialog = null;
 }
 
 function populateLoadoutSummary(container, derived) {

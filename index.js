@@ -45,6 +45,12 @@ const {
   ensureBattlefieldIdle,
   startBattlefieldChallenge,
 } = require("./systems/battlefieldService");
+const {
+  getStash,
+  depositToStash,
+  withdrawFromStash,
+  purchaseStashEquipmentSlot,
+} = require("./systems/stashService");
 const app = express();
 const connectDB = require("./db");
 
@@ -173,6 +179,66 @@ app.get("/players/:playerId/inventory", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/players/:playerId/stash", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  const characterId = parseInt(req.query.characterId, 10);
+  if (!playerId || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const stash = await getStash(playerId, characterId);
+    res.json(stash);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to load stash" });
+  }
+});
+
+app.post("/players/:playerId/stash/deposit", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  const characterId = parseInt(req.body.characterId, 10);
+  if (!playerId || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const result = await depositToStash(playerId, characterId, req.body || {});
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to deposit to stash" });
+  }
+});
+
+app.post("/players/:playerId/stash/withdraw", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  const characterId = parseInt(req.body.characterId, 10);
+  if (!playerId || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const result = await withdrawFromStash(playerId, characterId, req.body || {});
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to withdraw from stash" });
+  }
+});
+
+app.post("/players/:playerId/stash/slots", async (req, res) => {
+  const playerId = parseInt(req.params.playerId, 10);
+  const characterId = parseInt(req.body.characterId, 10);
+  if (!playerId || !characterId) {
+    return res.status(400).json({ error: "playerId and characterId required" });
+  }
+  try {
+    const result = await purchaseStashEquipmentSlot(playerId, characterId);
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to unlock slot" });
   }
 });
 
