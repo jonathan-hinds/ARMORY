@@ -60,20 +60,34 @@ function ensureStash(playerDoc) {
 }
 
 function cleanupStashEquipment(stash) {
-  if (!stash || typeof stash !== 'object' || !stash.equipment) return;
-  Object.keys(stash.equipment).forEach(id => {
-    const numeric = Number(stash.equipment[id]);
+  if (!stash || typeof stash !== 'object') return;
+  const equipment = ensurePlainObject(stash.equipment);
+  let modified = false;
+  Object.keys(equipment).forEach(id => {
+    const numeric = Number(equipment[id]);
     if (!Number.isFinite(numeric) || numeric <= 0) {
-      delete stash.equipment[id];
+      delete equipment[id];
+      modified = true;
     } else {
-      stash.equipment[id] = Math.floor(numeric);
+      const floored = Math.floor(numeric);
+      if (floored !== equipment[id]) {
+        equipment[id] = floored;
+        modified = true;
+      }
     }
   });
+  if (stash.equipment !== equipment || modified) {
+    stash.equipment = equipment;
+    if (typeof stash.markModified === 'function') {
+      stash.markModified('equipment');
+    }
+  }
 }
 
 function countStashSlots(stash) {
-  if (!stash || typeof stash !== 'object' || !stash.equipment) return 0;
-  return Object.values(stash.equipment).reduce((total, value) => {
+  if (!stash || typeof stash !== 'object') return 0;
+  const equipment = ensurePlainObject(stash.equipment);
+  return Object.values(equipment).reduce((total, value) => {
     const numeric = Number(value);
     return Number.isFinite(numeric) && numeric > 0 ? total + 1 : total;
   }, 0);
@@ -129,8 +143,11 @@ function removeItems(items, itemId, count) {
 
 async function serializeStash(playerDoc) {
   if (!playerDoc) return null;
-  const stash = ensureStash(playerDoc);
-  cleanupStashEquipment(stash);
+  const stashDoc = ensureStash(playerDoc);
+  cleanupStashEquipment(stashDoc);
+  const stash = ensurePlainObject(stashDoc);
+  stash.equipment = ensurePlainObject(stashDoc.equipment);
+  stash.materials = ensurePlainObject(stashDoc.materials);
   const [equipmentMap, materialMap] = await Promise.all([getEquipmentMap(), getMaterialMap()]);
   const equipment = [];
   Object.entries(stash.equipment).forEach(([id, value]) => {
