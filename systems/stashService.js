@@ -19,24 +19,44 @@ const BASE_EQUIPMENT_SLOTS = 5;
 const SLOT_COST_BASE = 100;
 const SLOT_COST_GROWTH = 2;
 
-function ensureStash(playerDoc) {
-  if (!playerDoc.stash || typeof playerDoc.stash !== 'object') {
-    playerDoc.stash = { gold: 0, equipmentSlots: BASE_EQUIPMENT_SLOTS, equipment: {}, materials: {} };
+function ensurePlainObject(value) {
+  if (!value || typeof value !== 'object') {
+    return {};
   }
-  const stash = playerDoc.stash;
+  if (value._doc && typeof value._doc === 'object') {
+    return ensurePlainObject(value._doc);
+  }
+  if (typeof value.toObject === 'function') {
+    try {
+      const plain = value.toObject({ depopulate: true, flattenMaps: true });
+      if (plain && typeof plain === 'object') {
+        return plain;
+      }
+    } catch (err) {
+      // ignore conversion failure and fall back to shallow copy
+    }
+  }
+  return { ...value };
+}
+
+function ensureStash(playerDoc) {
+  let stash = playerDoc.stash;
+  if (!stash || typeof stash !== 'object') {
+    stash = { gold: 0, equipmentSlots: BASE_EQUIPMENT_SLOTS, equipment: {}, materials: {} };
+  }
+  stash = ensurePlainObject(stash);
   if (!Number.isFinite(stash.gold)) {
     stash.gold = 0;
   }
   if (!Number.isFinite(stash.equipmentSlots) || stash.equipmentSlots < BASE_EQUIPMENT_SLOTS) {
     stash.equipmentSlots = BASE_EQUIPMENT_SLOTS;
   }
-  if (!stash.equipment || typeof stash.equipment !== 'object') {
-    stash.equipment = {};
+  stash.equipment = ensurePlainObject(stash.equipment);
+  stash.materials = ensurePlainObject(stash.materials);
+  if (playerDoc.stash !== stash) {
+    playerDoc.stash = stash;
   }
-  if (!stash.materials || typeof stash.materials !== 'object') {
-    stash.materials = {};
-  }
-  return stash;
+  return playerDoc.stash;
 }
 
 function cleanupStashEquipment(stash) {
