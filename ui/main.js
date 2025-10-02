@@ -158,6 +158,7 @@ let worldStatusEl = null;
 let worldMessageEl = null;
 let worldPlayerListEl = null;
 let worldTitleEl = null;
+let worldDpadEl = null;
 let worldLobbyStatusEl = null;
 let worldWorldSelectEl = null;
 let worldPartySizeSelectEl = null;
@@ -168,6 +169,12 @@ let worldReadyPanelEl = null;
 let worldReadyListEl = null;
 let worldReadyStatusEl = null;
 let worldAnimationFrame = null;
+let worldDpadActiveDirection = null;
+let worldDpadRepeatTimer = null;
+let worldDpadPointerId = null;
+let worldDpadLastPointerTs = 0;
+let worldResizeListenerAttached = false;
+let worldDpadBlurListenerAttached = false;
 const worldSpriteCache = new Map();
 let worldTileSpriteRefs = new Map();
 let worldOptionsLoaded = false;
@@ -330,6 +337,7 @@ function resetWorldState() {
   worldMovementPending = false;
   worldMovementLocked = false;
   worldLastMoveAt = 0;
+  clearWorldDpadHold();
   updateWorldStatus(currentCharacter ? 'Disconnected' : 'Select a character');
   if (worldTitleEl) {
     worldTitleEl.textContent = 'Exploration';
@@ -350,6 +358,17 @@ function ensureWorldCanvas() {
       }
     }
   }
+  if (worldCanvas) {
+    if (!worldResizeListenerAttached) {
+      window.addEventListener('resize', resizeWorldCanvas);
+      worldResizeListenerAttached = true;
+    }
+    resizeWorldCanvas();
+  }
+  if (!worldDpadBlurListenerAttached) {
+    window.addEventListener('blur', clearWorldDpadHold);
+    worldDpadBlurListenerAttached = true;
+  }
   if (!worldStatusEl) {
     worldStatusEl = document.getElementById('world-status');
   }
@@ -362,6 +381,7 @@ function ensureWorldCanvas() {
   if (!worldTitleEl) {
     worldTitleEl = document.getElementById('world-title');
   }
+  ensureWorldTouchControls();
   ensureWorldLobbyControls();
 }
 
@@ -453,6 +473,140 @@ function ensureWorldLobbyControls() {
   if (!worldReadyStatusEl) {
     worldReadyStatusEl = document.getElementById('world-ready-status');
   }
+}
+
+function resizeWorldCanvas() {
+  if (!worldCanvas) return;
+  const displayWidth = Math.floor(worldCanvas.clientWidth);
+  const displayHeight = Math.floor(worldCanvas.clientHeight);
+  if (!displayWidth || !displayHeight) return;
+  const dpr = window.devicePixelRatio || 1;
+  const nextWidth = Math.max(1, Math.round(displayWidth * dpr));
+  const nextHeight = Math.max(1, Math.round(displayHeight * dpr));
+  if (worldCanvas.width !== nextWidth || worldCanvas.height !== nextHeight) {
+    worldCanvas.width = nextWidth;
+    worldCanvas.height = nextHeight;
+    if (!worldCtx) {
+      worldCtx = worldCanvas.getContext('2d');
+    }
+    if (worldCtx) {
+      worldCtx.imageSmoothingEnabled = false;
+    }
+  }
+}
+
+function ensureWorldTouchControls() {
+  if (worldDpadEl && !document.body.contains(worldDpadEl)) {
+    worldDpadEl = null;
+  }
+  if (!worldDpadEl) {
+    worldDpadEl = document.getElementById('world-dpad');
+    if (worldDpadEl && !worldDpadEl.dataset.worldDpadBound) {
+      worldDpadEl.addEventListener('contextmenu', event => {
+        event.preventDefault();
+      });
+      worldDpadEl.dataset.worldDpadBound = 'true';
+    }
+  }
+  if (!worldDpadEl) return;
+  const buttons = worldDpadEl.querySelectorAll('button[data-direction]');
+  buttons.forEach(button => {
+    if (button.dataset.worldDpadBound === 'true') return;
+    button.dataset.worldDpadBound = 'true';
+    button.addEventListener('pointerdown', handleWorldDpadPointerDown);
+    button.addEventListener('pointerup', handleWorldDpadPointerUp);
+    button.addEventListener('pointerleave', handleWorldDpadPointerUp);
+    button.addEventListener('pointercancel', handleWorldDpadPointerUp);
+    button.addEventListener('click', handleWorldDpadClick);
+  });
+}
+
+function startWorldDpadHold(direction) {
+  if (!direction) return;
+  worldDpadActiveDirection = direction;
+  queueWorldMove(direction);
+  if (worldDpadRepeatTimer) {
+    clearInterval(worldDpadRepeatTimer);
+  }
+  const repeatDelay = Math.max(120, worldMoveCooldownMs);
+  worldDpadRepeatTimer = setInterval(() => {
+    if (!worldDpadActiveDirection) return;
+    queueWorldMove(worldDpadActiveDirection);
+  }, repeatDelay);
+}
+
+function clearWorldDpadHold() {
+  worldDpadActiveDirection = null;
+  if (worldDpadRepeatTimer) {
+    clearInterval(worldDpadRepeatTimer);
+    worldDpadRepeatTimer = null;
+  }
+  if (worldDpadPointerId != null) {
+    window.removeEventListener('pointerup', handleWorldDpadWindowPointerUp);
+    window.removeEventListener('pointercancel', handleWorldDpadWindowPointerUp);
+    worldDpadPointerId = null;
+  }
+}
+
+function handleWorldDpadPointerDown(event) {
+  if (!isTabActive('world')) return;
+  const button = event.currentTarget;
+  const direction = button && button.getAttribute('data-direction');
+  if (!direction) return;
+  clearWorldDpadHold();
+  worldDpadLastPointerTs = Date.now();
+  worldDpadPointerId = typeof event.pointerId === 'number' ? event.pointerId : null;
+  if (typeof button.setPointerCapture === 'function' && worldDpadPointerId != null) {
+    try {
+      button.setPointerCapture(worldDpadPointerId);
+    } catch (err) {
+      // ignore capture errors
+    }
+  }
+  event.preventDefault();
+  startWorldDpadHold(direction);
+  if (worldDpadPointerId != null) {
+    window.addEventListener('pointerup', handleWorldDpadWindowPointerUp);
+    window.addEventListener('pointercancel', handleWorldDpadWindowPointerUp);
+  }
+}
+
+function handleWorldDpadPointerUp(event) {
+  worldDpadLastPointerTs = Date.now();
+  const button = event.currentTarget;
+  if (
+    button &&
+    typeof event.pointerId === 'number' &&
+    typeof button.releasePointerCapture === 'function'
+  ) {
+    try {
+      button.releasePointerCapture(event.pointerId);
+    } catch (err) {
+      // ignore release errors
+    }
+  }
+  clearWorldDpadHold();
+}
+
+function handleWorldDpadWindowPointerUp(event) {
+  if (worldDpadPointerId == null) return;
+  if (typeof event.pointerId === 'number' && event.pointerId !== worldDpadPointerId) {
+    return;
+  }
+  worldDpadLastPointerTs = Date.now();
+  clearWorldDpadHold();
+}
+
+function handleWorldDpadClick(event) {
+  const button = event.currentTarget;
+  const direction = button && button.getAttribute('data-direction');
+  if (!direction) return;
+  const now = Date.now();
+  if (now - worldDpadLastPointerTs < 250) {
+    return;
+  }
+  event.preventDefault();
+  queueWorldMove(direction);
 }
 
 function setWorldQueueUIState(mode = 'idle') {

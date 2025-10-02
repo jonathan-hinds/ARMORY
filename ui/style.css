@@ -2951,6 +2951,12 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   gap: 12px;
 }
 
+.world-screen {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
 .world-header {
   display: flex;
   justify-content: space-between;
@@ -2975,7 +2981,9 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 
 #world-canvas {
   width: 100%;
-  max-width: 640px;
+  max-width: 960px;
+  height: auto;
+  aspect-ratio: 4 / 3;
   background: #fff;
   border: 2px solid #000;
   box-shadow: 6px 6px 0 #000;
@@ -3004,6 +3012,60 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   text-transform: uppercase;
 }
 
+.world-party-bar {
+  background: #fff;
+  border: 2px solid #000;
+  box-shadow: 6px 6px 0 #000;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  text-transform: uppercase;
+}
+
+.world-party-bar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.world-party-bar-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 1px;
+}
+
+.world-party-bar-header .message {
+  flex: 1 1 200px;
+  margin: 0;
+  text-align: right;
+}
+
+.world-party-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.world-party-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.world-party-field .input-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  margin: 0;
+}
+
+.world-party-field .world-select {
+  width: 100%;
+}
+
 .world-lobby label.input-label {
   display: block;
   font-size: 0.75rem;
@@ -3011,6 +3073,10 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   letter-spacing: 1px;
   margin-top: 6px;
   margin-bottom: 4px;
+}
+
+.world-party-bar .world-party-field .input-label {
+  margin: 0;
 }
 
 .world-lobby .world-select {
@@ -3025,13 +3091,14 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 
 .world-lobby-buttons {
   display: flex;
-  gap: 6px;
-  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .world-lobby-buttons button {
-  flex: 1;
-  padding: 6px 8px;
+  flex: 1 1 160px;
+  padding: 8px 10px;
   border: 2px solid #000;
   background: #000;
   color: #fff;
@@ -3146,6 +3213,74 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   letter-spacing: 1px;
 }
 
+.world-dpad-wrapper {
+  display: flex;
+  justify-content: center;
+}
+
+.world-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(48px, 1fr));
+  grid-template-rows: repeat(3, minmax(48px, 1fr));
+  grid-template-areas:
+    '. up .'
+    'left center right'
+    '. down .';
+  gap: 8px;
+  width: min(280px, 100%);
+  margin: 12px auto;
+  touch-action: none;
+}
+
+.world-dpad-btn {
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  font-size: 1.25rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  box-shadow: 3px 3px 0 #000;
+  cursor: pointer;
+  touch-action: none;
+  transition: transform 0.1s ease;
+}
+
+.world-dpad-btn:focus-visible {
+  outline: 3px solid #000;
+  outline-offset: 2px;
+}
+
+.world-dpad-btn:active {
+  transform: translate(1px, 1px);
+}
+
+.world-dpad-up {
+  grid-area: up;
+}
+
+.world-dpad-left {
+  grid-area: left;
+}
+
+.world-dpad-right {
+  grid-area: right;
+}
+
+.world-dpad-down {
+  grid-area: down;
+}
+
+.world-dpad-center {
+  grid-area: center;
+  border: 2px solid #000;
+  border-radius: 12px;
+  background: #000;
+  box-shadow: inset 0 0 0 4px #fff;
+}
+
 @media (max-width: 960px) {
   .world-container {
     flex-direction: column;
@@ -3157,5 +3292,13 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 
   #world-canvas {
     max-width: 100%;
+  }
+
+  .world-party-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+
+  .world-dpad {
+    width: 100%;
   }
 }
