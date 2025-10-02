@@ -4,9 +4,14 @@
     "name": "Verdant Glen",
     "tileSize": 32,
     "palette": {
-      "0": "#2f4858",
-      "1": "#8bd674",
-      "2": "#4c9c59"
+      "0": "#000000",
+      "1": "#ffffff",
+      "2": "#ffffff"
+    },
+    "tileConfig": {
+      "0": { "sprite": "/assets/world/stone.png", "fill": "#000000" },
+      "1": { "sprite": "/assets/world/path.png", "fill": "#ffffff" },
+      "2": { "sprite": "/assets/world/bush.png", "fill": "#ffffff" }
     },
     "tiles": [
       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

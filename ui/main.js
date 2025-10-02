@@ -156,6 +156,8 @@ let worldMessageEl = null;
 let worldPlayerListEl = null;
 let worldTitleEl = null;
 let worldAnimationFrame = null;
+const worldSpriteCache = new Map();
+let worldTileSpriteRefs = new Map();
 
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
@@ -293,6 +295,7 @@ function resetWorldState() {
   worldPlayersState = new Map();
   worldConfig = null;
   worldCurrentWorldId = null;
+  worldTileSpriteRefs = new Map();
   worldMovementPending = false;
   worldMovementLocked = false;
   worldLastMoveAt = 0;
@@ -330,10 +333,59 @@ function ensureWorldCanvas() {
   }
 }
 
+function getWorldSprite(src) {
+  if (!src) return null;
+  if (!worldSpriteCache.has(src)) {
+    const img = new Image();
+    img.src = src;
+    img.onload = () => {
+      renderWorldScene();
+    };
+    worldSpriteCache.set(src, img);
+  }
+  return worldSpriteCache.get(src);
+}
+
+function prepareWorldAssets(world) {
+  worldTileSpriteRefs = new Map();
+  if (!world || !world.tileConfig || typeof world.tileConfig !== 'object') {
+    return;
+  }
+  Object.entries(world.tileConfig).forEach(([key, value]) => {
+    if (!value || typeof value !== 'object') return;
+    if (typeof value.sprite === 'string' && value.sprite.trim()) {
+      const img = getWorldSprite(value.sprite.trim());
+      if (img) {
+        worldTileSpriteRefs.set(String(key), img);
+      }
+    }
+  });
+}
+
+function drawMonochromeTile(tile, tileConfigEntry, drawX, drawY, tileSize) {
+  if (!worldCtx) return;
+  const base = tileConfigEntry && typeof tileConfigEntry.fill === 'string' ? tileConfigEntry.fill : null;
+  let fill = base;
+  if (!fill) {
+    fill = tile === 0 ? '#000000' : '#ffffff';
+  }
+  worldCtx.fillStyle = fill;
+  worldCtx.fillRect(drawX, drawY, tileSize, tileSize);
+  worldCtx.strokeStyle = fill === '#000000' ? '#ffffff' : '#000000';
+  worldCtx.strokeRect(drawX + 0.5, drawY + 0.5, tileSize, tileSize);
+  if (tile === 2) {
+    const inset = Math.max(1, Math.floor(tileSize / 4));
+    const accent = fill === '#000000' ? '#ffffff' : '#000000';
+    worldCtx.fillStyle = accent;
+    worldCtx.fillRect(drawX + inset, drawY + Math.floor(tileSize / 2) - 1, tileSize - inset * 2, 2);
+    worldCtx.fillRect(drawX + Math.floor(tileSize / 2) - 1, drawY + inset, 2, tileSize - inset * 2);
+  }
+}
+
 function renderWorldScene() {
   if (!worldCanvas || !worldCtx) return;
   const { width, height } = worldCanvas;
-  worldCtx.fillStyle = '#0b1a26';
+  worldCtx.fillStyle = '#ffffff';
   worldCtx.fillRect(0, 0, width, height);
   if (!worldConfig || !Array.isArray(worldConfig.tiles) || !worldConfig.tiles.length) {
     return;
@@ -350,6 +402,7 @@ function renderWorldScene() {
   const startY = Math.floor((cameraY - centerY) / tileSize) - 2;
   const endY = Math.ceil((cameraY + centerY) / tileSize) + 2;
   const palette = worldConfig.palette || {};
+  const tileConfig = worldConfig.tileConfig || {};
 
   for (let y = startY; y <= endY; y += 1) {
     if (y < 0 || y >= tiles.length) continue;
@@ -358,18 +411,23 @@ function renderWorldScene() {
     for (let x = startX; x <= endX; x += 1) {
       if (x < 0 || x >= row.length) continue;
       const tile = row[x];
-      let color = palette[String(tile)];
-      if (!color) {
-        if (tile === 2) color = '#2e7d32';
-        else if (tile === 1) color = '#4caf50';
-        else color = '#1a2a3a';
+      const tileKey = String(tile);
+      const drawX = Math.round(centerX + (x * tileSize + tileSize / 2 - cameraX) - tileSize / 2);
+      const drawY = Math.round(centerY + (y * tileSize + tileSize / 2 - cameraY) - tileSize / 2);
+      const sprite = worldTileSpriteRefs.get(tileKey);
+      if (sprite && sprite.complete && sprite.naturalWidth > 0 && sprite.naturalHeight > 0) {
+        worldCtx.drawImage(sprite, drawX, drawY, tileSize, tileSize);
+        worldCtx.strokeStyle = '#000000';
+        worldCtx.strokeRect(drawX + 0.5, drawY + 0.5, tileSize, tileSize);
+      } else {
+        let color = palette[tileKey];
+        if (typeof color === 'string' && /^#(?:0{3}|f{3}|0{6}|f{6})$/i.test(color)) {
+          color = color.length === 4 ? (color.toLowerCase() === '#000' ? '#000000' : '#ffffff') : color.toLowerCase();
+        } else {
+          color = null;
+        }
+        drawMonochromeTile(tile, Object.assign({}, tileConfig[tileKey], color ? { fill: color } : {}), drawX, drawY, tileSize);
       }
-      const drawX = centerX + (x * tileSize + tileSize / 2 - cameraX) - tileSize / 2;
-      const drawY = centerY + (y * tileSize + tileSize / 2 - cameraY) - tileSize / 2;
-      worldCtx.fillStyle = color;
-      worldCtx.fillRect(Math.round(drawX), Math.round(drawY), tileSize, tileSize);
-      worldCtx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
-      worldCtx.strokeRect(Math.round(drawX) + 0.5, Math.round(drawY) + 0.5, tileSize, tileSize);
     }
   }
 
@@ -378,22 +436,36 @@ function renderWorldScene() {
     const screenX = centerX + (entry.x * tileSize + tileSize / 2 - cameraX);
     const screenY = centerY + (entry.y * tileSize + tileSize / 2 - cameraY);
     if (screenX < -tileSize || screenX > width + tileSize || screenY < -tileSize || screenY > height + tileSize) return;
-    const size = Math.max(10, tileSize * 0.6);
+    const size = Math.max(10, Math.floor(tileSize * 0.6));
     const left = screenX - size / 2;
     const top = screenY - size / 2;
-    if (currentCharacter && entry.characterId === currentCharacter.id) {
-      worldCtx.fillStyle = '#ffe066';
-    } else {
-      worldCtx.fillStyle = '#ff6b6b';
+    const isYou = currentCharacter && entry.characterId === currentCharacter.id;
+    const fill = isYou ? '#ffffff' : '#000000';
+    const border = isYou ? '#000000' : '#ffffff';
+    const drawLeft = Math.round(left);
+    const drawTop = Math.round(top);
+    worldCtx.fillStyle = fill;
+    worldCtx.fillRect(drawLeft, drawTop, size, size);
+    worldCtx.strokeStyle = border;
+    worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
+
+    const label = entry.name || 'Adventurer';
+    const labelY = drawTop - 6;
+    if (labelY > 6) {
+      worldCtx.font = '12px "Courier New", monospace';
+      worldCtx.textAlign = 'center';
+      worldCtx.textBaseline = 'bottom';
+      const textWidth = Math.ceil(worldCtx.measureText(label).width) + 6;
+      const textHeight = 12;
+      const rectX = Math.round(screenX - textWidth / 2);
+      const rectY = Math.round(labelY - textHeight);
+      worldCtx.fillStyle = '#ffffff';
+      worldCtx.fillRect(rectX, rectY, textWidth, textHeight);
+      worldCtx.strokeStyle = '#000000';
+      worldCtx.strokeRect(rectX + 0.5, rectY + 0.5, textWidth, textHeight);
+      worldCtx.fillStyle = '#000000';
+      worldCtx.fillText(label, Math.round(screenX), labelY - 2);
     }
-    worldCtx.fillRect(Math.round(left), Math.round(top), size, size);
-    worldCtx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
-    worldCtx.strokeRect(Math.round(left) + 0.5, Math.round(top) + 0.5, size, size);
-    worldCtx.fillStyle = '#ffffff';
-    worldCtx.font = '14px "Trebuchet MS", sans-serif';
-    worldCtx.textAlign = 'center';
-    worldCtx.textBaseline = 'bottom';
-    worldCtx.fillText(entry.name || 'Adventurer', Math.round(screenX), Math.round(top) - 4);
   });
 }
 
@@ -456,6 +528,7 @@ async function ensureWorldReady() {
     const world = payload.world || null;
     worldCurrentWorldId = world && world.id ? world.id : targetWorldId;
     worldConfig = world;
+    prepareWorldAssets(world);
     worldMoveCooldownMs = world && Number.isFinite(world.moveCooldownMs) ? world.moveCooldownMs : 180;
     handleWorldStateUpdate(payload);
     if (worldTitleEl && world && world.name) {
