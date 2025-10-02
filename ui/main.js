@@ -185,6 +185,124 @@ let worldBattleBars = null;
 let worldBattleBossBars = null;
 let worldBattleLogEl = null;
 let worldBattleCloseButton = null;
+let worldCanvasFocusActive = false;
+let worldFocusExitButton = null;
+let worldFocusControlsInitialized = false;
+
+function shouldUseWorldFocusLayout() {
+  if (typeof window !== 'undefined') {
+    if (typeof window.matchMedia === 'function') {
+      if (window.matchMedia('(pointer: coarse)').matches) {
+        return true;
+      }
+      if (window.matchMedia('(max-width: 1024px)').matches) {
+        return true;
+      }
+    }
+    if (typeof window.innerWidth === 'number' && window.innerWidth <= 1024) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function setWorldCanvasFocus(active, options = {}) {
+  const requested = !!active;
+  const canEnable = requested && shouldUseWorldFocusLayout();
+  const nextActive = requested && canEnable;
+  if (!nextActive) {
+    if (worldCanvasFocusActive) {
+      worldCanvasFocusActive = false;
+      document.body.classList.remove('world-canvas-focused');
+      requestAnimationFrame(() => {
+        resizeWorldCanvas();
+      });
+    } else {
+      document.body.classList.remove('world-canvas-focused');
+      if (options.forceResize) {
+        requestAnimationFrame(() => {
+          resizeWorldCanvas();
+        });
+      }
+    }
+    return;
+  }
+  if (worldCanvasFocusActive) {
+    if (options.forceResize) {
+      requestAnimationFrame(() => {
+        resizeWorldCanvas();
+      });
+    }
+    return;
+  }
+  worldCanvasFocusActive = true;
+  document.body.classList.add('world-canvas-focused');
+  if (options.scroll !== false && worldCanvas) {
+    requestAnimationFrame(() => {
+      try {
+        worldCanvas.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      } catch (_err) {
+        worldCanvas.scrollIntoView({ block: 'center' });
+      }
+    });
+  }
+  requestAnimationFrame(() => {
+    resizeWorldCanvas();
+  });
+}
+
+function ensureWorldFocusControls() {
+  if (!worldFocusExitButton) {
+    worldFocusExitButton = document.getElementById('world-exit-focus');
+    if (worldFocusExitButton) {
+      worldFocusExitButton.addEventListener('click', () => {
+        setWorldCanvasFocus(false);
+      });
+    }
+  }
+  if (worldCanvas && !worldCanvas.dataset.worldFocusBound) {
+    worldCanvas.dataset.worldFocusBound = 'true';
+    worldCanvas.addEventListener('pointerdown', handleWorldCanvasFocusPointer);
+    worldCanvas.addEventListener('keydown', handleWorldCanvasFocusKeydown);
+  }
+  if (!worldFocusControlsInitialized) {
+    document.addEventListener('keydown', handleWorldFocusEscape);
+    worldFocusControlsInitialized = true;
+  }
+}
+
+function handleWorldCanvasFocusPointer(event) {
+  if (event && event.pointerType === 'mouse' && !shouldUseWorldFocusLayout()) {
+    return;
+  }
+  if (!worldCanvasFocusActive && shouldUseWorldFocusLayout()) {
+    setWorldCanvasFocus(true);
+    if (worldCanvas && typeof worldCanvas.focus === 'function') {
+      try {
+        worldCanvas.focus({ preventScroll: true });
+      } catch (_err) {
+        worldCanvas.focus();
+      }
+    }
+  }
+}
+
+function handleWorldCanvasFocusKeydown(event) {
+  if (!event) return;
+  const key = event.key;
+  if ((key === 'Enter' || key === ' ') && !worldCanvasFocusActive) {
+    event.preventDefault();
+    setWorldCanvasFocus(true);
+  } else if (key === 'Escape' && worldCanvasFocusActive) {
+    setWorldCanvasFocus(false);
+  }
+}
+
+function handleWorldFocusEscape(event) {
+  if (event && event.key === 'Escape' && worldCanvasFocusActive) {
+    setWorldCanvasFocus(false);
+  }
+}
 
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
@@ -315,6 +433,7 @@ function updateWorldPlayerList() {
 }
 
 function resetWorldState() {
+  setWorldCanvasFocus(false);
   if (worldStreamSource) {
     worldStreamSource.close();
     worldStreamSource = null;
@@ -382,6 +501,7 @@ function ensureWorldCanvas() {
   if (!worldTitleEl) {
     worldTitleEl = document.getElementById('world-title');
   }
+  ensureWorldFocusControls();
   ensureWorldTouchControls();
   ensureWorldLobbyControls();
 }
@@ -6180,6 +6300,9 @@ function showTab(target) {
     btn.classList.toggle('active', btn.getAttribute('data-tab') === target);
   });
   document.body.classList.toggle('world-tab-active', target === 'world');
+  if (target !== 'world') {
+    setWorldCanvasFocus(false);
+  }
   if (target === 'rotation') {
     initRotation();
   } else if (target === 'character') {
