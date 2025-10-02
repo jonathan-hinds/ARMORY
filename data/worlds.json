@@ -9,9 +9,9 @@
       "2": "#ffffff"
     },
     "tileConfig": {
-      "0": { "sprite": "/assets/world/stone.png", "fill": "#000000" },
-      "1": { "sprite": "/assets/world/path.png", "fill": "#ffffff" },
-      "2": { "sprite": "/assets/world/bush.png", "fill": "#ffffff" }
+      "0": { "sprite": "/assets/Sprite-0003.png", "fill": "#000000" },
+      "1": { "sprite": "/assets/Sprite-0001.png", "fill": "#ffffff" },
+      "2": { "sprite": "/assets/Sprite-0002.png", "fill": "#ffffff" }
     },
     "tiles": [
       [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
