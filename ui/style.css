@@ -694,20 +694,22 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 .tooltip-grid { display:grid; grid-template-columns:auto auto; gap:2px 8px; }
 .tooltip-grid .label { font-weight:bold; text-align:right; }
 
-#battle-dialog, #dungeon-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; padding:16px; z-index:1000; }
-#battle-dialog .dialog-box, #dungeon-dialog .dialog-box { border:1px solid #000; padding:16px; width:100%; max-width:800px; background:#fff; display:flex; flex-direction:column; }
-#dungeon-dialog .dialog-box { max-width:880px; }
-#battle-dialog .combatants-row, #dungeon-dialog .combatants-row { display:flex; gap:16px; margin-bottom:16px; }
-#dungeon-dialog .combatants-row { align-items:stretch; }
-#battle-dialog .combatant, #dungeon-dialog .combatant { flex:1; border:1px solid #000; padding:12px; background:#fff; }
-#battle-dialog .combatant .name, #dungeon-dialog .combatant .name { font-weight:bold; text-align:center; margin-bottom:8px; }
-#battle-dialog .bars, #dungeon-dialog .bars { display:flex; flex-direction:column; gap:6px; }
-#battle-dialog .useable-slots, #dungeon-dialog .useable-slots { display:flex; justify-content:center; gap:8px; margin-top:8px; }
-#battle-dialog .useable-slot, #dungeon-dialog .useable-slot { width:18px; height:18px; border:1px solid #000; background:#fff; position:relative; }
+#battle-dialog, #dungeon-dialog, #world-encounter-dialog { position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; display:flex; align-items:center; justify-content:center; padding:16px; z-index:1000; }
+#battle-dialog .dialog-box, #dungeon-dialog .dialog-box, #world-encounter-dialog .dialog-box { border:1px solid #000; padding:16px; width:100%; max-width:800px; background:#fff; display:flex; flex-direction:column; }
+#dungeon-dialog .dialog-box, #world-encounter-dialog .dialog-box { max-width:880px; }
+#battle-dialog .combatants-row, #dungeon-dialog .combatants-row, #world-encounter-dialog .combatants-row { display:flex; gap:16px; margin-bottom:16px; }
+#dungeon-dialog .combatants-row, #world-encounter-dialog .combatants-row { align-items:stretch; }
+#battle-dialog .combatant, #dungeon-dialog .combatant, #world-encounter-dialog .combatant { flex:1; border:1px solid #000; padding:12px; background:#fff; }
+#battle-dialog .combatant .name, #dungeon-dialog .combatant .name, #world-encounter-dialog .combatant .name { font-weight:bold; text-align:center; margin-bottom:8px; }
+#battle-dialog .bars, #dungeon-dialog .bars, #world-encounter-dialog .bars { display:flex; flex-direction:column; gap:6px; }
+#battle-dialog .useable-slots, #dungeon-dialog .useable-slots, #world-encounter-dialog .useable-slots { display:flex; justify-content:center; gap:8px; margin-top:8px; }
+#battle-dialog .useable-slot, #dungeon-dialog .useable-slot, #world-encounter-dialog .useable-slot { width:18px; height:18px; border:1px solid #000; background:#fff; position:relative; }
 #battle-dialog .useable-slot::before,
 #battle-dialog .useable-slot::after,
 #dungeon-dialog .useable-slot::before,
-#dungeon-dialog .useable-slot::after {
+#dungeon-dialog .useable-slot::after,
+#world-encounter-dialog .useable-slot::before,
+#world-encounter-dialog .useable-slot::after {
   content:"";
   position:absolute;
   top:3px;
@@ -718,9 +720,9 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   transform-origin:center;
   opacity:0;
 }
-#battle-dialog .useable-slot::before, #dungeon-dialog .useable-slot::before { transform:translateX(-50%) rotate(45deg); }
-#battle-dialog .useable-slot::after, #dungeon-dialog .useable-slot::after { transform:translateX(-50%) rotate(-45deg); }
-#battle-dialog .useable-slot.available, #dungeon-dialog .useable-slot.available { background:#000; }
+#battle-dialog .useable-slot::before, #dungeon-dialog .useable-slot::before, #world-encounter-dialog .useable-slot::before { transform:translateX(-50%) rotate(45deg); }
+#battle-dialog .useable-slot::after, #dungeon-dialog .useable-slot::after, #world-encounter-dialog .useable-slot::after { transform:translateX(-50%) rotate(-45deg); }
+#battle-dialog .useable-slot.available, #dungeon-dialog .useable-slot.available, #world-encounter-dialog .useable-slot.available { background:#000; }
 #battle-dialog .useable-slot.empty::before,
 #battle-dialog .useable-slot.empty::after,
 #battle-dialog .useable-slot.used::before,
@@ -728,8 +730,12 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #dungeon-dialog .useable-slot.empty::before,
 #dungeon-dialog .useable-slot.empty::after,
 #dungeon-dialog .useable-slot.used::before,
-#dungeon-dialog .useable-slot.used::after { opacity:1; }
-#battle-dialog .useable-slot.used, #dungeon-dialog .useable-slot.used { background:#fff; }
+#dungeon-dialog .useable-slot.used::after,
+#world-encounter-dialog .useable-slot.empty::before,
+#world-encounter-dialog .useable-slot.empty::after,
+#world-encounter-dialog .useable-slot.used::before,
+#world-encounter-dialog .useable-slot.used::after { opacity:1; }
+#battle-dialog .useable-slot.used, #dungeon-dialog .useable-slot.used, #world-encounter-dialog .useable-slot.used { background:#fff; }
 .bar {
   position:relative;
   border:1px solid #000;
@@ -768,7 +774,7 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
 #battle-log .log-message.you, .battle-log .log-message.you, .battle-log .log-message.party { align-self:flex-start; background:#000; color:#fff; border-color:#000; }
 #battle-log .log-message.opponent, .battle-log .log-message.opponent, .battle-log .log-message.boss { align-self:flex-end; background:#fff; color:#000; border-color:#000; text-align:right; }
 #battle-log .log-message.neutral, .battle-log .log-message.neutral { align-self:center; background:#fff; color:#000; border-style:dashed; text-align:center; }
-#battle-dialog .dialog-buttons, #dungeon-dialog .dialog-buttons { text-align:right; margin-top:16px; }
+#battle-dialog .dialog-buttons, #dungeon-dialog .dialog-buttons, #world-encounter-dialog .dialog-buttons { text-align:right; margin-top:16px; }
 .battlefield-panel { border:1px solid #000; background:#fff; padding:16px; display:flex; flex-direction:column; gap:16px; }
 .battlefield-header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
 .battlefield-timing, .battlefield-pot { border:1px solid #000; background:#fff; padding:8px 12px; display:flex; flex-direction:column; gap:4px; text-transform:uppercase; }
