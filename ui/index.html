@@ -34,6 +34,7 @@
   </div>
   <div id="game" class="hidden">
     <nav id="tabs">
+      <button data-tab="world">World</button>
       <button data-tab="shop">Shop</button>
       <button data-tab="character">Character</button>
       <button data-tab="inventory">Inventory</button>
@@ -41,6 +42,28 @@
       <button data-tab="rotation">Rotation</button>
     </nav>
     <section id="content">
+      <div id="world" class="tab-pane">
+        <div class="world-container">
+          <div class="world-main">
+            <div class="world-header">
+              <div id="world-title">Exploration</div>
+              <div id="world-status" class="world-status">Connecting...</div>
+            </div>
+            <canvas id="world-canvas" width="640" height="480" aria-label="World view"></canvas>
+            <div id="world-message" class="world-message message hidden"></div>
+          </div>
+          <aside class="world-sidebar">
+            <div class="world-sidebar-section">
+              <h3>Adventurers Nearby</h3>
+              <ul id="world-player-list" class="world-player-list"></ul>
+            </div>
+            <div class="world-sidebar-section world-controls">
+              <h3>Controls</h3>
+              <p>Use <strong>WASD</strong> or arrow keys to move. Encounters may occur in tall grass.</p>
+            </div>
+          </aside>
+        </div>
+      </div>
       <div id="shop" class="tab-pane">
         <div id="shop-header">
           <div id="shop-gold">Gold: 0</div>

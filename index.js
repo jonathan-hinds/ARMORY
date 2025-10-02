@@ -51,6 +51,14 @@ const {
   withdrawFromStash,
   purchaseStashEquipmentSlot,
 } = require("./systems/stashService");
+const {
+  listWorlds,
+  joinWorld,
+  leaveWorld,
+  movePlayer,
+  subscribe: subscribeToWorld,
+  runEncounter: runWorldEncounter,
+} = require("./systems/worldService");
 const app = express();
 const connectDB = require("./db");
 
@@ -140,6 +148,122 @@ app.get("/abilities", async (req, res) => {
     console.error(err);
     res.status(500).json({ error: "failed to load abilities" });
   }
+});
+
+app.get("/worlds", async (req, res) => {
+  try {
+    const worlds = await listWorlds();
+    res.json({ worlds });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to load worlds" });
+  }
+});
+
+app.post("/worlds/:worldId/join", async (req, res) => {
+  const worldId = req.params.worldId;
+  const characterId = parseInt((req.body && req.body.characterId) || 0, 10);
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  try {
+    const payload = await joinWorld(worldId, characterId);
+    res.json(payload);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to join world" });
+  }
+});
+
+app.post("/worlds/:worldId/move", async (req, res) => {
+  const worldId = req.params.worldId;
+  const characterId = parseInt((req.body && req.body.characterId) || 0, 10);
+  const direction = req.body && req.body.direction;
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  try {
+    const payload = await movePlayer(worldId, characterId, direction);
+    res.json(payload);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to move" });
+  }
+});
+
+app.post("/worlds/:worldId/leave", async (req, res) => {
+  const worldId = req.params.worldId;
+  const characterId = parseInt((req.body && req.body.characterId) || 0, 10);
+  if (!characterId) {
+    return res.status(400).json({ error: "characterId required" });
+  }
+  try {
+    const payload = await leaveWorld(worldId, characterId);
+    res.json(payload);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to leave world" });
+  }
+});
+
+app.get("/worlds/:worldId/stream", (req, res) => {
+  const worldId = req.params.worldId;
+  const characterId = parseInt(req.query.characterId, 10);
+  if (!characterId) {
+    return res.status(400).end();
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  const send = data => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  let unsubscribe = null;
+  try {
+    unsubscribe = subscribeToWorld(worldId, characterId, send);
+  } catch (err) {
+    console.error(err);
+    send({ type: "error", message: err.message || "subscription failed" });
+    res.end();
+    return;
+  }
+  req.on("close", () => {
+    if (unsubscribe) {
+      try {
+        unsubscribe();
+      } catch (err) {
+        console.error("world unsubscribe failed", err);
+      }
+    }
+  });
+});
+
+app.get("/worlds/:worldId/encounter", async (req, res) => {
+  const worldId = req.params.worldId;
+  const characterId = parseInt(req.query.characterId, 10);
+  const token = req.query && req.query.token;
+  if (!characterId || !token) {
+    return res.status(400).end();
+  }
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  if (res.flushHeaders) res.flushHeaders();
+  const send = data => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    await runWorldEncounter(worldId, characterId, token, send);
+  } catch (err) {
+    console.error(err);
+    send({ type: "error", message: err.message || "encounter failed" });
+  }
+  res.end();
 });
 
 app.put("/characters/:characterId/rotation", async (req, res) => {
