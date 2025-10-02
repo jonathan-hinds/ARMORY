@@ -244,13 +244,68 @@ function tryStartMatch(worldId, size) {
   }
 }
 
+function resumeExistingEntry(entry, send, sizeOverride = null) {
+  if (!entry || entry.completed) {
+    return false;
+  }
+  entry.send = send;
+  const sizeNormalized = Number.isFinite(sizeOverride) ? Math.max(1, Math.min(5, Math.round(sizeOverride))) : null;
+  if (sizeNormalized && entry.size !== sizeNormalized) {
+    if (entry.status === 'queued') {
+      removeFromQueue(entry);
+      entry.size = sizeNormalized;
+      const queues = getQueuesForWorld(entry.worldId);
+      queues[entry.size].push(entry);
+    } else {
+      entry.size = sizeNormalized;
+    }
+  }
+  const payloadBase = {
+    worldId: entry.worldId,
+    worldName: entry.worldName || null,
+    size: entry.size,
+  };
+  if (entry.status === 'queued') {
+    sendSafe(entry, { type: 'queued', ...payloadBase });
+    return true;
+  }
+  if (entry.status === 'matched') {
+    const match = participantMatches.get(entry.character.id);
+    if (match) {
+      sendMatchState(match);
+      sendReadyUpdate(match);
+      return true;
+    }
+    // Match is no longer active; treat as queued so player can try again.
+    entry.status = 'queued';
+    removeFromQueue(entry);
+    const queues = getQueuesForWorld(entry.worldId);
+    queues[entry.size].push(entry);
+    sendSafe(entry, { type: 'queued', ...payloadBase });
+    return true;
+  }
+  return false;
+}
+
 async function queueForWorld(worldId, size, characterId, send) {
   const normalizedSize = Number.isFinite(size) ? Math.max(1, Math.min(5, Math.round(size))) : 1;
   await ensureBattlefieldIdle(characterId);
   await ensureAdventureIdle(characterId);
   const character = await loadCharacter(characterId);
-  if (waitingEntries.has(character.id)) {
-    throw new Error('character already queued');
+  const existingEntry = waitingEntries.get(character.id);
+  if (existingEntry) {
+    if (existingEntry.completed) {
+      waitingEntries.delete(character.id);
+    } else if (existingEntry.worldId !== worldId) {
+      throw new Error('character already queued');
+    } else {
+      existingEntry.character = character;
+      if (resumeExistingEntry(existingEntry, send, normalizedSize)) {
+        return existingEntry;
+      }
+      // If resume failed for some reason, fall through to create a fresh entry.
+      waitingEntries.delete(character.id);
+    }
   }
   const info = await resolveWorldInfo(worldId);
   const entry = {
