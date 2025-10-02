@@ -64,6 +64,7 @@ const connectDB = require("./db");
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "ui")));
+app.use("/assets", express.static(path.join(__dirname, "assets")));
 
 // Render provides the port as process.env.PORT
 const PORT = process.env.PORT || 3000;
