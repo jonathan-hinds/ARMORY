@@ -53,6 +53,30 @@
             <div id="world-message" class="world-message message hidden"></div>
           </div>
           <aside class="world-sidebar">
+            <div class="world-sidebar-section world-lobby">
+              <h3>World Party</h3>
+              <label for="world-select" class="input-label">World</label>
+              <select id="world-select" class="world-select" aria-label="Select world"></select>
+              <label for="world-party-size" class="input-label">Party Size</label>
+              <select id="world-party-size" class="world-select" aria-label="Select party size">
+                <option value="1">Solo (1)</option>
+                <option value="2">Duo (2)</option>
+                <option value="3">Trio (3)</option>
+                <option value="4">Squad (4)</option>
+                <option value="5">Full party (5)</option>
+              </select>
+              <div class="world-lobby-buttons">
+                <button id="world-queue-btn" type="button">Find Party</button>
+                <button id="world-leave-btn" type="button" class="hidden">Leave Queue</button>
+                <button id="world-ready-btn" type="button" class="hidden">Ready Up</button>
+              </div>
+              <div id="world-lobby-status" class="message hidden"></div>
+              <div id="world-ready-panel" class="world-ready-panel hidden">
+                <h4>Party Members</h4>
+                <ul id="world-ready-party"></ul>
+                <div id="world-ready-status" class="world-ready-status"></div>
+              </div>
+            </div>
             <div class="world-sidebar-section">
               <h3>Adventurers Nearby</h3>
               <ul id="world-player-list" class="world-player-list"></ul>

@@ -140,11 +140,14 @@ let battlefieldPollInFlight = false;
 let battlefieldResourcePromise = null;
 
 let worldInitialized = false;
-let worldJoining = false;
+let worldEntering = false;
 let worldCurrentWorldId = null;
+let worldCurrentInstanceId = null;
 let worldConfig = null;
 let worldPlayersState = new Map();
 let worldStreamSource = null;
+let worldQueueSource = null;
+let worldQueueState = null;
 let worldMovementPending = false;
 let worldMovementLocked = false;
 let worldLastMoveAt = 0;
@@ -155,9 +158,25 @@ let worldStatusEl = null;
 let worldMessageEl = null;
 let worldPlayerListEl = null;
 let worldTitleEl = null;
+let worldLobbyStatusEl = null;
+let worldWorldSelectEl = null;
+let worldPartySizeSelectEl = null;
+let worldQueueButton = null;
+let worldLeaveQueueButton = null;
+let worldReadyButton = null;
+let worldReadyPanelEl = null;
+let worldReadyListEl = null;
+let worldReadyStatusEl = null;
 let worldAnimationFrame = null;
 const worldSpriteCache = new Map();
 let worldTileSpriteRefs = new Map();
+let worldOptionsLoaded = false;
+let worldEncounterSource = null;
+let worldBattleDialog = null;
+let worldBattleBars = null;
+let worldBattleBossBars = null;
+let worldBattleLogEl = null;
+let worldBattleCloseButton = null;
 
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
@@ -292,9 +311,21 @@ function resetWorldState() {
     worldStreamSource.close();
     worldStreamSource = null;
   }
+  if (worldQueueSource) {
+    worldQueueSource.close();
+    worldQueueSource = null;
+  }
+  if (worldEncounterSource) {
+    worldEncounterSource.close();
+    worldEncounterSource = null;
+  }
+  closeWorldEncounterDialog();
   worldPlayersState = new Map();
   worldConfig = null;
   worldCurrentWorldId = null;
+  worldCurrentInstanceId = null;
+  worldQueueState = null;
+  setWorldQueueUIState('idle');
   worldTileSpriteRefs = new Map();
   worldMovementPending = false;
   worldMovementLocked = false;
@@ -330,6 +361,369 @@ function ensureWorldCanvas() {
   }
   if (!worldTitleEl) {
     worldTitleEl = document.getElementById('world-title');
+  }
+  ensureWorldLobbyControls();
+}
+
+async function refreshWorldOptions() {
+  if (!worldWorldSelectEl || worldOptionsLoaded) return;
+  try {
+    const res = await fetch('/worlds');
+    if (!res.ok) {
+      throw new Error('Failed to load worlds');
+    }
+    const data = await res.json();
+    const worlds = Array.isArray(data.worlds) ? data.worlds : [];
+    worldWorldSelectEl.innerHTML = '';
+    if (!worlds.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'No worlds available';
+      worldWorldSelectEl.appendChild(opt);
+      worldWorldSelectEl.disabled = true;
+    } else {
+      worlds.forEach((world, idx) => {
+        if (!world || !world.id) return;
+        const opt = document.createElement('option');
+        opt.value = world.id;
+        opt.textContent = world.name || `World ${idx + 1}`;
+        worldWorldSelectEl.appendChild(opt);
+      });
+      worldWorldSelectEl.disabled = false;
+    }
+    worldOptionsLoaded = true;
+  } catch (err) {
+    console.error('Failed to load world options', err);
+    if (worldWorldSelectEl) {
+      worldWorldSelectEl.innerHTML = '';
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Unavailable';
+      worldWorldSelectEl.appendChild(opt);
+      worldWorldSelectEl.disabled = true;
+    }
+  }
+}
+
+function updateWorldLobbyMessage(message, isError = false) {
+  if (!worldLobbyStatusEl) return;
+  if (!message) {
+    clearMessage(worldLobbyStatusEl);
+  } else {
+    showMessage(worldLobbyStatusEl, message, isError);
+  }
+}
+
+function ensureWorldLobbyControls() {
+  if (!worldLobbyStatusEl) {
+    worldLobbyStatusEl = document.getElementById('world-lobby-status');
+  }
+  if (!worldWorldSelectEl) {
+    worldWorldSelectEl = document.getElementById('world-select');
+    worldOptionsLoaded = false;
+    refreshWorldOptions();
+  }
+  if (!worldPartySizeSelectEl) {
+    worldPartySizeSelectEl = document.getElementById('world-party-size');
+  }
+  if (!worldQueueButton) {
+    worldQueueButton = document.getElementById('world-queue-btn');
+    if (worldQueueButton) {
+      worldQueueButton.addEventListener('click', startWorldQueue);
+    }
+  }
+  if (!worldLeaveQueueButton) {
+    worldLeaveQueueButton = document.getElementById('world-leave-btn');
+    if (worldLeaveQueueButton) {
+      worldLeaveQueueButton.addEventListener('click', leaveWorldQueue);
+    }
+  }
+  if (!worldReadyButton) {
+    worldReadyButton = document.getElementById('world-ready-btn');
+    if (worldReadyButton) {
+      worldReadyButton.addEventListener('click', readyWorldQueue);
+    }
+  }
+  if (!worldReadyPanelEl) {
+    worldReadyPanelEl = document.getElementById('world-ready-panel');
+  }
+  if (!worldReadyListEl) {
+    worldReadyListEl = document.getElementById('world-ready-party');
+  }
+  if (!worldReadyStatusEl) {
+    worldReadyStatusEl = document.getElementById('world-ready-status');
+  }
+}
+
+function setWorldQueueUIState(mode = 'idle') {
+  if (worldQueueButton) {
+    if (mode === 'idle') {
+      worldQueueButton.disabled = !currentCharacter;
+      worldQueueButton.textContent = 'Find Party';
+    } else if (mode === 'queued') {
+      worldQueueButton.disabled = true;
+      worldQueueButton.textContent = 'Matching...';
+    } else if (mode === 'matched') {
+      worldQueueButton.disabled = true;
+      worldQueueButton.textContent = 'Match Found';
+    } else if (mode === 'starting') {
+      worldQueueButton.disabled = true;
+      worldQueueButton.textContent = 'Starting...';
+    }
+  }
+  if (worldLeaveQueueButton) {
+    if (mode === 'idle') {
+      worldLeaveQueueButton.classList.add('hidden');
+      worldLeaveQueueButton.disabled = false;
+      worldLeaveQueueButton.textContent = 'Leave Queue';
+    } else if (mode === 'queued' || mode === 'matched') {
+      worldLeaveQueueButton.classList.remove('hidden');
+      worldLeaveQueueButton.disabled = false;
+      worldLeaveQueueButton.textContent = 'Leave Queue';
+    } else {
+      worldLeaveQueueButton.classList.remove('hidden');
+      worldLeaveQueueButton.disabled = true;
+      worldLeaveQueueButton.textContent = 'Starting...';
+    }
+  }
+  if (worldReadyButton) {
+    if (mode === 'matched') {
+      worldReadyButton.classList.remove('hidden');
+      const alreadyReady =
+        worldQueueState && Array.isArray(worldQueueState.readyIds)
+          ? worldQueueState.readyIds.includes(currentCharacter && currentCharacter.id)
+          : false;
+      worldReadyButton.disabled = alreadyReady;
+      worldReadyButton.textContent = alreadyReady ? 'Ready' : 'Ready Up';
+    } else {
+      worldReadyButton.classList.add('hidden');
+      worldReadyButton.disabled = false;
+      worldReadyButton.textContent = 'Ready Up';
+    }
+  }
+  if (worldReadyPanelEl) {
+    if (mode === 'matched') {
+      worldReadyPanelEl.classList.remove('hidden');
+    } else {
+      worldReadyPanelEl.classList.add('hidden');
+    }
+  }
+}
+
+function updateWorldReadyPanel() {
+  if (!worldReadyListEl) return;
+  worldReadyListEl.innerHTML = '';
+  const state = worldQueueState;
+  if (!state || !Array.isArray(state.party) || !state.party.length) {
+    if (worldReadyPanelEl) {
+      worldReadyPanelEl.classList.add('hidden');
+    }
+    if (worldReadyStatusEl) {
+      worldReadyStatusEl.textContent = '';
+    }
+    return;
+  }
+  const readyIds = Array.isArray(state.readyIds) ? state.readyIds.map(id => Number(id)) : [];
+  state.party.forEach(member => {
+    if (!member) return;
+    const li = document.createElement('li');
+    li.textContent = `${member.name || 'Adventurer'} (Lv ${member.level || 1})`;
+    if (currentCharacter && member.id === currentCharacter.id) {
+      li.classList.add('you');
+    }
+    if (readyIds.includes(member.id)) {
+      li.classList.add('ready');
+    }
+    worldReadyListEl.appendChild(li);
+  });
+  if (worldReadyStatusEl) {
+    const readyCount = Number.isFinite(state.ready) ? state.ready : readyIds.length;
+    const total = Number.isFinite(state.size) ? state.size : state.party.length;
+    worldReadyStatusEl.textContent = `Ready: ${readyCount} / ${total}`;
+  }
+  if (worldReadyPanelEl) {
+    worldReadyPanelEl.classList.remove('hidden');
+  }
+  setWorldQueueUIState('matched');
+}
+
+function stopWorldQueue(message = '', isError = false) {
+  if (worldQueueSource) {
+    worldQueueSource.close();
+    worldQueueSource = null;
+  }
+  worldQueueState = null;
+  setWorldQueueUIState('idle');
+  updateWorldReadyPanel();
+  updateWorldLobbyMessage(message, isError);
+}
+
+function handleWorldQueueEvent(data) {
+  if (!data) return;
+  if (data.type === 'queued') {
+    worldQueueState = {
+      status: 'queued',
+      worldId: data.worldId || (worldQueueState && worldQueueState.worldId) || null,
+      worldName: data.worldName || null,
+      size: Number.isFinite(data.size) ? data.size : (worldQueueState && worldQueueState.size) || 1,
+      ready: 0,
+      readyIds: [],
+      party: [],
+    };
+    setWorldQueueUIState('queued');
+    updateWorldLobbyMessage('Searching for party...', false);
+    return;
+  }
+  if (data.type === 'matched') {
+    worldQueueState = {
+      status: 'matched',
+      worldId: data.worldId || (worldQueueState && worldQueueState.worldId) || null,
+      worldName: data.worldName || null,
+      size: Number.isFinite(data.size) ? data.size : (worldQueueState && worldQueueState.size) || 1,
+      matchId: data.matchId || null,
+      ready: Number.isFinite(data.ready) ? data.ready : 0,
+      readyIds: Array.isArray(data.readyIds) ? data.readyIds.slice() : [],
+      party: Array.isArray(data.party) ? data.party.slice() : [],
+    };
+    updateWorldLobbyMessage('Party found! Ready up to embark.', false);
+    updateWorldReadyPanel();
+    return;
+  }
+  if (data.type === 'ready') {
+    if (!worldQueueState) return;
+    worldQueueState.ready = Number.isFinite(data.ready) ? data.ready : worldQueueState.ready || 0;
+    worldQueueState.readyIds = Array.isArray(data.readyIds) ? data.readyIds.slice() : worldQueueState.readyIds || [];
+    updateWorldReadyPanel();
+    return;
+  }
+  if (data.type === 'start') {
+    const worldId = data.worldId || (worldQueueState && worldQueueState.worldId) || (worldWorldSelectEl && worldWorldSelectEl.value);
+    if (data.party) {
+      worldQueueState = {
+        status: 'starting',
+        worldId,
+        worldName: data.worldName || null,
+        matchId: data.matchId || null,
+        ready: worldQueueState && worldQueueState.ready,
+        readyIds: worldQueueState && worldQueueState.readyIds,
+        party: Array.isArray(data.party) ? data.party.slice() : [],
+        size: Array.isArray(data.party) ? data.party.length : worldQueueState && worldQueueState.size,
+      };
+    }
+    setWorldQueueUIState('starting');
+    updateWorldLobbyMessage('Entering world...', false);
+    if (worldQueueSource) {
+      worldQueueSource.close();
+      worldQueueSource = null;
+    }
+    worldQueueState = null;
+    const instanceId = data.instanceId || null;
+    if (worldId && instanceId) {
+      enterWorldInstance(worldId, instanceId, data.world || null);
+    }
+    return;
+  }
+  if (data.type === 'cancelled') {
+    stopWorldQueue(data.message || 'World queue cancelled.', true);
+    return;
+  }
+  if (data.type === 'error') {
+    stopWorldQueue(data.message || 'World queue error.', true);
+  }
+}
+
+function startWorldQueue() {
+  if (!currentCharacter) {
+    updateWorldLobbyMessage('Select a character to form a party.', true);
+    return;
+  }
+  if (worldCurrentInstanceId) {
+    updateWorldLobbyMessage('Leave your current world before forming a new party.', true);
+    return;
+  }
+  if (worldQueueSource) return;
+  if (!worldWorldSelectEl || !worldWorldSelectEl.value) {
+    updateWorldLobbyMessage('Select a world first.', true);
+    return;
+  }
+  const worldId = worldWorldSelectEl.value;
+  const sizeValue = worldPartySizeSelectEl ? parseInt(worldPartySizeSelectEl.value, 10) : 1;
+  const size = Number.isFinite(sizeValue) ? Math.max(1, Math.min(5, sizeValue)) : 1;
+  setWorldQueueUIState('queued');
+  updateWorldLobbyMessage('Searching for party...', false);
+  const url = `/worlds/${encodeURIComponent(worldId)}/queue?characterId=${currentCharacter.id}&size=${size}`;
+  const es = new EventSource(url);
+  worldQueueSource = es;
+  worldQueueState = {
+    status: 'queued',
+    worldId,
+    size,
+    ready: 0,
+    readyIds: [],
+    party: [],
+  };
+  es.onmessage = ev => {
+    if (!ev || !ev.data) return;
+    try {
+      const data = JSON.parse(ev.data);
+      handleWorldQueueEvent(data);
+    } catch (err) {
+      console.error('World queue parse failed', err);
+    }
+  };
+  es.onerror = () => {
+    stopWorldQueue('World queue connection lost.', true);
+  };
+}
+
+async function leaveWorldQueue() {
+  if (!currentCharacter) return;
+  const state = worldQueueState;
+  if (!state || !state.worldId) {
+    stopWorldQueue();
+    return;
+  }
+  if (worldLeaveQueueButton) {
+    worldLeaveQueueButton.disabled = true;
+    worldLeaveQueueButton.textContent = 'Leaving...';
+  }
+  try {
+    await postJSON(`/worlds/${encodeURIComponent(state.worldId)}/cancel`, {
+      characterId: currentCharacter.id,
+    });
+    stopWorldQueue('Left world queue.', false);
+  } catch (err) {
+    console.error('Failed to leave world queue', err);
+    updateWorldLobbyMessage(err.message || 'Failed to leave queue.', true);
+    setWorldQueueUIState(state.status || 'queued');
+  }
+}
+
+async function readyWorldQueue() {
+  if (!currentCharacter) return;
+  if (!worldQueueState || !worldQueueState.worldId || !worldQueueState.matchId) return;
+  if (worldReadyButton) {
+    worldReadyButton.disabled = true;
+    worldReadyButton.textContent = 'Ready';
+  }
+  try {
+    const payload = await postJSON(`/worlds/${encodeURIComponent(worldQueueState.worldId)}/ready`, {
+      characterId: currentCharacter.id,
+      matchId: worldQueueState.matchId,
+    });
+    if (payload && Array.isArray(payload.readyIds)) {
+      worldQueueState.ready = Number.isFinite(payload.ready) ? payload.ready : worldQueueState.ready;
+      worldQueueState.readyIds = payload.readyIds.slice();
+      updateWorldReadyPanel();
+    }
+    updateWorldLobbyMessage('Ready confirmed. Awaiting allies...', false);
+  } catch (err) {
+    console.error('Failed to ready for world', err);
+    updateWorldLobbyMessage(err.message || 'Failed to ready up.', true);
+    if (worldReadyButton) {
+      worldReadyButton.disabled = false;
+      worldReadyButton.textContent = 'Ready Up';
+    }
   }
 }
 
@@ -492,86 +886,39 @@ function startWorldRenderLoop() {
 }
 
 function handleWorldStateUpdate(data) {
-  if (!data || !Array.isArray(data.players)) return;
-  const next = new Map();
-  data.players.forEach(player => {
-    if (!player || !Number.isFinite(player.characterId)) return;
-    next.set(player.characterId, {
-      characterId: player.characterId,
-      name: player.name || `Adventurer ${player.characterId}`,
-      x: Number.isFinite(player.x) ? player.x : 0,
-      y: Number.isFinite(player.y) ? player.y : 0,
-      facing: player.facing || 'down',
+  if (!data) return;
+  if (Array.isArray(data.players)) {
+    const next = new Map();
+    data.players.forEach(player => {
+      if (!player || !Number.isFinite(player.characterId)) return;
+      next.set(player.characterId, {
+        characterId: player.characterId,
+        name: player.name || `Adventurer ${player.characterId}`,
+        x: Number.isFinite(player.x) ? player.x : 0,
+        y: Number.isFinite(player.y) ? player.y : 0,
+        facing: player.facing || 'down',
+      });
     });
-  });
-  worldPlayersState = next;
-  updateWorldPlayerList();
-}
-
-async function ensureWorldReady() {
-  if (!isTabActive('world')) return;
-  if (!currentCharacter) {
-    updateWorldStatus('Select a character');
-    return;
+    worldPlayersState = next;
+    updateWorldPlayerList();
   }
-  ensureWorldCanvas();
-  if (worldStreamSource && worldConfig && worldCurrentWorldId) {
+  const phase = data.phase || 'explore';
+  if (phase === 'encounter') {
+    updateWorldStatus('Encounter!');
+  } else if (!worldMovementLocked) {
     updateWorldStatus('Roaming');
-    return;
-  }
-  if (worldJoining) return;
-  worldJoining = true;
-  updateWorldStatus('Connecting...');
-  try {
-    const res = await fetch('/worlds');
-    if (!res.ok) {
-      throw new Error('Failed to load worlds');
-    }
-    const data = await res.json();
-    const worlds = Array.isArray(data.worlds) ? data.worlds : [];
-    const fallback = worlds.length ? worlds[0].id : null;
-    const targetWorldId = worldCurrentWorldId || fallback;
-    if (!targetWorldId) {
-      throw new Error('No worlds available');
-    }
-    const payload = await postJSON(`/worlds/${encodeURIComponent(targetWorldId)}/join`, { characterId: currentCharacter.id });
-    const world = payload.world || null;
-    worldCurrentWorldId = world && world.id ? world.id : targetWorldId;
-    worldConfig = world;
-    prepareWorldAssets(world);
-    worldMoveCooldownMs = world && Number.isFinite(world.moveCooldownMs) ? world.moveCooldownMs : 180;
-    handleWorldStateUpdate(payload);
-    if (worldTitleEl && world && world.name) {
-      worldTitleEl.textContent = world.name;
-    }
-    updateWorldStatus('Roaming');
-    if (worldMessageEl) {
-      clearMessage(worldMessageEl);
-      showMessage(worldMessageEl, 'Use WASD or arrows to explore the world.', false);
-      setTimeout(() => {
-        if (worldMessageEl) clearMessage(worldMessageEl);
-      }, 4000);
-    }
-    startWorldStream(worldCurrentWorldId);
-    startWorldRenderLoop();
-  } catch (err) {
-    console.error('world connection failed', err);
-    if (worldMessageEl) {
-      showMessage(worldMessageEl, err.message || 'Failed to join world.', true);
-    }
-    updateWorldStatus('Unavailable');
-  } finally {
-    worldJoining = false;
   }
 }
 
-function startWorldStream(worldId) {
-  if (!worldId || !currentCharacter) return;
+function startWorldStream(worldId, instanceId) {
+  if (!worldId || !instanceId || !currentCharacter) return;
   if (worldStreamSource) {
     worldStreamSource.close();
     worldStreamSource = null;
   }
-  const url = `/worlds/${encodeURIComponent(worldId)}/stream?characterId=${currentCharacter.id}`;
+  const url = `/worlds/${encodeURIComponent(worldId)}/stream?characterId=${currentCharacter.id}&instanceId=${encodeURIComponent(
+    instanceId,
+  )}`;
   const es = new EventSource(url);
   es.onmessage = ev => {
     if (!ev || !ev.data) return;
@@ -579,6 +926,8 @@ function startWorldStream(worldId) {
       const data = JSON.parse(ev.data);
       if (data.type === 'state') {
         handleWorldStateUpdate(data);
+      } else if (data.type === 'encounter' && data.token) {
+        beginWorldEncounter(data.token);
       } else if (data.type === 'error' && worldMessageEl) {
         showMessage(worldMessageEl, data.message || 'World connection error.', true);
       }
@@ -591,12 +940,56 @@ function startWorldStream(worldId) {
     worldStreamSource = null;
     updateWorldStatus('Reconnecting...');
     setTimeout(() => {
-      if (isTabActive('world') && currentCharacter && !worldStreamSource) {
-        ensureWorldReady();
+      if (
+        isTabActive('world') &&
+        currentCharacter &&
+        !worldStreamSource &&
+        worldCurrentWorldId &&
+        worldCurrentInstanceId
+      ) {
+        startWorldStream(worldCurrentWorldId, worldCurrentInstanceId);
       }
     }, 1500);
   };
   worldStreamSource = es;
+}
+
+async function enterWorldInstance(worldId, instanceId, worldPayload = null) {
+  if (!currentCharacter || !worldId || !instanceId) return;
+  if (worldEntering) return;
+  worldEntering = true;
+  updateWorldStatus('Connecting...');
+  try {
+    const payload = await postJSON(`/worlds/${encodeURIComponent(worldId)}/join`, {
+      characterId: currentCharacter.id,
+      instanceId,
+    });
+    const world = payload.world || worldPayload || null;
+    worldCurrentWorldId = world && world.id ? world.id : worldId;
+    worldCurrentInstanceId = payload.instanceId || instanceId;
+    worldConfig = world;
+    prepareWorldAssets(world);
+    worldMoveCooldownMs = world && Number.isFinite(world.moveCooldownMs) ? world.moveCooldownMs : 180;
+    handleWorldStateUpdate(payload);
+    if (worldTitleEl && world && world.name) {
+      worldTitleEl.textContent = world.name;
+    }
+    if (worldWorldSelectEl && worldCurrentWorldId) {
+      worldWorldSelectEl.value = worldCurrentWorldId;
+    }
+    updateWorldStatus('Roaming');
+    updateWorldLobbyMessage('', false);
+    setWorldQueueUIState('idle');
+    startWorldStream(worldCurrentWorldId, worldCurrentInstanceId);
+    startWorldRenderLoop();
+  } catch (err) {
+    console.error('world connection failed', err);
+    updateWorldStatus('Unavailable');
+    updateWorldLobbyMessage(err.message || 'Failed to enter world.', true);
+    setWorldQueueUIState('idle');
+  } finally {
+    worldEntering = false;
+  }
 }
 
 function handleWorldKeydown(event) {
@@ -614,7 +1007,7 @@ function handleWorldKeydown(event) {
 }
 
 async function queueWorldMove(direction) {
-  if (!currentCharacter || !worldCurrentWorldId) return;
+  if (!currentCharacter || !worldCurrentWorldId || !worldCurrentInstanceId) return;
   if (worldMovementPending || worldMovementLocked) return;
   const now = Date.now();
   if (now - worldLastMoveAt < worldMoveCooldownMs) return;
@@ -622,6 +1015,7 @@ async function queueWorldMove(direction) {
   try {
     const payload = await postJSON(`/worlds/${encodeURIComponent(worldCurrentWorldId)}/move`, {
       characterId: currentCharacter.id,
+      instanceId: worldCurrentInstanceId,
       direction,
     });
     worldLastMoveAt = Date.now();
@@ -648,49 +1042,221 @@ async function queueWorldMove(direction) {
   }
 }
 
-function beginWorldEncounter(token) {
-  if (!worldCurrentWorldId || !currentCharacter || !token) return;
+function closeWorldEncounterDialog() {
+  if (worldBattleCloseButton) {
+    worldBattleCloseButton.removeEventListener('click', closeWorldEncounterDialog);
+  }
+  if (worldBattleDialog && worldBattleDialog.parentNode) {
+    worldBattleDialog.parentNode.removeChild(worldBattleDialog);
+  }
+  worldBattleDialog = null;
+  worldBattleBars = null;
+  worldBattleBossBars = null;
+  worldBattleLogEl = null;
+  worldBattleCloseButton = null;
+}
+
+function appendWorldEncounterLogs(entries, partyIds, bossId) {
+  if (!worldBattleLogEl || !Array.isArray(entries)) return;
+  entries.forEach(entry => {
+    if (!entry || !entry.message) return;
+    const line = document.createElement('div');
+    line.classList.add('log-message');
+    const type = classifyDungeonLogEntry(entry, partyIds, bossId);
+    line.classList.add(type || 'neutral');
+    line.textContent = entry.message;
+    worldBattleLogEl.appendChild(line);
+  });
+  worldBattleLogEl.scrollTop = worldBattleLogEl.scrollHeight;
+}
+
+function openWorldEncounterDialog(data) {
+  closeWorldEncounterDialog();
+  const dialog = document.createElement('div');
+  dialog.id = 'world-encounter-dialog';
+  dialog.innerHTML = `
+    <div class="dialog-box">
+      <div class="combatants-row dungeon-combatants-row">
+        <div class="dungeon-party party-column" role="group" aria-label="Party status"></div>
+        <div class="dungeon-boss boss-column" role="group" aria-label="Boss status"></div>
+      </div>
+      <div class="battle-log dungeon-log" id="world-encounter-log"></div>
+      <div class="dialog-buttons"><button id="world-encounter-close" class="hidden">Close</button></div>
+    </div>`;
+  document.body.appendChild(dialog);
+  worldBattleDialog = dialog;
+  const partyContainer = dialog.querySelector('.dungeon-party');
+  const bossContainer = dialog.querySelector('.dungeon-boss');
+  worldBattleLogEl = dialog.querySelector('#world-encounter-log');
+  worldBattleCloseButton = dialog.querySelector('#world-encounter-close');
+  if (worldBattleCloseButton) {
+    worldBattleCloseButton.addEventListener('click', closeWorldEncounterDialog);
+  }
+  worldBattleBars = new Map();
+  if (Array.isArray(data.party)) {
+    data.party.forEach(member => {
+      if (!partyContainer) return;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'combatant dungeon-combatant party-member';
+      wrapper.innerHTML = `
+        <div class="name">${member.name}</div>
+        <div class="bars">
+          <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+          <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+          <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+        </div>
+        <div class="useable-slots" role="group" aria-label="Useable item slots">
+          <div class="useable-slot" data-slot="useable1"></div>
+          <div class="useable-slot" data-slot="useable2"></div>
+        </div>`;
+      partyContainer.appendChild(wrapper);
+      const group = createDungeonBarGroup(wrapper, member);
+      worldBattleBars.set(member.id, group);
+      updateDungeonBarGroup(group, member);
+    });
+  }
+  if (bossContainer && data.boss) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'combatant dungeon-combatant boss-member';
+    wrapper.innerHTML = `
+      <div class="name">${data.boss.name}</div>
+      <div class="bars">
+        <div class="bar health"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+        <div class="bar mana"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+        <div class="bar stamina"><div class="fill"></div><div class="label"><span class="value"></span></div></div>
+      </div>
+      <div class="useable-slots" role="group" aria-label="Useable item slots">
+        <div class="useable-slot" data-slot="useable1"></div>
+        <div class="useable-slot" data-slot="useable2"></div>
+      </div>`;
+    bossContainer.appendChild(wrapper);
+    worldBattleBossBars = createDungeonBarGroup(wrapper, data.boss);
+    updateDungeonBarGroup(worldBattleBossBars, data.boss);
+  }
+  if (Array.isArray(data.log) && data.log.length) {
+    appendWorldEncounterLogs(data.log, data.partyIds || [], data.bossId);
+  }
+}
+
+function updateWorldEncounterDialog(data) {
+  if (Array.isArray(data.party) && worldBattleBars) {
+    data.party.forEach(member => {
+      const group = worldBattleBars.get(member.id);
+      if (group) {
+        updateDungeonBarGroup(group, member);
+      }
+    });
+  }
+  if (data.boss && worldBattleBossBars) {
+    updateDungeonBarGroup(worldBattleBossBars, data.boss);
+  }
+  if (Array.isArray(data.log) && data.log.length) {
+    appendWorldEncounterLogs(data.log, data.partyIds || [], data.bossId);
+  }
+}
+
+function handleWorldEncounterEnd(data) {
+  worldMovementLocked = false;
+  updateWorldStatus('Roaming');
+  if (worldMessageEl) {
+    clearMessage(worldMessageEl);
+  }
+  if (data) {
+    if (Array.isArray(data.finalParty) && worldBattleBars) {
+      data.finalParty.forEach(member => {
+        const group = worldBattleBars.get(member && member.id);
+        if (group) {
+          updateDungeonBarGroup(group, member);
+        }
+      });
+    }
+    if (data.finalBoss && worldBattleBossBars) {
+      updateDungeonBarGroup(worldBattleBossBars, data.finalBoss);
+    }
+    if (data.winnerSide) {
+      const message = data.winnerSide === 'party' ? 'Victory!' : 'Defeat...';
+      appendWorldEncounterLogs([{ message }], data.partyIds || [], data.bossId || null);
+    }
+    const rewards = data.rewards || null;
+    if (rewards && currentCharacter && rewards[currentCharacter.id]) {
+      updateAfterBattleEnd(rewards[currentCharacter.id]);
+    }
+  }
+  if (worldBattleCloseButton) {
+    worldBattleCloseButton.classList.remove('hidden');
+  }
+}
+
+function startWorldEncounterStream(token) {
+  if (!worldCurrentWorldId || !worldCurrentInstanceId || !currentCharacter || !token) return;
+  if (worldEncounterSource) {
+    worldEncounterSource.close();
+    worldEncounterSource = null;
+  }
   worldMovementLocked = true;
   updateWorldStatus('Encounter!');
   if (worldMessageEl) {
     showMessage(worldMessageEl, 'A wild foe appears!', false);
   }
-  const url = `/worlds/${encodeURIComponent(worldCurrentWorldId)}/encounter?characterId=${currentCharacter.id}&token=${encodeURIComponent(
-    token,
-  )}`;
-  launchCombatStream(url, {
-    updateArea: false,
-    waitingText: 'Preparing encounter...',
-    onEnd: data => {
-      updateAfterBattleEnd(data);
-      worldMovementLocked = false;
-      updateWorldStatus('Roaming');
-      if (worldMessageEl) {
-        clearMessage(worldMessageEl);
+  const url = `/worlds/${encodeURIComponent(worldCurrentWorldId)}/encounter?characterId=${currentCharacter.id}&instanceId=${encodeURIComponent(
+    worldCurrentInstanceId,
+  )}&token=${encodeURIComponent(token)}`;
+  const es = new EventSource(url);
+  worldEncounterSource = es;
+  es.onmessage = ev => {
+    if (!ev || !ev.data) return;
+    try {
+      const data = JSON.parse(ev.data);
+      if (data.type === 'start') {
+        openWorldEncounterDialog(data);
+      } else if (data.type === 'update') {
+        updateWorldEncounterDialog(data);
+      } else if (data.type === 'end') {
+        updateWorldEncounterDialog(data);
+        handleWorldEncounterEnd(data);
+        es.close();
+        worldEncounterSource = null;
+      } else if (data.type === 'cancelled') {
+        handleWorldEncounterEnd({});
+        closeWorldEncounterDialog();
+        es.close();
+        worldEncounterSource = null;
+      } else if (data.type === 'error') {
+        if (worldMessageEl) {
+          showMessage(worldMessageEl, data.message || 'Encounter failed.', true);
+        }
+        worldMovementLocked = false;
+        updateWorldStatus('Roaming');
+        es.close();
+        worldEncounterSource = null;
       }
-      ensureWorldReady();
-    },
-    onError: err => {
-      worldMovementLocked = false;
-      updateWorldStatus('Roaming');
-      if (worldMessageEl) {
-        showMessage(worldMessageEl, (err && err.message) || 'Encounter failed.', true);
-      }
-    },
-    onCancel: () => {
-      worldMovementLocked = false;
-      updateWorldStatus('Roaming');
-      if (worldMessageEl) {
-        clearMessage(worldMessageEl);
-      }
-    },
-  });
+    } catch (err) {
+      console.error('world encounter parse failed', err);
+    }
+  };
+  es.onerror = () => {
+    if (worldMessageEl) {
+      showMessage(worldMessageEl, 'Encounter connection lost.', true);
+    }
+    worldMovementLocked = false;
+    updateWorldStatus('Roaming');
+    es.close();
+    worldEncounterSource = null;
+    closeWorldEncounterDialog();
+  };
+}
+
+function beginWorldEncounter(token) {
+  startWorldEncounterStream(token);
 }
 
 async function leaveWorldServer() {
-  if (!worldCurrentWorldId || !currentCharacter) return;
+  if (!worldCurrentWorldId || !worldCurrentInstanceId || !currentCharacter) return;
   try {
-    await postJSON(`/worlds/${encodeURIComponent(worldCurrentWorldId)}/leave`, { characterId: currentCharacter.id });
+    await postJSON(`/worlds/${encodeURIComponent(worldCurrentWorldId)}/leave`, {
+      characterId: currentCharacter.id,
+      instanceId: worldCurrentInstanceId,
+    });
   } catch (err) {
     console.warn('failed to leave world', err);
   }
@@ -702,7 +1268,21 @@ function initWorldTab() {
     document.addEventListener('keydown', handleWorldKeydown);
     worldInitialized = true;
   }
-  ensureWorldReady();
+  ensureWorldLobbyControls();
+  if (!currentCharacter) {
+    updateWorldStatus('Select a character');
+    setWorldQueueUIState('idle');
+    updateWorldLobbyMessage('Log in and choose a hero to explore.', false);
+    return;
+  }
+  setWorldQueueUIState(worldQueueState && worldQueueState.status ? worldQueueState.status : 'idle');
+  if (worldCurrentWorldId && worldCurrentInstanceId) {
+    startWorldStream(worldCurrentWorldId, worldCurrentInstanceId);
+    updateWorldStatus('Roaming');
+  } else {
+    updateWorldStatus('Gather your party');
+    updateWorldLobbyMessage('Queue up to enter a world instance.', false);
+  }
 }
 
 const SHOP_CATEGORY_DEFINITIONS = [
