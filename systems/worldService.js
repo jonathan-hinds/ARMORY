@@ -16,7 +16,7 @@ const { ensureAdventureIdle } = require('./adventureService');
 const { ensureBattlefieldIdle } = require('./battlefieldService');
 const { getAbilities } = require('./abilityService');
 const { getEquipmentMap } = require('./equipmentService');
-const { runCombat } = require('./combatEngine');
+const { runDungeonCombat } = require('./combatEngine');
 const { xpForNextLevel } = require('./characterService');
 
 const WORLD_FILE = path.join(__dirname, '..', 'data', 'worlds.json');
@@ -32,7 +32,7 @@ let cachedConfig = null;
 let cachedAbilityMap = null;
 let cachedEquipmentMap = null;
 
-const worldStates = new Map();
+const worldInstances = new Map();
 
 function deepClone(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -187,14 +187,29 @@ async function getWorldById(worldId) {
   return config.find(world => world && world.id === worldId) || null;
 }
 
-function getWorldState(worldId) {
-  if (!worldStates.has(worldId)) {
-    worldStates.set(worldId, {
-      players: new Map(),
-      listeners: new Set(),
-    });
+function ensureInstance(worldId, instanceId) {
+  if (!instanceId || !worldInstances.has(instanceId)) {
+    throw new Error('world instance not found');
   }
-  return worldStates.get(worldId);
+  const instance = worldInstances.get(instanceId);
+  if (!instance || instance.worldId !== worldId) {
+    throw new Error('world instance mismatch');
+  }
+  return instance;
+}
+
+function cleanupInstance(instanceId) {
+  if (!instanceId || !worldInstances.has(instanceId)) return;
+  const instance = worldInstances.get(instanceId);
+  if (!instance) return;
+  instance.listeners.forEach(listener => {
+    try {
+      listener({ type: 'error', message: 'World instance closed.' });
+    } catch (err) {
+      /* ignore */
+    }
+  });
+  worldInstances.delete(instanceId);
 }
 
 function sanitizeWorld(world) {
@@ -220,9 +235,13 @@ function serializePlayersForClient(state) {
   }));
 }
 
-function broadcastWorldState(worldId) {
-  const state = getWorldState(worldId);
-  const payload = { type: 'state', players: serializePlayersForClient(state) };
+function broadcastWorldState(state) {
+  if (!state) return;
+  const payload = {
+    type: 'state',
+    phase: state.phase,
+    players: serializePlayersForClient(state),
+  };
   state.listeners.forEach(listener => {
     try {
       listener(payload);
@@ -294,10 +313,13 @@ function tileAt(world, x, y) {
   return row[x];
 }
 
-function ensurePlayerEntry(worldId, characterId, name, world) {
-  const state = getWorldState(worldId);
+function ensurePlayerEntry(state, characterId, name) {
+  if (!state || !state.world) {
+    throw new Error('world not available');
+  }
   let entry = state.players.get(characterId);
   if (!entry) {
+    const world = state.world;
     const spawn = isWalkableTile(world, world.spawn.x, world.spawn.y) ? world.spawn : firstWalkable(world);
     entry = {
       characterId,
@@ -307,7 +329,6 @@ function ensurePlayerEntry(worldId, characterId, name, world) {
       facing: 'down',
       updatedAt: Date.now(),
       lastEncounterAt: 0,
-      pendingEncounter: null,
     };
     state.players.set(characterId, entry);
   } else {
@@ -419,45 +440,103 @@ async function listWorlds() {
   return config.map(world => ({ id: world.id, name: world.name }));
 }
 
-async function joinWorld(worldId, characterId) {
-  if (!Number.isFinite(characterId)) {
-    throw new Error('characterId required');
-  }
+async function createWorldInstance(worldId, participantIds = []) {
   const world = await getWorldById(worldId);
   if (!world) {
     throw new Error('world not found');
   }
+  const instanceId = uuid();
+  worldInstances.set(instanceId, {
+    id: instanceId,
+    worldId,
+    world,
+    players: new Map(),
+    listeners: new Set(),
+    expectedParticipants: new Set(participantIds),
+    phase: 'lobby',
+    activeEncounter: null,
+  });
+  return { instanceId, world: sanitizeWorld(world) };
+}
+
+function ensureParticipant(state, characterId) {
+  if (!state) {
+    throw new Error('world instance not found');
+  }
+  if (state.expectedParticipants && state.expectedParticipants.size && !state.expectedParticipants.has(characterId)) {
+    throw new Error('character not part of this world');
+  }
+}
+
+async function joinWorld(worldId, instanceId, characterId) {
+  if (!Number.isFinite(characterId)) {
+    throw new Error('characterId required');
+  }
+  if (!instanceId) {
+    throw new Error('instanceId required');
+  }
+  const state = ensureInstance(worldId, instanceId);
+  ensureParticipant(state, characterId);
   await ensureBattlefieldIdle(characterId);
   await ensureAdventureIdle(characterId);
   const prep = await prepareCharacterForCombat(characterId);
-  const entry = ensurePlayerEntry(worldId, characterId, prep.character.name, world);
-  broadcastWorldState(worldId);
+  const entry = ensurePlayerEntry(state, characterId, prep.character.name);
+  if (state.phase !== 'encounter') {
+    state.phase = 'explore';
+  }
+  broadcastWorldState(state);
   return {
-    world: sanitizeWorld(world),
+    world: sanitizeWorld(state.world),
+    instanceId: state.id,
     player: { characterId: entry.characterId, name: entry.name, x: entry.x, y: entry.y, facing: entry.facing },
-    players: serializePlayersForClient(getWorldState(worldId)),
+    players: serializePlayersForClient(state),
+    phase: state.phase,
   };
 }
 
-async function leaveWorld(worldId, characterId) {
-  const state = getWorldState(worldId);
+async function leaveWorld(worldId, instanceId, characterId) {
+  const state = ensureInstance(worldId, instanceId);
   const existing = state.players.get(characterId);
   if (existing) {
     state.players.delete(characterId);
-    broadcastWorldState(worldId);
+    if (state.activeEncounter && state.activeEncounter.listeners) {
+      state.activeEncounter.listeners.forEach(listener => {
+        try {
+          listener({ type: 'cancelled' });
+        } catch (err) {
+          /* ignore */
+        }
+      });
+      state.activeEncounter = null;
+    }
+    if (!state.players.size) {
+      cleanupInstance(instanceId);
+    } else {
+      if (state.phase !== 'encounter') {
+        state.phase = 'explore';
+      }
+      broadcastWorldState(state);
+    }
   }
   return { success: true };
 }
 
-async function movePlayer(worldId, characterId, direction) {
-  const world = await getWorldById(worldId);
+async function movePlayer(worldId, instanceId, characterId, direction) {
+  const state = ensureInstance(worldId, instanceId);
+  const world = state.world;
   if (!world) {
     throw new Error('world not found');
   }
-  const state = getWorldState(worldId);
   const player = state.players.get(characterId);
   if (!player) {
     throw new Error('player not in world');
+  }
+  if (state.phase === 'encounter' && state.activeEncounter) {
+    return {
+      position: { x: player.x, y: player.y, facing: player.facing },
+      moved: false,
+      locked: true,
+    };
   }
   const delta = directionToDelta(direction);
   if (!delta) {
@@ -489,14 +568,33 @@ async function movePlayer(worldId, characterId, direction) {
       const template = chooseEncounterTemplate(world);
       if (template) {
         const token = uuid();
-        player.pendingEncounter = { token, template: deepClone(template) };
+        const participants = Array.from(state.players.keys());
+        state.activeEncounter = {
+          token,
+          template: deepClone(template),
+          startedBy: characterId,
+          listeners: new Set(),
+          started: false,
+          completed: false,
+          lastEvent: null,
+          resultPayload: null,
+          participants,
+        };
+        state.phase = 'encounter';
         player.lastEncounterAt = now;
         encounter = { token };
+        state.listeners.forEach(listener => {
+          try {
+            listener({ type: 'encounter', token, startedBy: characterId });
+          } catch (err) {
+            console.error('world encounter notify failed', err);
+          }
+        });
       }
     }
   }
 
-  broadcastWorldState(worldId);
+  broadcastWorldState(state);
   return {
     position: { x: player.x, y: player.y, facing: player.facing },
     moved,
@@ -504,89 +602,180 @@ async function movePlayer(worldId, characterId, direction) {
   };
 }
 
-function subscribe(worldId, characterId, send) {
-  const world = worldStates.get(worldId);
-  if (!world) {
-    throw new Error('world not found');
-  }
-  if (!world.players.has(characterId)) {
+function subscribe(worldId, instanceId, characterId, send) {
+  const state = ensureInstance(worldId, instanceId);
+  if (!state.players.has(characterId)) {
     throw new Error('player not in world');
   }
-  world.listeners.add(send);
-  send({ type: 'state', players: serializePlayersForClient(world) });
+  state.listeners.add(send);
+  send({ type: 'state', phase: state.phase, players: serializePlayersForClient(state) });
+  if (state.phase === 'encounter' && state.activeEncounter) {
+    send({
+      type: 'encounter',
+      token: state.activeEncounter.token,
+      startedBy: state.activeEncounter.startedBy,
+    });
+  }
   return () => {
-    world.listeners.delete(send);
+    state.listeners.delete(send);
   };
 }
 
-async function runEncounter(worldId, characterId, token, send) {
-  const world = await getWorldById(worldId);
-  if (!world) {
-    throw new Error('world not found');
-  }
-  const state = getWorldState(worldId);
-  const playerEntry = state.players.get(characterId);
-  if (!playerEntry || !playerEntry.pendingEncounter || playerEntry.pendingEncounter.token !== token) {
-    throw new Error('no pending encounter');
-  }
-  const { template } = playerEntry.pendingEncounter;
-  playerEntry.pendingEncounter = null;
+function broadcastEncounterEvent(encounter, payload) {
+  if (!encounter) return;
+  encounter.listeners.forEach(listener => {
+    try {
+      listener(payload);
+    } catch (err) {
+      /* ignore */
+    }
+  });
+}
 
-  const prep = await prepareCharacterForCombat(characterId);
-  const enemy = instantiateEncounter(template, prep.abilityMap, prep.equipmentMap);
+async function startEncounterBattle(state, encounter) {
+  if (!state || !encounter || encounter.started) return;
+  encounter.started = true;
+  const participants = Array.isArray(encounter.participants) && encounter.participants.length
+    ? encounter.participants
+    : Array.from(state.players.keys());
+  const prepList = await Promise.all(
+    participants.map(characterId => prepareCharacterForCombat(characterId).catch(err => ({ error: err, characterId }))),
+  );
+  const validPreps = prepList.filter(entry => !entry.error);
+  if (!validPreps.length) {
+    const errorPayload = { type: 'error', message: 'Encounter failed to initialize.' };
+    broadcastEncounterEvent(encounter, errorPayload);
+    encounter.completed = true;
+    encounter.resultPayload = errorPayload;
+    state.activeEncounter = null;
+    state.phase = 'explore';
+    broadcastWorldState(state);
+    return;
+  }
+  const abilityMap = validPreps[0].abilityMap;
+  const equipmentMap = validPreps[0].equipmentMap;
+  const party = validPreps.map(prep => deepClone(prep.character));
+  const template = encounter.template;
+  const enemy = instantiateEncounter(template, abilityMap, equipmentMap);
   if (!enemy) {
-    throw new Error('encounter unavailable');
+    const errorPayload = { type: 'error', message: 'Encounter unavailable.' };
+    broadcastEncounterEvent(encounter, errorPayload);
+    encounter.completed = true;
+    encounter.resultPayload = errorPayload;
+    state.activeEncounter = null;
+    state.phase = 'explore';
+    broadcastWorldState(state);
+    return;
   }
 
-  const rewards = {
-    xpPct: template.xpPct || 0.06,
-    gold: template.gold || 7,
+  const safeSend = payload => {
+    encounter.lastEvent = payload;
+    broadcastEncounterEvent(encounter, payload);
   };
 
-  const playerClone = deepClone(prep.character);
   const enemyClone = deepClone(enemy);
+  let result = null;
+  try {
+    result = await runDungeonCombat(
+      party,
+      enemyClone,
+      abilityMap,
+      equipmentMap,
+      update => {
+        if (!update) return;
+        safeSend({ ...update, encounterToken: encounter.token });
+      },
+      { mode: 'world' },
+    );
+  } catch (err) {
+    console.error('world encounter failed', err);
+    const errorPayload = { type: 'error', message: 'Encounter failed.' };
+    safeSend(errorPayload);
+    encounter.completed = true;
+    encounter.resultPayload = errorPayload;
+    state.activeEncounter = null;
+    state.phase = 'explore';
+    broadcastWorldState(state);
+    return;
+  }
 
-  const result = await runCombat(
-    playerClone,
-    enemyClone,
-    prep.abilityMap,
-    prep.equipmentMap,
-    update => {
-      if (!update) return;
-      if (update.type === 'start') {
-        send({ type: 'start', you: update.a, opponent: update.b, log: [] });
-      } else if (update.type === 'update') {
-        send({ type: 'update', you: update.a, opponent: update.b, log: update.log || [] });
+  const consumedMap = (result && result.consumedUseables) || {};
+  const rewardsByCharacter = {};
+  await Promise.all(
+    validPreps.map(async prep => {
+      const { characterDoc, character } = prep;
+      const consumedEntries = consumedMap[character.id] || [];
+      consumeUseables(characterDoc, consumedEntries);
+      const won = result.winnerSide === 'party';
+      let xpGain = 0;
+      let goldGain = 0;
+      if (won) {
+        const pct = template && Number.isFinite(template.xpPct) ? Math.max(0.01, template.xpPct) : 0.06;
+        xpGain = Math.max(5, Math.round(xpForNextLevel(characterDoc.level || 1) * pct));
+        goldGain = template && Number.isFinite(template.gold) ? Math.max(0, template.gold) : 7;
+        applyEncounterRewards(characterDoc, { xpGain, goldGain });
       }
-    },
+      await characterDoc.save();
+      const serialized = serializeCharacter(characterDoc);
+      rewardsByCharacter[serialized.id] = {
+        xpGain,
+        gpGain: goldGain,
+        character: serialized,
+        gold: typeof characterDoc.gold === 'number' ? characterDoc.gold : 0,
+      };
+    }),
   );
 
-  const playerWon = String(result.winnerId) === String(prep.character.id);
-  const xpGain = playerWon ? Math.max(5, Math.round(xpForNextLevel(prep.characterDoc.level || 1) * rewards.xpPct)) : 0;
-  const goldGain = playerWon ? Math.max(0, rewards.gold) : 0;
-
-  const consumed = result.consumedUseables || {};
-  const consumedByPlayer = consumed[prep.character.id] || [];
-  consumeUseables(prep.characterDoc, consumedByPlayer);
-  if (playerWon) {
-    applyEncounterRewards(prep.characterDoc, { xpGain, goldGain });
-  }
-  await prep.characterDoc.save();
-
-  const updatedCharacter = serializeCharacter(prep.characterDoc);
-
-  send({
+  const endPayload = {
     type: 'end',
+    mode: 'world',
+    winnerSide: result.winnerSide,
     winnerId: result.winnerId,
-    xpGain,
-    gpGain: goldGain,
-    character: updatedCharacter,
-    gold: typeof prep.characterDoc.gold === 'number' ? prep.characterDoc.gold : 0,
-  });
+    rewards: rewardsByCharacter,
+    finalParty: result.finalParty || null,
+    finalBoss: result.finalBoss || null,
+    metrics: result.metrics || null,
+  };
+  safeSend(endPayload);
+  encounter.completed = true;
+  encounter.resultPayload = endPayload;
+
+  state.activeEncounter = null;
+  state.phase = state.players.size ? 'explore' : 'lobby';
+  broadcastWorldState(state);
+}
+
+function runEncounter(worldId, instanceId, characterId, token, send) {
+  const state = ensureInstance(worldId, instanceId);
+  const encounter = state.activeEncounter;
+  if (!encounter || encounter.token !== token) {
+    throw new Error('no pending encounter');
+  }
+  if (!state.players.has(characterId)) {
+    throw new Error('player not in world');
+  }
+  const safeSend = payload => {
+    try {
+      send(payload);
+    } catch (err) {
+      /* ignore */
+    }
+  };
+  encounter.listeners.add(safeSend);
+  if (encounter.resultPayload) {
+    safeSend(encounter.resultPayload);
+  } else if (encounter.lastEvent) {
+    safeSend(encounter.lastEvent);
+  }
+  startEncounterBattle(state, encounter);
+  return () => {
+    encounter.listeners.delete(safeSend);
+  };
 }
 
 module.exports = {
   listWorlds,
+  createWorldInstance,
   joinWorld,
   leaveWorld,
   movePlayer,
