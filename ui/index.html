@@ -48,6 +48,9 @@
             <div class="world-header">
               <div id="world-title">Exploration</div>
               <div id="world-status" class="world-status">Connecting...</div>
+              <button id="world-exit-focus" type="button" class="world-focus-exit" aria-label="Exit focused world view">
+                Exit Focus
+              </button>
             </div>
             <div class="world-party-bar world-lobby">
               <div class="world-party-bar-header">
@@ -82,7 +85,7 @@
               </div>
             </div>
             <div class="world-screen">
-              <canvas id="world-canvas" width="640" height="480" aria-label="World view"></canvas>
+              <canvas id="world-canvas" width="640" height="480" aria-label="World view" tabindex="0"></canvas>
             </div>
             <div id="world-message" class="world-message message hidden"></div>
             <div class="world-dpad-wrapper">
