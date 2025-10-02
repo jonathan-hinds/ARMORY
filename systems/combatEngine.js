@@ -879,8 +879,6 @@ async function runDungeonCombat(
     options = onUpdateOrOptions;
   }
 
-  const mode = typeof options.mode === 'string' && options.mode ? options.mode : 'dungeon';
-
   const party = Array.isArray(partyChars)
     ? partyChars.map(character => createCombatant(character, equipmentMap))
     : [];
@@ -948,7 +946,7 @@ async function runDungeonCombat(
   if (onUpdate) {
     onUpdate({
       type: 'start',
-      mode,
+      mode: 'dungeon',
       party: party.map(state),
       boss: state(boss),
       log: [],
@@ -1083,7 +1081,7 @@ async function runDungeonCombat(
     if (onUpdate) {
       onUpdate({
         type: 'update',
-        mode,
+        mode: 'dungeon',
         party: party.map(state),
         boss: state(boss),
         log: newLogs,
