@@ -362,6 +362,17 @@ function prepareWorldAssets(world) {
   });
 }
 
+function strokeTile(tileConfigEntry, drawX, drawY, tileSize, fallback) {
+  if (!worldCtx) return;
+  if (!tileConfigEntry) return;
+  const { stroke } = tileConfigEntry;
+  if (!stroke) return;
+  worldCtx.save();
+  worldCtx.strokeStyle = typeof stroke === 'string' ? stroke : fallback;
+  worldCtx.strokeRect(drawX + 0.5, drawY + 0.5, tileSize, tileSize);
+  worldCtx.restore();
+}
+
 function drawMonochromeTile(tile, tileConfigEntry, drawX, drawY, tileSize) {
   if (!worldCtx) return;
   const base = tileConfigEntry && typeof tileConfigEntry.fill === 'string' ? tileConfigEntry.fill : null;
@@ -371,8 +382,7 @@ function drawMonochromeTile(tile, tileConfigEntry, drawX, drawY, tileSize) {
   }
   worldCtx.fillStyle = fill;
   worldCtx.fillRect(drawX, drawY, tileSize, tileSize);
-  worldCtx.strokeStyle = fill === '#000000' ? '#ffffff' : '#000000';
-  worldCtx.strokeRect(drawX + 0.5, drawY + 0.5, tileSize, tileSize);
+  strokeTile(tileConfigEntry, drawX, drawY, tileSize, fill === '#000000' ? '#ffffff' : '#000000');
   if (tile === 2) {
     const inset = Math.max(1, Math.floor(tileSize / 4));
     const accent = fill === '#000000' ? '#ffffff' : '#000000';
@@ -414,11 +424,11 @@ function renderWorldScene() {
       const tileKey = String(tile);
       const drawX = Math.round(centerX + (x * tileSize + tileSize / 2 - cameraX) - tileSize / 2);
       const drawY = Math.round(centerY + (y * tileSize + tileSize / 2 - cameraY) - tileSize / 2);
+      const tileConfigEntry = tileConfig[tileKey];
       const sprite = worldTileSpriteRefs.get(tileKey);
       if (sprite && sprite.complete && sprite.naturalWidth > 0 && sprite.naturalHeight > 0) {
         worldCtx.drawImage(sprite, drawX, drawY, tileSize, tileSize);
-        worldCtx.strokeStyle = '#000000';
-        worldCtx.strokeRect(drawX + 0.5, drawY + 0.5, tileSize, tileSize);
+        strokeTile(tileConfigEntry, drawX, drawY, tileSize, '#000000');
       } else {
         let color = palette[tileKey];
         if (typeof color === 'string' && /^#(?:0{3}|f{3}|0{6}|f{6})$/i.test(color)) {
@@ -426,7 +436,7 @@ function renderWorldScene() {
         } else {
           color = null;
         }
-        drawMonochromeTile(tile, Object.assign({}, tileConfig[tileKey], color ? { fill: color } : {}), drawX, drawY, tileSize);
+        drawMonochromeTile(tile, Object.assign({}, tileConfigEntry, color ? { fill: color } : {}), drawX, drawY, tileSize);
       }
     }
   }
