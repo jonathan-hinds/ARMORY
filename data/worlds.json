@@ -1,0 +1,58 @@
+[
+  {
+    "id": "verdant_glen",
+    "name": "Verdant Glen",
+    "tileSize": 32,
+    "palette": {
+      "0": "#2f4858",
+      "1": "#8bd674",
+      "2": "#4c9c59"
+    },
+    "tiles": [
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 0],
+      [0, 1, 2, 2, 1, 1, 1, 1, 0, 1, 2, 2, 2, 1, 1, 0],
+      [0, 1, 2, 2, 1, 1, 1, 1, 0, 1, 1, 1, 2, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 2, 1, 0],
+      [0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 2, 1, 2, 1, 0],
+      [0, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1, 2, 1, 0],
+      [0, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    ],
+    "spawn": { "x": 2, "y": 2 },
+    "moveCooldownMs": 180,
+    "encounters": {
+      "tiles": [2],
+      "chance": 0.22,
+      "cooldownMs": 2000,
+      "templates": [
+        {
+          "id": "wild_sprig",
+          "name": "Wild Sprig",
+          "basicType": "melee",
+          "level": 3,
+          "attributes": { "strength": 6, "stamina": 5, "agility": 5, "intellect": 2, "wisdom": 2 },
+          "rotation": [1, 2, 3],
+          "equipment": { "weapon": "weapon_rusted_shortsword" },
+          "xpPct": 0.08,
+          "gold": 9
+        },
+        {
+          "id": "feral_bloom",
+          "name": "Feral Bloom",
+          "basicType": "magic",
+          "level": 3,
+          "attributes": { "strength": 3, "stamina": 4, "agility": 5, "intellect": 7, "wisdom": 6 },
+          "rotation": [10, 11, 12],
+          "equipment": { "weapon": "weapon_apprentice_wand" },
+          "xpPct": 0.08,
+          "gold": 11
+        }
+      ]
+    }
+  }
+]

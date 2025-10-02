@@ -139,6 +139,24 @@ let battlefieldTickTimer = null;
 let battlefieldPollInFlight = false;
 let battlefieldResourcePromise = null;
 
+let worldInitialized = false;
+let worldJoining = false;
+let worldCurrentWorldId = null;
+let worldConfig = null;
+let worldPlayersState = new Map();
+let worldStreamSource = null;
+let worldMovementPending = false;
+let worldMovementLocked = false;
+let worldLastMoveAt = 0;
+let worldMoveCooldownMs = 180;
+let worldCanvas = null;
+let worldCtx = null;
+let worldStatusEl = null;
+let worldMessageEl = null;
+let worldPlayerListEl = null;
+let worldTitleEl = null;
+let worldAnimationFrame = null;
+
 const adventurePreviewCache = new Map();
 const adventurePreviewViews = new Map();
 const ADVENTURE_PREVIEW_TTL = 30000;
@@ -214,6 +232,394 @@ function titleCase(value) {
     .map(part => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
     .join(' ')
     .trim();
+}
+
+const WORLD_KEY_MAP = {
+  w: 'up',
+  arrowup: 'up',
+  s: 'down',
+  arrowdown: 'down',
+  a: 'left',
+  arrowleft: 'left',
+  d: 'right',
+  arrowright: 'right',
+};
+
+function updateWorldStatus(text) {
+  if (worldStatusEl) {
+    worldStatusEl.textContent = text || '';
+  }
+}
+
+function updateWorldPlayerList() {
+  if (!worldPlayerListEl) return;
+  worldPlayerListEl.innerHTML = '';
+  if (!worldPlayersState.size) {
+    const empty = document.createElement('li');
+    empty.textContent = 'No adventurers in sight.';
+    empty.className = 'empty';
+    worldPlayerListEl.appendChild(empty);
+    return;
+  }
+  const entries = Array.from(worldPlayersState.values()).sort((a, b) => {
+    const nameA = (a && a.name) || '';
+    const nameB = (b && b.name) || '';
+    return nameA.localeCompare(nameB);
+  });
+  entries.forEach(entry => {
+    if (!entry) return;
+    const li = document.createElement('li');
+    if (currentCharacter && entry.characterId === currentCharacter.id) {
+      li.classList.add('you');
+    }
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = entry.name || `Adventurer ${entry.characterId}`;
+    li.appendChild(nameSpan);
+    const coord = document.createElement('span');
+    coord.className = 'player-coords';
+    const x = Number.isFinite(entry.x) ? entry.x : 0;
+    const y = Number.isFinite(entry.y) ? entry.y : 0;
+    coord.textContent = `(${x}, ${y})`;
+    li.appendChild(coord);
+    worldPlayerListEl.appendChild(li);
+  });
+}
+
+function resetWorldState() {
+  if (worldStreamSource) {
+    worldStreamSource.close();
+    worldStreamSource = null;
+  }
+  worldPlayersState = new Map();
+  worldConfig = null;
+  worldCurrentWorldId = null;
+  worldMovementPending = false;
+  worldMovementLocked = false;
+  worldLastMoveAt = 0;
+  updateWorldStatus(currentCharacter ? 'Disconnected' : 'Select a character');
+  if (worldTitleEl) {
+    worldTitleEl.textContent = 'Exploration';
+  }
+  if (worldMessageEl) {
+    clearMessage(worldMessageEl);
+  }
+  updateWorldPlayerList();
+}
+
+function ensureWorldCanvas() {
+  if (!worldCanvas) {
+    worldCanvas = document.getElementById('world-canvas');
+    if (worldCanvas) {
+      worldCtx = worldCanvas.getContext('2d');
+      if (worldCtx) {
+        worldCtx.imageSmoothingEnabled = false;
+      }
+    }
+  }
+  if (!worldStatusEl) {
+    worldStatusEl = document.getElementById('world-status');
+  }
+  if (!worldMessageEl) {
+    worldMessageEl = document.getElementById('world-message');
+  }
+  if (!worldPlayerListEl) {
+    worldPlayerListEl = document.getElementById('world-player-list');
+  }
+  if (!worldTitleEl) {
+    worldTitleEl = document.getElementById('world-title');
+  }
+}
+
+function renderWorldScene() {
+  if (!worldCanvas || !worldCtx) return;
+  const { width, height } = worldCanvas;
+  worldCtx.fillStyle = '#0b1a26';
+  worldCtx.fillRect(0, 0, width, height);
+  if (!worldConfig || !Array.isArray(worldConfig.tiles) || !worldConfig.tiles.length) {
+    return;
+  }
+  const tileSize = worldConfig.tileSize || 32;
+  const tiles = worldConfig.tiles;
+  const you = currentCharacter ? worldPlayersState.get(currentCharacter.id) : null;
+  const cameraX = you ? you.x * tileSize + tileSize / 2 : (tiles[0] && tiles[0].length ? (tiles[0].length * tileSize) / 2 : width / 2);
+  const cameraY = you ? you.y * tileSize + tileSize / 2 : (tiles.length ? (tiles.length * tileSize) / 2 : height / 2);
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const startX = Math.floor((cameraX - centerX) / tileSize) - 2;
+  const endX = Math.ceil((cameraX + centerX) / tileSize) + 2;
+  const startY = Math.floor((cameraY - centerY) / tileSize) - 2;
+  const endY = Math.ceil((cameraY + centerY) / tileSize) + 2;
+  const palette = worldConfig.palette || {};
+
+  for (let y = startY; y <= endY; y += 1) {
+    if (y < 0 || y >= tiles.length) continue;
+    const row = tiles[y];
+    if (!Array.isArray(row)) continue;
+    for (let x = startX; x <= endX; x += 1) {
+      if (x < 0 || x >= row.length) continue;
+      const tile = row[x];
+      let color = palette[String(tile)];
+      if (!color) {
+        if (tile === 2) color = '#2e7d32';
+        else if (tile === 1) color = '#4caf50';
+        else color = '#1a2a3a';
+      }
+      const drawX = centerX + (x * tileSize + tileSize / 2 - cameraX) - tileSize / 2;
+      const drawY = centerY + (y * tileSize + tileSize / 2 - cameraY) - tileSize / 2;
+      worldCtx.fillStyle = color;
+      worldCtx.fillRect(Math.round(drawX), Math.round(drawY), tileSize, tileSize);
+      worldCtx.strokeStyle = 'rgba(0, 0, 0, 0.18)';
+      worldCtx.strokeRect(Math.round(drawX) + 0.5, Math.round(drawY) + 0.5, tileSize, tileSize);
+    }
+  }
+
+  worldPlayersState.forEach(entry => {
+    if (!entry) return;
+    const screenX = centerX + (entry.x * tileSize + tileSize / 2 - cameraX);
+    const screenY = centerY + (entry.y * tileSize + tileSize / 2 - cameraY);
+    if (screenX < -tileSize || screenX > width + tileSize || screenY < -tileSize || screenY > height + tileSize) return;
+    const size = Math.max(10, tileSize * 0.6);
+    const left = screenX - size / 2;
+    const top = screenY - size / 2;
+    if (currentCharacter && entry.characterId === currentCharacter.id) {
+      worldCtx.fillStyle = '#ffe066';
+    } else {
+      worldCtx.fillStyle = '#ff6b6b';
+    }
+    worldCtx.fillRect(Math.round(left), Math.round(top), size, size);
+    worldCtx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+    worldCtx.strokeRect(Math.round(left) + 0.5, Math.round(top) + 0.5, size, size);
+    worldCtx.fillStyle = '#ffffff';
+    worldCtx.font = '14px "Trebuchet MS", sans-serif';
+    worldCtx.textAlign = 'center';
+    worldCtx.textBaseline = 'bottom';
+    worldCtx.fillText(entry.name || 'Adventurer', Math.round(screenX), Math.round(top) - 4);
+  });
+}
+
+function startWorldRenderLoop() {
+  if (!worldCanvas || !worldCtx) return;
+  if (worldAnimationFrame) {
+    cancelAnimationFrame(worldAnimationFrame);
+  }
+  const tick = () => {
+    renderWorldScene();
+    worldAnimationFrame = requestAnimationFrame(tick);
+  };
+  worldAnimationFrame = requestAnimationFrame(tick);
+}
+
+function handleWorldStateUpdate(data) {
+  if (!data || !Array.isArray(data.players)) return;
+  const next = new Map();
+  data.players.forEach(player => {
+    if (!player || !Number.isFinite(player.characterId)) return;
+    next.set(player.characterId, {
+      characterId: player.characterId,
+      name: player.name || `Adventurer ${player.characterId}`,
+      x: Number.isFinite(player.x) ? player.x : 0,
+      y: Number.isFinite(player.y) ? player.y : 0,
+      facing: player.facing || 'down',
+    });
+  });
+  worldPlayersState = next;
+  updateWorldPlayerList();
+}
+
+async function ensureWorldReady() {
+  if (!isTabActive('world')) return;
+  if (!currentCharacter) {
+    updateWorldStatus('Select a character');
+    return;
+  }
+  ensureWorldCanvas();
+  if (worldStreamSource && worldConfig && worldCurrentWorldId) {
+    updateWorldStatus('Roaming');
+    return;
+  }
+  if (worldJoining) return;
+  worldJoining = true;
+  updateWorldStatus('Connecting...');
+  try {
+    const res = await fetch('/worlds');
+    if (!res.ok) {
+      throw new Error('Failed to load worlds');
+    }
+    const data = await res.json();
+    const worlds = Array.isArray(data.worlds) ? data.worlds : [];
+    const fallback = worlds.length ? worlds[0].id : null;
+    const targetWorldId = worldCurrentWorldId || fallback;
+    if (!targetWorldId) {
+      throw new Error('No worlds available');
+    }
+    const payload = await postJSON(`/worlds/${encodeURIComponent(targetWorldId)}/join`, { characterId: currentCharacter.id });
+    const world = payload.world || null;
+    worldCurrentWorldId = world && world.id ? world.id : targetWorldId;
+    worldConfig = world;
+    worldMoveCooldownMs = world && Number.isFinite(world.moveCooldownMs) ? world.moveCooldownMs : 180;
+    handleWorldStateUpdate(payload);
+    if (worldTitleEl && world && world.name) {
+      worldTitleEl.textContent = world.name;
+    }
+    updateWorldStatus('Roaming');
+    if (worldMessageEl) {
+      clearMessage(worldMessageEl);
+      showMessage(worldMessageEl, 'Use WASD or arrows to explore the world.', false);
+      setTimeout(() => {
+        if (worldMessageEl) clearMessage(worldMessageEl);
+      }, 4000);
+    }
+    startWorldStream(worldCurrentWorldId);
+    startWorldRenderLoop();
+  } catch (err) {
+    console.error('world connection failed', err);
+    if (worldMessageEl) {
+      showMessage(worldMessageEl, err.message || 'Failed to join world.', true);
+    }
+    updateWorldStatus('Unavailable');
+  } finally {
+    worldJoining = false;
+  }
+}
+
+function startWorldStream(worldId) {
+  if (!worldId || !currentCharacter) return;
+  if (worldStreamSource) {
+    worldStreamSource.close();
+    worldStreamSource = null;
+  }
+  const url = `/worlds/${encodeURIComponent(worldId)}/stream?characterId=${currentCharacter.id}`;
+  const es = new EventSource(url);
+  es.onmessage = ev => {
+    if (!ev || !ev.data) return;
+    try {
+      const data = JSON.parse(ev.data);
+      if (data.type === 'state') {
+        handleWorldStateUpdate(data);
+      } else if (data.type === 'error' && worldMessageEl) {
+        showMessage(worldMessageEl, data.message || 'World connection error.', true);
+      }
+    } catch (err) {
+      console.error('world stream parse failed', err);
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    worldStreamSource = null;
+    updateWorldStatus('Reconnecting...');
+    setTimeout(() => {
+      if (isTabActive('world') && currentCharacter && !worldStreamSource) {
+        ensureWorldReady();
+      }
+    }, 1500);
+  };
+  worldStreamSource = es;
+}
+
+function handleWorldKeydown(event) {
+  if (!isTabActive('world')) return;
+  if (!currentCharacter || !worldCurrentWorldId || worldMovementLocked) return;
+  const target = event.target;
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+    return;
+  }
+  const key = (event.key || event.code || '').toLowerCase();
+  const direction = WORLD_KEY_MAP[key];
+  if (!direction) return;
+  event.preventDefault();
+  queueWorldMove(direction);
+}
+
+async function queueWorldMove(direction) {
+  if (!currentCharacter || !worldCurrentWorldId) return;
+  if (worldMovementPending || worldMovementLocked) return;
+  const now = Date.now();
+  if (now - worldLastMoveAt < worldMoveCooldownMs) return;
+  worldMovementPending = true;
+  try {
+    const payload = await postJSON(`/worlds/${encodeURIComponent(worldCurrentWorldId)}/move`, {
+      characterId: currentCharacter.id,
+      direction,
+    });
+    worldLastMoveAt = Date.now();
+    if (payload && payload.position) {
+      const you = {
+        characterId: currentCharacter.id,
+        name: currentCharacter.name,
+        x: Number.isFinite(payload.position.x) ? payload.position.x : 0,
+        y: Number.isFinite(payload.position.y) ? payload.position.y : 0,
+        facing: payload.position.facing || 'down',
+      };
+      worldPlayersState.set(currentCharacter.id, you);
+      updateWorldPlayerList();
+    }
+    if (payload && payload.encounter && payload.encounter.token) {
+      beginWorldEncounter(payload.encounter.token);
+    }
+  } catch (err) {
+    if (worldMessageEl) {
+      showMessage(worldMessageEl, err.message || 'Movement failed.', true);
+    }
+  } finally {
+    worldMovementPending = false;
+  }
+}
+
+function beginWorldEncounter(token) {
+  if (!worldCurrentWorldId || !currentCharacter || !token) return;
+  worldMovementLocked = true;
+  updateWorldStatus('Encounter!');
+  if (worldMessageEl) {
+    showMessage(worldMessageEl, 'A wild foe appears!', false);
+  }
+  const url = `/worlds/${encodeURIComponent(worldCurrentWorldId)}/encounter?characterId=${currentCharacter.id}&token=${encodeURIComponent(
+    token,
+  )}`;
+  launchCombatStream(url, {
+    updateArea: false,
+    waitingText: 'Preparing encounter...',
+    onEnd: data => {
+      updateAfterBattleEnd(data);
+      worldMovementLocked = false;
+      updateWorldStatus('Roaming');
+      if (worldMessageEl) {
+        clearMessage(worldMessageEl);
+      }
+      ensureWorldReady();
+    },
+    onError: err => {
+      worldMovementLocked = false;
+      updateWorldStatus('Roaming');
+      if (worldMessageEl) {
+        showMessage(worldMessageEl, (err && err.message) || 'Encounter failed.', true);
+      }
+    },
+    onCancel: () => {
+      worldMovementLocked = false;
+      updateWorldStatus('Roaming');
+      if (worldMessageEl) {
+        clearMessage(worldMessageEl);
+      }
+    },
+  });
+}
+
+async function leaveWorldServer() {
+  if (!worldCurrentWorldId || !currentCharacter) return;
+  try {
+    await postJSON(`/worlds/${encodeURIComponent(worldCurrentWorldId)}/leave`, { characterId: currentCharacter.id });
+  } catch (err) {
+    console.warn('failed to leave world', err);
+  }
+}
+
+function initWorldTab() {
+  ensureWorldCanvas();
+  if (!worldInitialized) {
+    document.addEventListener('keydown', handleWorldKeydown);
+    worldInitialized = true;
+  }
+  ensureWorldReady();
 }
 
 const SHOP_CATEGORY_DEFINITIONS = [
@@ -4882,8 +5288,12 @@ nameOk.addEventListener('click', async () => {
 });
 
 async function enterGame(character) {
+  if (currentCharacter && currentCharacter.id !== character.id) {
+    await leaveWorldServer();
+  }
   clearJobStatusCache();
   currentCharacter = character;
+  resetWorldState();
   setRotationDamageType(character ? character.basicType : null);
   charSelectDiv.classList.add('hidden');
   gameDiv.classList.remove('hidden');
@@ -4904,6 +5314,8 @@ function exitToCharacterSelect() {
   const previousId = currentCharacter ? currentCharacter.id : null;
   const latestStatus = adventureStatus;
   stopAdventurePolling();
+  leaveWorldServer();
+  resetWorldState();
   if (previousId != null && latestStatus) {
     cacheAdventurePreview(previousId, latestStatus, { error: !!latestStatus.error });
     updateAdventurePreviewView(previousId, latestStatus, { error: !!latestStatus.error });
@@ -4948,6 +5360,8 @@ function showTab(target) {
     renderShop();
   } else if (target === 'inventory') {
     renderInventory();
+  } else if (target === 'world') {
+    initWorldTab();
   }
   return true;
 }

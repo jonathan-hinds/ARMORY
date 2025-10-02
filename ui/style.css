@@ -2902,3 +2902,117 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   0%, 100% { box-shadow:0 0 0 0 rgba(0,0,0,0.4); transform:translateY(0); }
   50% { box-shadow:0 0 0 6px rgba(0,0,0,0.2); transform:translateY(-1px); }
 }
+
+.world-container {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.world-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.world-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  color: #f5f5f5;
+  background: linear-gradient(135deg, #1f3b4d, #2c5364);
+  padding: 8px 12px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+#world-title {
+  font-size: 1.1rem;
+}
+
+.world-status {
+  font-size: 0.9rem;
+}
+
+#world-canvas {
+  width: 100%;
+  max-width: 640px;
+  background: #12202b;
+  border-radius: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.world-message {
+  min-height: 1.5em;
+}
+
+.world-sidebar {
+  width: 240px;
+  background: rgba(12, 24, 32, 0.85);
+  color: #e0f1ff;
+  border-radius: 10px;
+  padding: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.world-sidebar h3 {
+  margin: 0 0 6px;
+  font-size: 1rem;
+}
+
+.world-player-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.world-player-list li {
+  background: rgba(17, 34, 46, 0.9);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.95rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #d6f4ff;
+}
+
+.world-player-list li.you {
+  background: rgba(46, 151, 255, 0.35);
+  color: #fff;
+  font-weight: 600;
+}
+
+.world-player-list .player-coords {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.world-controls p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+@media (max-width: 960px) {
+  .world-container {
+    flex-direction: column;
+  }
+
+  .world-sidebar {
+    width: 100%;
+  }
+
+  #world-canvas {
+    max-width: 100%;
+  }
+}
