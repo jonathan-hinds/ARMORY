@@ -158,6 +158,7 @@ let worldStatusEl = null;
 let worldMessageEl = null;
 let worldPlayerListEl = null;
 let worldTitleEl = null;
+const WORLD_VISIBLE_TILES = 16;
 let worldDpadEl = null;
 let worldLobbyStatusEl = null;
 let worldWorldSelectEl = null;
@@ -948,17 +949,23 @@ function renderWorldScene() {
   if (!worldConfig || !Array.isArray(worldConfig.tiles) || !worldConfig.tiles.length) {
     return;
   }
-  const tileSize = worldConfig.tileSize || 32;
   const tiles = worldConfig.tiles;
+  const mapHeight = tiles.length;
+  const mapWidth = tiles[0] ? tiles[0].length : 0;
+  const visibleTiles = WORLD_VISIBLE_TILES;
+  const tileSize = Math.max(1, Math.floor(Math.min(width, height) / visibleTiles));
+  const renderWidth = tileSize * visibleTiles;
+  const renderHeight = tileSize * visibleTiles;
+  const offsetX = Math.floor((width - renderWidth) / 2);
+  const offsetY = Math.floor((height - renderHeight) / 2);
   const you = currentCharacter ? worldPlayersState.get(currentCharacter.id) : null;
-  const cameraX = you ? you.x * tileSize + tileSize / 2 : (tiles[0] && tiles[0].length ? (tiles[0].length * tileSize) / 2 : width / 2);
-  const cameraY = you ? you.y * tileSize + tileSize / 2 : (tiles.length ? (tiles.length * tileSize) / 2 : height / 2);
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const startX = Math.floor((cameraX - centerX) / tileSize) - 2;
-  const endX = Math.ceil((cameraX + centerX) / tileSize) + 2;
-  const startY = Math.floor((cameraY - centerY) / tileSize) - 2;
-  const endY = Math.ceil((cameraY + centerY) / tileSize) + 2;
+  const cameraX = you ? you.x + 0.5 : mapWidth / 2;
+  const cameraY = you ? you.y + 0.5 : mapHeight / 2;
+  const halfTiles = visibleTiles / 2;
+  const startX = Math.floor(cameraX - halfTiles) - 1;
+  const endX = Math.ceil(cameraX + halfTiles) + 1;
+  const startY = Math.floor(cameraY - halfTiles) - 1;
+  const endY = Math.ceil(cameraY + halfTiles) + 1;
   const palette = worldConfig.palette || {};
   const tileConfig = worldConfig.tileConfig || {};
 
@@ -970,8 +977,10 @@ function renderWorldScene() {
       if (x < 0 || x >= row.length) continue;
       const tile = row[x];
       const tileKey = String(tile);
-      const drawX = Math.round(centerX + (x * tileSize + tileSize / 2 - cameraX) - tileSize / 2);
-      const drawY = Math.round(centerY + (y * tileSize + tileSize / 2 - cameraY) - tileSize / 2);
+      const relativeX = x + 0.5 - cameraX;
+      const relativeY = y + 0.5 - cameraY;
+      const drawX = Math.round(offsetX + renderWidth / 2 + relativeX * tileSize - tileSize / 2);
+      const drawY = Math.round(offsetY + renderHeight / 2 + relativeY * tileSize - tileSize / 2);
       const tileConfigEntry = tileConfig[tileKey];
       const sprite = worldTileSpriteRefs.get(tileKey);
       if (sprite && sprite.complete && sprite.naturalWidth > 0 && sprite.naturalHeight > 0) {
@@ -991,8 +1000,8 @@ function renderWorldScene() {
 
   worldPlayersState.forEach(entry => {
     if (!entry) return;
-    const screenX = centerX + (entry.x * tileSize + tileSize / 2 - cameraX);
-    const screenY = centerY + (entry.y * tileSize + tileSize / 2 - cameraY);
+    const screenX = offsetX + renderWidth / 2 + (entry.x + 0.5 - cameraX) * tileSize;
+    const screenY = offsetY + renderHeight / 2 + (entry.y + 0.5 - cameraY) * tileSize;
     if (screenX < -tileSize || screenX > width + tileSize || screenY < -tileSize || screenY > height + tileSize) return;
     const size = Math.max(10, Math.floor(tileSize * 0.6));
     const left = screenX - size / 2;
@@ -6152,6 +6161,7 @@ function exitToCharacterSelect() {
   }
   gameDiv.classList.add('hidden');
   charSelectDiv.classList.remove('hidden');
+  document.body.classList.remove('world-tab-active');
   renderCharacters();
 }
 
@@ -6169,6 +6179,7 @@ function showTab(target) {
   document.querySelectorAll('#tabs button').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-tab') === target);
   });
+  document.body.classList.toggle('world-tab-active', target === 'world');
   if (target === 'rotation') {
     initRotation();
   } else if (target === 'character') {
