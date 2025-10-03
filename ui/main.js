@@ -1240,9 +1240,6 @@ function renderWorldScene() {
         drawLeft = Math.round(screenX - size / 2);
         drawTop = Math.round(screenY - size / 2);
         worldCtx.drawImage(sprite, drawLeft, drawTop, size, size);
-        worldCtx.strokeStyle = '#000000';
-        worldCtx.lineWidth = Math.max(1, Math.floor(size / 12));
-        worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
       } else {
         worldCtx.fillStyle = '#ffffff';
         worldCtx.fillRect(drawLeft, drawTop, size, size);
