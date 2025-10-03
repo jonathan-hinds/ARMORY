@@ -10,15 +10,15 @@
     },
     "tileConfig": {
       "0": {
-        "sprite": "/assets/Sprite-0003.png",
+        "sprite": "/assets/Sprite-0005.png",
         "fill": "#000000"
       },
       "1": {
-        "sprite": "/assets/Sprite-0001.png",
+        "sprite": "/assets/Sprite-0003.png",
         "fill": "#ffffff"
       },
       "2": {
-        "sprite": "/assets/Sprite-0002.png",
+        "sprite": "/assets/Sprite-0004.png",
         "fill": "#dcdcdc"
       }
     },
