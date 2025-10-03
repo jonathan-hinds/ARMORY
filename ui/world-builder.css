@@ -207,6 +207,7 @@ body.world-builder {
 .sprite-actions button,
 .palette-tile button,
 .mode-button,
+.tile-tool-button,
 #add-zone,
 #generate-world,
 #load-world,
@@ -222,9 +223,26 @@ body.world-builder {
   box-shadow:2px 2px 0 #000;
 }
 
-.mode-button.active {
+.mode-button.active,
+.tile-tool-button.active {
   background:#000;
   color:#fff;
+}
+
+.tile-tool-controls {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.tile-tool-controls .mode-label {
+  font-size:12px;
+  letter-spacing:1px;
+}
+
+.tile-tool-button {
+  min-width:84px;
 }
 
 .enemy-form {
@@ -637,73 +655,30 @@ body.world-builder {
 }
 
 .zone-grid {
-  display:grid;
-  gap:2px;
-}
-
-.zone-cell {
-  width:32px;
-  height:32px;
-  border:1px solid #000;
-  background:#fff;
-  font-size:10px;
-  display:flex;
-  align-items:center;
-  justify-content:center;
   position:relative;
-  cursor:pointer;
-  background-size:cover;
-  background-position:center;
+  display:inline-block;
+  background:#fff;
+  box-shadow:inset 0 0 0 1px #000;
 }
 
-.zone-cell-enemy {
-  position:absolute;
-  inset:4px;
-  background-repeat:no-repeat;
-  background-position:center;
-  background-size:contain;
+.zone-grid canvas {
+  display:block;
+}
+
+.zone-grid-canvas {
   image-rendering:pixelated;
   pointer-events:none;
 }
 
-.zone-cell.has-enemy-sprite::after {
-  display:none;
+.zone-grid-overlay {
+  position:absolute;
+  inset:0;
+  image-rendering:pixelated;
+  cursor:crosshair;
 }
 
-.zone-cell.has-enemy::after {
-  content:"E";
-  position:absolute;
-  bottom:2px;
-  right:2px;
-  font-weight:bold;
-  font-size:11px;
-}
-
-.zone-cell.has-transport::after {
-  content:"⇄";
-  position:absolute;
-  top:2px;
-  right:2px;
-  font-weight:bold;
-  font-size:11px;
-}
-
-.zone-cell.is-spawn::after {
-  content:"S";
-  position:absolute;
-  top:2px;
-  left:2px;
-  font-weight:bold;
-  font-size:11px;
-}
-
-.zone-cell.not-walkable::before {
-  content:"✕";
-  position:absolute;
-  top:2px;
-  left:2px;
-  font-weight:bold;
-  font-size:11px;
+.zone-grid-overlay.is-non-tile {
+  cursor:pointer;
 }
 
 .sprite-layout,

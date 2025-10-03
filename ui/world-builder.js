@@ -36,6 +36,8 @@ const zoneGridContainer = document.getElementById('zone-grid');
 const zoneDetailsEl = document.getElementById('zone-details');
 
 const modeButtons = Array.from(document.querySelectorAll('.mode-button'));
+const tileToolControls = document.getElementById('tile-tool-controls');
+const tileToolButtons = Array.from(document.querySelectorAll('.tile-tool-button'));
 const transportControls = document.getElementById('transport-controls');
 const transportZoneSelect = document.getElementById('transport-zone-select');
 const transportTargetXInput = document.getElementById('transport-target-x');
@@ -569,11 +571,29 @@ const state = {
   selectedZoneId: null,
   selectedTileId: null,
   editMode: 'tile',
+  tileTool: 'brush',
   transportPlacement: null,
   enemyTemplates: [],
   selectedEnemyTemplateId: null,
   enemyFormRotation: [],
   editingEnemyId: null,
+};
+
+const imageCache = new Map();
+
+const zoneCanvasState = {
+  baseCanvas: null,
+  overlayCanvas: null,
+  baseCtx: null,
+  overlayCtx: null,
+  zoneId: null,
+  cellSize: 32,
+  pixelRatio: 1,
+  pointerId: null,
+  dragging: false,
+  startCell: null,
+  lastCell: null,
+  previewRect: null,
 };
 
 function setActiveTab(tabId) {
@@ -1357,6 +1377,14 @@ function setEditMode(mode) {
   });
   transportControls.classList.toggle('hidden', mode !== 'transport');
   enemyModeInfo.classList.toggle('hidden', mode !== 'enemy');
+  if (tileToolControls) {
+    tileToolControls.classList.toggle('hidden', mode !== 'tile');
+  }
+  if (mode !== 'tile' && zoneCanvasState.previewRect) {
+    zoneCanvasState.previewRect = null;
+    refreshZoneOverlay();
+  }
+  updateZoneCanvasCursor();
 }
 
 modeButtons.forEach(button => {
@@ -1364,6 +1392,28 @@ modeButtons.forEach(button => {
     setEditMode(button.dataset.mode);
   });
 });
+
+function setTileTool(tool) {
+  if (!tool) return;
+  state.tileTool = tool;
+  tileToolButtons.forEach(button => {
+    button.classList.toggle('active', button.dataset.tool === tool);
+  });
+  if (tool !== 'rectangle' && zoneCanvasState.previewRect) {
+    zoneCanvasState.previewRect = null;
+    refreshZoneOverlay();
+  }
+}
+
+tileToolButtons.forEach(button => {
+  button.addEventListener('click', () => {
+    setTileTool(button.dataset.tool);
+  });
+});
+
+setTileTool(state.tileTool);
+
+setEditMode(state.editMode);
 
 function setTransportPlacement() {
   const zoneId = transportZoneSelect.value || null;
@@ -1411,28 +1461,30 @@ function handleEnemyPlacement(zone, x, y) {
   const templateId = state.selectedEnemyTemplateId;
   if (!templateId) {
     alert('Select an enemy template to place.');
-    return;
+    return false;
   }
-  const existing = zone.enemyPlacements.find(p => p.x === x && p.y === y);
-  if (existing) {
+  const existingIndex = zone.enemyPlacements.findIndex(p => p.x === x && p.y === y);
+  if (existingIndex >= 0) {
+    const existing = zone.enemyPlacements[existingIndex];
     if (existing.templateId === templateId) {
-      zone.enemyPlacements = zone.enemyPlacements.filter(p => !(p.x === x && p.y === y));
+      zone.enemyPlacements.splice(existingIndex, 1);
     } else {
       existing.templateId = templateId;
     }
-  } else {
-    zone.enemyPlacements.push({ x, y, templateId });
+    return true;
   }
+  zone.enemyPlacements.push({ x, y, templateId });
+  return true;
 }
 
 function handleTransportPlacement(zone, x, y) {
   if (!ensureTransportPlacement()) {
-    return;
+    return false;
   }
   const placement = state.transportPlacement;
   if (placement.zoneId === zone.id && placement.x === x && placement.y === y) {
     alert('Transport cannot target the same tile.');
-    return;
+    return false;
   }
   const existingIndex = zone.transports.findIndex(t => t.from.x === x && t.from.y === y);
   const transport = {
@@ -1441,150 +1493,554 @@ function handleTransportPlacement(zone, x, y) {
     to: { x: placement.x, y: placement.y },
   };
   if (existingIndex >= 0) {
+    const existing = zone.transports[existingIndex];
+    const unchanged =
+      existing.toZoneId === transport.toZoneId &&
+      existing.to.x === transport.to.x &&
+      existing.to.y === transport.to.y;
+    if (unchanged) {
+      return false;
+    }
     zone.transports.splice(existingIndex, 1, transport);
   } else {
     zone.transports.push(transport);
   }
+  return true;
 }
 
 function handleSpawnPlacement(zone, x, y) {
+  if (zone.spawn && zone.spawn.x === x && zone.spawn.y === y) {
+    return false;
+  }
   zone.spawn = { x, y };
+  return true;
 }
 
-function handleZoneCellClick(event) {
-  const zone = getSelectedZone();
-  if (!zone) return;
-  const x = Number(event.currentTarget.dataset.x);
-  const y = Number(event.currentTarget.dataset.y);
+function getFallbackTileId() {
+  const tileIds = Object.keys(state.tileConfig);
+  if (tileIds.length) {
+    return tileIds[0];
+  }
+  if (state.selectedTileId && state.tileConfig[state.selectedTileId]) {
+    return state.selectedTileId;
+  }
+  return null;
+}
+
+function applyTileBrush(zone, x, y, tileId) {
+  if (!tileId) return false;
+  if (zone.tiles[y][x] === tileId) {
+    return false;
+  }
+  zone.tiles[y][x] = tileId;
+  return true;
+}
+
+function applyTileFill(zone, startX, startY, tileId) {
+  if (!tileId) return false;
+  const targetId = zone.tiles[startY][startX];
+  if (targetId === tileId) {
+    return false;
+  }
+  const width = zone.width;
+  const height = zone.height;
+  const visited = Array.from({ length: height }, () => Array(width).fill(false));
+  const stack = [[startX, startY]];
+  let changed = false;
+  while (stack.length) {
+    const [x, y] = stack.pop();
+    if (x < 0 || y < 0 || x >= width || y >= height) continue;
+    if (visited[y][x]) continue;
+    if (zone.tiles[y][x] !== targetId) continue;
+    visited[y][x] = true;
+    zone.tiles[y][x] = tileId;
+    changed = true;
+    stack.push([x + 1, y]);
+    stack.push([x - 1, y]);
+    stack.push([x, y + 1]);
+    stack.push([x, y - 1]);
+  }
+  return changed;
+}
+
+function applyTileRectangle(zone, start, end, tileId) {
+  if (!tileId || !start || !end) return false;
+  const minX = Math.max(0, Math.min(start.x, end.x));
+  const maxX = Math.min(zone.width - 1, Math.max(start.x, end.x));
+  const minY = Math.max(0, Math.min(start.y, end.y));
+  const maxY = Math.min(zone.height - 1, Math.max(start.y, end.y));
+  let changed = false;
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      if (zone.tiles[y][x] !== tileId) {
+        zone.tiles[y][x] = tileId;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function applySecondaryAction(zone, x, y) {
   switch (state.editMode) {
-    case 'tile':
-      if (!state.selectedTileId) {
-        alert('Select a tile from the palette first.');
+    case 'enemy': {
+      const before = zone.enemyPlacements.length;
+      zone.enemyPlacements = zone.enemyPlacements.filter(p => !(p.x === x && p.y === y));
+      return zone.enemyPlacements.length !== before;
+    }
+    case 'transport': {
+      const index = zone.transports.findIndex(t => t.from.x === x && t.from.y === y);
+      if (index >= 0) {
+        zone.transports.splice(index, 1);
+        return true;
+      }
+      return false;
+    }
+    case 'spawn': {
+      if (zone.spawn && zone.spawn.x === x && zone.spawn.y === y) {
+        zone.spawn = null;
+        return true;
+      }
+      return false;
+    }
+    case 'tile': {
+      const fallback = getFallbackTileId();
+      return applyTileBrush(zone, x, y, fallback);
+    }
+    default:
+      return false;
+  }
+}
+
+function handleNonTilePrimaryAction(zone, x, y) {
+  switch (state.editMode) {
+    case 'enemy':
+      return handleEnemyPlacement(zone, x, y);
+    case 'transport':
+      return handleTransportPlacement(zone, x, y);
+    case 'spawn':
+      return handleSpawnPlacement(zone, x, y);
+    default:
+      return false;
+  }
+}
+
+function loadImageAsset(url, onLoad) {
+  if (!url) return null;
+  let entry = imageCache.get(url);
+  if (!entry) {
+    const image = new Image();
+    entry = { image, loaded: false, error: false, callbacks: [] };
+    image.onload = () => {
+      entry.loaded = true;
+      entry.callbacks.splice(0).forEach(cb => cb(image));
+    };
+    image.onerror = () => {
+      entry.error = true;
+      entry.callbacks.length = 0;
+    };
+    image.src = url;
+    imageCache.set(url, entry);
+  }
+  if (entry.loaded) {
+    if (onLoad) onLoad(entry.image);
+  } else if (onLoad && !entry.error) {
+    entry.callbacks.push(onLoad);
+  }
+  return entry.image;
+}
+
+function drawZoneTiles(zone) {
+  if (!zoneCanvasState.baseCtx || !zone) return;
+  const ctx = zoneCanvasState.baseCtx;
+  const cellSize = zoneCanvasState.cellSize;
+  const width = zone.width * cellSize;
+  const height = zone.height * cellSize;
+  const ratio = zoneCanvasState.pixelRatio || 1;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = false;
+  for (let y = 0; y < zone.height; y += 1) {
+    for (let x = 0; x < zone.width; x += 1) {
+      const tileId = zone.tiles[y][x];
+      const tileConfig = state.tileConfig[tileId] || {};
+      const px = x * cellSize;
+      const py = y * cellSize;
+      ctx.fillStyle = tileConfig.fill || '#ffffff';
+      ctx.fillRect(px, py, cellSize, cellSize);
+      if (tileConfig.sprite) {
+        const image = loadImageAsset(tileConfig.sprite, () => {
+          if (zoneCanvasState.zoneId === zone.id) {
+            drawZoneTiles(zone);
+          }
+        });
+        if (image && image.complete && image.naturalWidth) {
+          ctx.drawImage(image, px, py, cellSize, cellSize);
+        }
+      } else {
+        ctx.fillStyle = '#111';
+        ctx.font = `${Math.max(10, Math.floor(cellSize * 0.35))}px 'Courier New', monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(tileId ?? '', px + cellSize / 2, py + cellSize / 2);
+      }
+      if (tileConfig.walkable === false) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(180, 30, 30, 0.85)';
+        ctx.lineWidth = Math.max(1, Math.floor(cellSize * 0.1));
+        ctx.beginPath();
+        ctx.moveTo(px + 2, py + 2);
+        ctx.lineTo(px + cellSize - 2, py + cellSize - 2);
+        ctx.moveTo(px + cellSize - 2, py + 2);
+        ctx.lineTo(px + 2, py + cellSize - 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+    }
+  }
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= zone.width; x += 1) {
+    const pos = x * cellSize + 0.5;
+    ctx.moveTo(pos, 0);
+    ctx.lineTo(pos, height);
+  }
+  for (let y = 0; y <= zone.height; y += 1) {
+    const pos = y * cellSize + 0.5;
+    ctx.moveTo(0, pos);
+    ctx.lineTo(width, pos);
+  }
+  ctx.stroke();
+}
+
+function drawZoneOverlay(zone) {
+  if (!zoneCanvasState.overlayCtx || !zone) return;
+  const ctx = zoneCanvasState.overlayCtx;
+  const cellSize = zoneCanvasState.cellSize;
+  const width = zone.width * cellSize;
+  const height = zone.height * cellSize;
+  const ratio = zoneCanvasState.pixelRatio || 1;
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.imageSmoothingEnabled = false;
+
+  const drawText = (text, px, py, align = 'center', baseline = 'middle', color = '#111') => {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = `${Math.max(12, Math.floor(cellSize * 0.4))}px 'Courier New', monospace`;
+    ctx.textAlign = align;
+    ctx.textBaseline = baseline;
+    ctx.fillText(text, px, py);
+    ctx.restore();
+  };
+
+  zone.enemyPlacements.forEach(placement => {
+    const px = placement.x * cellSize;
+    const py = placement.y * cellSize;
+    const template = state.enemyTemplates.find(t => t.id === placement.templateId);
+    if (template && template.sprite) {
+      const image = loadImageAsset(template.sprite, () => {
+        if (zoneCanvasState.zoneId === zone.id) {
+          drawZoneOverlay(zone);
+        }
+      });
+      if (image && image.complete && image.naturalWidth) {
+        const margin = Math.max(2, Math.floor(cellSize * 0.15));
+        ctx.drawImage(image, px + margin, py + margin, cellSize - margin * 2, cellSize - margin * 2);
         return;
       }
-      zone.tiles[y][x] = state.selectedTileId;
-      break;
-    case 'enemy':
-      handleEnemyPlacement(zone, x, y);
-      break;
-    case 'transport':
-      handleTransportPlacement(zone, x, y);
-      break;
-    case 'spawn':
-      handleSpawnPlacement(zone, x, y);
-      break;
-    default:
-      break;
+    }
+    drawText('E', px + cellSize - 4, py + cellSize - 4, 'right', 'bottom');
+  });
+
+  zone.transports.forEach(transport => {
+    const px = transport.from.x * cellSize;
+    const py = transport.from.y * cellSize;
+    drawText('⇄', px + cellSize - 4, py + 4, 'right', 'top');
+  });
+
+  if (zone.spawn) {
+    const px = zone.spawn.x * cellSize;
+    const py = zone.spawn.y * cellSize;
+    drawText('S', px + 4, py + 4, 'left', 'top');
   }
-  renderZoneEditor();
+
+  if (
+    zoneCanvasState.previewRect &&
+    state.editMode === 'tile' &&
+    state.tileTool === 'rectangle' &&
+    zoneCanvasState.previewRect.start &&
+    zoneCanvasState.previewRect.end
+  ) {
+    const { start, end } = zoneCanvasState.previewRect;
+    const minX = Math.max(0, Math.min(start.x, end.x));
+    const maxX = Math.min(zone.width - 1, Math.max(start.x, end.x));
+    const minY = Math.max(0, Math.min(start.y, end.y));
+    const maxY = Math.min(zone.height - 1, Math.max(start.y, end.y));
+    const rectX = minX * cellSize;
+    const rectY = minY * cellSize;
+    const rectW = (maxX - minX + 1) * cellSize;
+    const rectH = (maxY - minY + 1) * cellSize;
+    ctx.save();
+    ctx.fillStyle = 'rgba(80, 160, 255, 0.2)';
+    ctx.fillRect(rectX, rectY, rectW, rectH);
+    ctx.strokeStyle = 'rgba(80, 160, 255, 0.75)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(rectX + 1, rectY + 1, rectW - 2, rectH - 2);
+    ctx.restore();
+  }
 }
 
-function handleZoneCellContextMenu(event) {
-  event.preventDefault();
+function refreshZoneTiles() {
+  const zone = getSelectedZone();
+  if (!zone || zoneCanvasState.zoneId !== zone?.id) {
+    renderZoneGrid();
+    return;
+  }
+  drawZoneTiles(zone);
+  refreshZoneOverlay();
+}
+
+function refreshZoneOverlay() {
+  const zone = getSelectedZone();
+  if (!zone || zoneCanvasState.zoneId !== zone?.id) {
+    return;
+  }
+  drawZoneOverlay(zone);
+}
+
+function updateZoneCanvasCursor() {
+  if (!zoneCanvasState.overlayCanvas) return;
+  zoneCanvasState.overlayCanvas.classList.toggle('is-non-tile', state.editMode !== 'tile');
+  if (state.editMode === 'tile') {
+    zoneCanvasState.overlayCanvas.style.cursor = 'crosshair';
+  } else {
+    zoneCanvasState.overlayCanvas.style.cursor = 'pointer';
+  }
+}
+
+function resetZoneCanvasPointerState() {
+  zoneCanvasState.pointerId = null;
+  zoneCanvasState.dragging = false;
+  zoneCanvasState.startCell = null;
+  zoneCanvasState.lastCell = null;
+}
+
+function getTileCoordsFromEvent(event) {
+  const zone = getSelectedZone();
+  if (!zone || !zoneCanvasState.overlayCanvas) return null;
+  const rect = zoneCanvasState.overlayCanvas.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  const width = zone.width * zoneCanvasState.cellSize;
+  const height = zone.height * zoneCanvasState.cellSize;
+  const scaleX = width / rect.width;
+  const scaleY = height / rect.height;
+  const canvasX = (event.clientX - rect.left) * scaleX;
+  const canvasY = (event.clientY - rect.top) * scaleY;
+  const x = Math.floor(canvasX / zoneCanvasState.cellSize);
+  const y = Math.floor(canvasY / zoneCanvasState.cellSize);
+  if (x < 0 || y < 0 || x >= zone.width || y >= zone.height) {
+    return null;
+  }
+  return { x, y };
+}
+
+function handleZonePointerDown(event) {
   const zone = getSelectedZone();
   if (!zone) return;
-  const x = Number(event.currentTarget.dataset.x);
-  const y = Number(event.currentTarget.dataset.y);
-  if (state.editMode === 'enemy') {
-    zone.enemyPlacements = zone.enemyPlacements.filter(p => !(p.x === x && p.y === y));
-  } else if (state.editMode === 'transport') {
-    zone.transports = zone.transports.filter(t => !(t.from.x === x && t.from.y === y));
-  } else if (state.editMode === 'spawn') {
-    if (zone.spawn && zone.spawn.x === x && zone.spawn.y === y) {
-      zone.spawn = null;
+  const coords = getTileCoordsFromEvent(event);
+  if (!coords) return;
+
+  if (event.button === 2) {
+    event.preventDefault();
+    const changed = applySecondaryAction(zone, coords.x, coords.y);
+    if (changed) {
+      if (state.editMode === 'tile') {
+        refreshZoneTiles();
+      } else {
+        refreshZoneOverlay();
+        renderZoneDetails();
+      }
     }
-  } else if (state.editMode === 'tile') {
-    const defaultTile = Object.keys(state.tileConfig)[0];
-    if (defaultTile) {
-      zone.tiles[y][x] = defaultTile;
+    return;
+  }
+
+  if (state.editMode === 'tile' && !state.selectedTileId) {
+    alert('Select a tile from the palette first.');
+    resetZoneCanvasPointerState();
+    return;
+  }
+
+  zoneCanvasState.pointerId = event.pointerId;
+  zoneCanvasState.startCell = coords;
+  zoneCanvasState.lastCell = coords;
+
+  if (state.editMode === 'tile') {
+    if (state.tileTool === 'brush') {
+      zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
+      zoneCanvasState.dragging = true;
+      if (applyTileBrush(zone, coords.x, coords.y, state.selectedTileId)) {
+        refreshZoneTiles();
+      }
+    } else if (state.tileTool === 'fill') {
+      if (applyTileFill(zone, coords.x, coords.y, state.selectedTileId)) {
+        refreshZoneTiles();
+      }
+      resetZoneCanvasPointerState();
+    } else if (state.tileTool === 'rectangle') {
+      zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
+      zoneCanvasState.dragging = true;
+      zoneCanvasState.previewRect = { start: coords, end: coords };
+      refreshZoneOverlay();
+    }
+  } else {
+    const changed = handleNonTilePrimaryAction(zone, coords.x, coords.y);
+    if (changed) {
+      refreshZoneOverlay();
+      renderZoneDetails();
+    }
+    resetZoneCanvasPointerState();
+  }
+
+  event.preventDefault();
+}
+
+function handleZonePointerMove(event) {
+  if (!zoneCanvasState.dragging || zoneCanvasState.pointerId !== event.pointerId) {
+    return;
+  }
+  const zone = getSelectedZone();
+  if (!zone || zoneCanvasState.zoneId !== zone.id) {
+    return;
+  }
+  const coords = getTileCoordsFromEvent(event);
+  if (!coords) {
+    return;
+  }
+  if (state.editMode === 'tile') {
+    if (state.tileTool === 'brush') {
+      if (!zoneCanvasState.lastCell || zoneCanvasState.lastCell.x !== coords.x || zoneCanvasState.lastCell.y !== coords.y) {
+        if (applyTileBrush(zone, coords.x, coords.y, state.selectedTileId)) {
+          refreshZoneTiles();
+        }
+        zoneCanvasState.lastCell = coords;
+      }
+    } else if (state.tileTool === 'rectangle') {
+      zoneCanvasState.previewRect = { start: zoneCanvasState.startCell, end: coords };
+      refreshZoneOverlay();
     }
   }
-  renderZoneEditor();
+}
+
+function handleZonePointerUp(event) {
+  if (zoneCanvasState.pointerId !== event.pointerId) {
+    return;
+  }
+  if (zoneCanvasState.overlayCanvas?.hasPointerCapture(event.pointerId)) {
+    zoneCanvasState.overlayCanvas.releasePointerCapture(event.pointerId);
+  }
+  const zone = getSelectedZone();
+  if (zone && state.editMode === 'tile' && state.tileTool === 'rectangle' && zoneCanvasState.startCell) {
+    const coords = getTileCoordsFromEvent(event) || zoneCanvasState.lastCell || zoneCanvasState.startCell;
+    if (coords && applyTileRectangle(zone, zoneCanvasState.startCell, coords, state.selectedTileId)) {
+      refreshZoneTiles();
+    }
+    zoneCanvasState.previewRect = null;
+    refreshZoneOverlay();
+  }
+  resetZoneCanvasPointerState();
+}
+
+function handleZonePointerCancel(event) {
+  if (zoneCanvasState.pointerId !== event.pointerId) {
+    return;
+  }
+  if (zoneCanvasState.overlayCanvas?.hasPointerCapture(event.pointerId)) {
+    zoneCanvasState.overlayCanvas.releasePointerCapture(event.pointerId);
+  }
+  zoneCanvasState.previewRect = null;
+  refreshZoneOverlay();
+  resetZoneCanvasPointerState();
 }
 
 function renderZoneGrid() {
   zoneGridContainer.innerHTML = '';
   const zone = getSelectedZone();
   if (!zone) {
+    zoneCanvasState.baseCanvas = null;
+    zoneCanvasState.overlayCanvas = null;
+    zoneCanvasState.baseCtx = null;
+    zoneCanvasState.overlayCtx = null;
+    zoneCanvasState.zoneId = null;
+    zoneCanvasState.previewRect = null;
     const empty = document.createElement('p');
     empty.textContent = 'Select a zone to edit.';
     zoneGridContainer.appendChild(empty);
     return;
   }
+
   const grid = document.createElement('div');
   grid.className = 'zone-grid';
   const cellSize = Math.max(16, Math.min(96, state.world.tileSize || 32));
-  grid.style.gridTemplateColumns = `repeat(${zone.width}, ${cellSize}px)`;
-  grid.style.gridTemplateRows = `repeat(${zone.height}, ${cellSize}px)`;
-  for (let y = 0; y < zone.height; y += 1) {
-    for (let x = 0; x < zone.width; x += 1) {
-      const cell = document.createElement('button');
-      cell.type = 'button';
-      cell.className = 'zone-cell';
-      cell.dataset.x = x;
-      cell.dataset.y = y;
-      const tileId = zone.tiles[y][x];
-      const tileConfig = state.tileConfig[tileId] || {};
-      cell.dataset.tileId = tileId;
-      if (tileConfig.sprite) {
-        cell.style.backgroundImage = `url(${tileConfig.sprite})`;
-        cell.style.backgroundSize = 'cover';
-        cell.style.backgroundPosition = 'center';
-        cell.style.backgroundColor = tileConfig.fill || '#ffffff';
-        cell.textContent = '';
-      } else {
-        cell.style.backgroundImage = '';
-        cell.style.backgroundColor = tileConfig.fill || '#ffffff';
-        cell.textContent = tileId;
-      }
-      if (tileConfig.walkable === false) {
-        cell.classList.add('not-walkable');
-      } else {
-        cell.classList.remove('not-walkable');
-      }
-      if (zone.spawn && zone.spawn.x === x && zone.spawn.y === y) {
-        cell.classList.add('is-spawn');
-      }
-      const placement = zone.enemyPlacements.find(p => p.x === x && p.y === y);
-      if (placement) {
-        cell.classList.add('has-enemy');
-        const template = state.enemyTemplates.find(t => t.id === placement.templateId);
-        if (template && template.sprite) {
-          cell.classList.add('has-enemy-sprite');
-          const overlay = document.createElement('div');
-          overlay.className = 'zone-cell-enemy';
-          overlay.style.backgroundImage = `url(${template.sprite})`;
-          const margin = Math.max(2, Math.floor(cellSize * 0.15));
-          overlay.style.left = `${margin}px`;
-          overlay.style.top = `${margin}px`;
-          overlay.style.right = `${margin}px`;
-          overlay.style.bottom = `${margin}px`;
-          cell.appendChild(overlay);
-        }
-      }
-      if (zone.transports.some(t => t.from.x === x && t.from.y === y)) {
-        cell.classList.add('has-transport');
-      }
-      cell.addEventListener('click', handleZoneCellClick);
-      cell.addEventListener('contextmenu', handleZoneCellContextMenu);
-      grid.appendChild(cell);
-    }
-  }
+  const width = zone.width * cellSize;
+  const height = zone.height * cellSize;
+  const ratio = window.devicePixelRatio || 1;
+
+  const baseCanvas = document.createElement('canvas');
+  baseCanvas.className = 'zone-grid-canvas';
+  baseCanvas.width = Math.max(1, Math.floor(width * ratio));
+  baseCanvas.height = Math.max(1, Math.floor(height * ratio));
+  baseCanvas.style.width = `${width}px`;
+  baseCanvas.style.height = `${height}px`;
+
+  const overlayCanvas = document.createElement('canvas');
+  overlayCanvas.className = 'zone-grid-overlay';
+  overlayCanvas.width = Math.max(1, Math.floor(width * ratio));
+  overlayCanvas.height = Math.max(1, Math.floor(height * ratio));
+  overlayCanvas.style.width = `${width}px`;
+  overlayCanvas.style.height = `${height}px`;
+
+  grid.appendChild(baseCanvas);
+  grid.appendChild(overlayCanvas);
   zoneGridContainer.appendChild(grid);
+
+  zoneCanvasState.baseCanvas = baseCanvas;
+  zoneCanvasState.overlayCanvas = overlayCanvas;
+  zoneCanvasState.baseCtx = baseCanvas.getContext('2d');
+  zoneCanvasState.overlayCtx = overlayCanvas.getContext('2d');
+  zoneCanvasState.zoneId = zone.id;
+  zoneCanvasState.cellSize = cellSize;
+  zoneCanvasState.pixelRatio = ratio;
+  zoneCanvasState.previewRect = null;
+  resetZoneCanvasPointerState();
+
+  overlayCanvas.addEventListener('pointerdown', handleZonePointerDown);
+  overlayCanvas.addEventListener('pointermove', handleZonePointerMove);
+  overlayCanvas.addEventListener('pointerup', handleZonePointerUp);
+  overlayCanvas.addEventListener('pointercancel', handleZonePointerCancel);
+  overlayCanvas.addEventListener('pointerleave', handleZonePointerCancel);
+  overlayCanvas.addEventListener('contextmenu', event => event.preventDefault());
+
+  drawZoneTiles(zone);
+  drawZoneOverlay(zone);
+  updateZoneCanvasCursor();
 }
 
 function removeEnemyPlacement(zoneId, index) {
   const zone = state.zones.find(z => z.id === zoneId);
   if (!zone) return;
   zone.enemyPlacements.splice(index, 1);
-  renderZoneEditor();
+  renderZoneDetails();
+  refreshZoneOverlay();
 }
 
 function removeTransport(zoneId, index) {
   const zone = state.zones.find(z => z.id === zoneId);
   if (!zone) return;
   zone.transports.splice(index, 1);
-  renderZoneEditor();
+  renderZoneDetails();
+  refreshZoneOverlay();
 }
 
 function renderZoneDetails() {
