@@ -1,0 +1,451 @@
+body.world-builder {
+  background:#fdfdfd;
+  color:#000;
+  font-family:'Courier New', monospace;
+  padding:24px;
+}
+
+.builder-header {
+  max-width:1100px;
+  margin:0 auto 24px auto;
+  border:2px solid #000;
+  padding:16px;
+  background:#fff;
+  box-shadow:6px 6px 0 #000;
+  text-transform:uppercase;
+}
+
+.builder-header h1 {
+  margin:0 0 8px 0;
+  font-size:28px;
+  letter-spacing:2px;
+}
+
+.builder-header p {
+  margin:0 0 12px 0;
+  letter-spacing:1px;
+}
+
+.builder-link {
+  color:#000;
+  text-decoration:none;
+  border-bottom:1px solid #000;
+}
+
+.builder-layout {
+  max-width:1100px;
+  margin:0 auto;
+  display:grid;
+  grid-template-columns:340px 1fr;
+  gap:16px;
+}
+
+.builder-column {
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+
+.panel {
+  border:2px solid #000;
+  background:#fff;
+  padding:16px;
+  box-shadow:6px 6px 0 #000;
+}
+
+.panel h2 {
+  margin-top:0;
+  text-transform:uppercase;
+  letter-spacing:2px;
+  font-size:18px;
+}
+
+.field-label {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  margin-bottom:12px;
+  text-transform:uppercase;
+}
+
+.field-inline {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  margin-bottom:12px;
+  text-transform:uppercase;
+}
+
+.field-label input,
+.field-inline input,
+.field-label select {
+  border:1px solid #000;
+  padding:4px;
+  font-family:'Courier New', monospace;
+  background:#fdfdfd;
+  color:#000;
+}
+
+.tile-palette {
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin-bottom:12px;
+}
+
+.tile-token {
+  width:60px;
+  height:60px;
+  border:2px solid #000;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction:column;
+  cursor:pointer;
+  text-transform:uppercase;
+  position:relative;
+}
+
+.tile-token.active {
+  outline:2px dashed #000;
+  outline-offset:3px;
+}
+
+.tile-token span {
+  font-size:12px;
+  letter-spacing:1px;
+}
+
+.tile-form button,
+.enemy-actions button,
+.mode-button,
+#add-zone,
+#generate-world,
+#enemy-add-ability,
+#transport-clear,
+.enemy-template button {
+  border:1px solid #000;
+  background:#fff;
+  padding:6px 10px;
+  font-family:'Courier New', monospace;
+  text-transform:uppercase;
+  cursor:pointer;
+  box-shadow:2px 2px 0 #000;
+}
+
+.mode-button.active {
+  background:#000;
+  color:#fff;
+}
+
+.enemy-form {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.enemy-grid {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.enemy-attributes,
+.enemy-economy,
+.enemy-rotation,
+.enemy-equipment {
+  border:1px solid #000;
+  padding:8px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  text-transform:uppercase;
+}
+
+.enemy-attributes label,
+.enemy-economy label {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:12px;
+}
+
+.rotation-picker {
+  display:flex;
+  gap:8px;
+}
+
+.rotation-list {
+  margin:0;
+  padding-left:18px;
+  font-size:13px;
+}
+
+.rotation-list li {
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  margin-bottom:4px;
+}
+
+.rotation-list button {
+  border:1px solid #000;
+  background:#fff;
+  padding:0 6px;
+  font-family:'Courier New', monospace;
+  cursor:pointer;
+}
+
+.equipment-slots {
+  display:grid;
+  grid-template-columns:repeat(2, minmax(0, 1fr));
+  gap:8px;
+  width:100%;
+}
+
+.equipment-slot {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:12px;
+}
+
+.enemy-actions {
+  display:flex;
+  gap:8px;
+}
+
+.enemy-template-list {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:12px;
+}
+
+.enemy-template {
+  border:1px solid #000;
+  padding:8px;
+  background:#fdfdfd;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+}
+
+.enemy-template.active {
+  background:#000;
+  color:#fff;
+}
+
+.enemy-template .actions {
+  display:flex;
+  gap:6px;
+}
+
+.zone-panel-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  margin-bottom:12px;
+}
+
+.zone-list {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.zone-item {
+  border:1px solid #000;
+  background:#fdfdfd;
+  padding:8px;
+  cursor:pointer;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.zone-item.active {
+  background:#000;
+  color:#fff;
+}
+
+.zone-editor {
+  min-height:480px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.zone-toolbar {
+  display:flex;
+  flex-wrap:wrap;
+  gap:12px;
+  justify-content:space-between;
+  align-items:center;
+}
+
+.transport-controls label {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:12px;
+  text-transform:uppercase;
+}
+
+.enemy-mode-info {
+  text-transform:uppercase;
+  letter-spacing:1px;
+}
+
+.zone-details {
+  border:1px solid #000;
+  padding:8px;
+  min-height:72px;
+  background:#fdfdfd;
+  font-size:13px;
+  text-transform:uppercase;
+}
+
+.zone-details input {
+  border:1px solid #000;
+  padding:4px;
+  font-family:'Courier New', monospace;
+  background:#fff;
+  color:#000;
+}
+
+.zone-details h3 {
+  margin:8px 0 4px 0;
+  font-size:14px;
+  letter-spacing:1px;
+}
+
+.zone-subsection {
+  border-top:1px solid #000;
+  padding-top:8px;
+  margin-top:8px;
+}
+
+.zone-subsection ul {
+  list-style:none;
+  padding:0;
+  margin:0;
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.zone-subsection li {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+}
+
+.zone-subsection button {
+  border:1px solid #000;
+  background:#fff;
+  padding:2px 6px;
+  font-family:'Courier New', monospace;
+  cursor:pointer;
+  text-transform:uppercase;
+}
+
+.zone-grid-container {
+  border:1px solid #000;
+  background:#fdfdfd;
+  padding:12px;
+  overflow:auto;
+}
+
+.zone-grid {
+  display:grid;
+  gap:2px;
+}
+
+.zone-cell {
+  width:32px;
+  height:32px;
+  border:1px solid #000;
+  background:#fff;
+  font-size:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  cursor:pointer;
+}
+
+.zone-cell.has-enemy::after {
+  content:"E";
+  position:absolute;
+  bottom:2px;
+  right:2px;
+  font-weight:bold;
+  font-size:11px;
+}
+
+.zone-cell.has-transport::after {
+  content:"⇄";
+  position:absolute;
+  top:2px;
+  right:2px;
+  font-weight:bold;
+  font-size:11px;
+}
+
+.zone-cell.is-spawn::after {
+  content:"S";
+  position:absolute;
+  top:2px;
+  left:2px;
+  font-weight:bold;
+  font-size:11px;
+}
+
+.output-panel textarea {
+  width:100%;
+  min-height:200px;
+  border:1px solid #000;
+  padding:8px;
+  font-family:'Courier New', monospace;
+  background:#fdfdfd;
+  color:#000;
+}
+
+.builder-loading {
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:rgba(255,255,255,0.95);
+  color:#000;
+  font-family:'Courier New', monospace;
+}
+
+.loading-panel {
+  border:2px solid #000;
+  padding:16px 24px;
+  background:#fff;
+  box-shadow:6px 6px 0 #000;
+  text-transform:uppercase;
+}
+
+.hidden {
+  display:none !important;
+}
+
+@media (max-width: 1024px) {
+  .builder-layout {
+    grid-template-columns:1fr;
+  }
+  .builder-column-settings {
+    order:2;
+  }
+  .builder-column-main {
+    order:1;
+  }
+}
