@@ -191,6 +191,122 @@ let worldFocusExitButton = null;
 let worldFocusControlsInitialized = false;
 let worldZoneMap = new Map();
 let worldCurrentZoneId = null;
+const worldEntityMotion = new Map();
+
+function worldNow() {
+  if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') {
+    return performance.now();
+  }
+  return Date.now();
+}
+
+function worldMotionDuration() {
+  const fallback = 180;
+  const duration = Number.isFinite(worldMoveCooldownMs) ? worldMoveCooldownMs : fallback;
+  return Math.max(80, duration);
+}
+
+function smoothStep(t) {
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  return t * t * (3 - 2 * t);
+}
+
+function getWorldMotionKeyForPlayer(id) {
+  return `player:${String(id)}`;
+}
+
+function getWorldMotionKeyForEnemy(id) {
+  return `enemy:${String(id)}`;
+}
+
+function getWorldMotionPosition(motion, timestamp = worldNow()) {
+  if (!motion) return null;
+  const {
+    startX,
+    startY,
+    targetX,
+    targetY,
+    startTs,
+    endTs,
+  } = motion;
+  if (!Number.isFinite(targetX) || !Number.isFinite(targetY)) {
+    return null;
+  }
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) {
+    return { x: targetX, y: targetY };
+  }
+  const nowTs = Number.isFinite(timestamp) ? timestamp : worldNow();
+  const total = endTs - startTs;
+  const progressRaw = (nowTs - startTs) / total;
+  if (progressRaw >= 1) {
+    return { x: targetX, y: targetY };
+  }
+  if (progressRaw <= 0) {
+    return { x: startX, y: startY };
+  }
+  const eased = smoothStep(progressRaw);
+  const x = startX + (targetX - startX) * eased;
+  const y = startY + (targetY - startY) * eased;
+  return { x, y };
+}
+
+function updateWorldEntityMotion(key, targetX, targetY, options = {}) {
+  if (!key || !Number.isFinite(targetX) || !Number.isFinite(targetY)) return;
+  const nowTs = worldNow();
+  const duration = worldMotionDuration();
+  const existing = worldEntityMotion.get(key);
+  const immediate = options.immediate === true;
+  if (!existing || immediate) {
+    worldEntityMotion.set(key, {
+      startX: targetX,
+      startY: targetY,
+      targetX,
+      targetY,
+      startTs: nowTs,
+      endTs: nowTs,
+    });
+    return;
+  }
+  const currentPos = getWorldMotionPosition(existing, nowTs);
+  const startX = currentPos ? currentPos.x : existing.targetX;
+  const startY = currentPos ? currentPos.y : existing.targetY;
+  const deltaTarget = Math.abs(targetX - existing.targetX) + Math.abs(targetY - existing.targetY);
+  const distanceFromStart = Math.abs(targetX - startX) + Math.abs(targetY - startY);
+  const teleport = deltaTarget > 1.5 || distanceFromStart > 2;
+  if (teleport || distanceFromStart < 1e-3) {
+    worldEntityMotion.set(key, {
+      startX: targetX,
+      startY: targetY,
+      targetX,
+      targetY,
+      startTs: nowTs,
+      endTs: nowTs,
+    });
+    return;
+  }
+  worldEntityMotion.set(key, {
+    startX,
+    startY,
+    targetX,
+    targetY,
+    startTs: nowTs,
+    endTs: nowTs + duration,
+  });
+}
+
+function getWorldEntityDisplayPosition(entry, key) {
+  if (!entry) return null;
+  const fallback = { x: entry.x, y: entry.y };
+  if (!key) return fallback;
+  const motion = worldEntityMotion.get(key);
+  if (!motion) return fallback;
+  const pos = getWorldMotionPosition(motion);
+  if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
+    return fallback;
+  }
+  return pos;
+}
 
 function shouldUseWorldFocusLayout() {
   if (typeof window !== 'undefined') {
@@ -455,6 +571,7 @@ function resetWorldState() {
   closeWorldEncounterDialog();
   worldPlayersState = new Map();
   worldEnemiesState = new Map();
+  worldEntityMotion.clear();
   worldConfig = null;
   worldCurrentWorldId = null;
   worldCurrentInstanceId = null;
@@ -1140,9 +1257,17 @@ function renderWorldScene() {
   const offsetX = Math.floor((width - renderWidth) / 2);
   const offsetY = Math.floor((height - renderHeight) / 2);
   const you = currentCharacter ? worldPlayersState.get(currentCharacter.id) : null;
-  const fallbackSpawn = activeZone && activeZone.spawn ? activeZone.spawn : worldConfig && worldConfig.spawn ? worldConfig.spawn : null;
-  const cameraX = you ? you.x + 0.5 : fallbackSpawn ? fallbackSpawn.x + 0.5 : mapWidth / 2;
-  const cameraY = you ? you.y + 0.5 : fallbackSpawn ? fallbackSpawn.y + 0.5 : mapHeight / 2;
+  const youMotionKey = you ? getWorldMotionKeyForPlayer(you.characterId) : null;
+  const youDisplay = you ? getWorldEntityDisplayPosition(you, youMotionKey) : null;
+  const fallbackSpawn = activeZone && activeZone.spawn
+    ? activeZone.spawn
+    : worldConfig && worldConfig.spawn
+      ? worldConfig.spawn
+      : null;
+  const fallbackCenterX = fallbackSpawn ? fallbackSpawn.x + 0.5 : mapWidth / 2;
+  const fallbackCenterY = fallbackSpawn ? fallbackSpawn.y + 0.5 : mapHeight / 2;
+  const cameraX = youDisplay ? youDisplay.x + 0.5 : you ? you.x + 0.5 : fallbackCenterX;
+  const cameraY = youDisplay ? youDisplay.y + 0.5 : you ? you.y + 0.5 : fallbackCenterY;
   const halfTiles = visibleTiles / 2;
   const startX = Math.floor(cameraX - halfTiles) - 1;
   const endX = Math.ceil(cameraX + halfTiles) + 1;
@@ -1219,8 +1344,12 @@ function renderWorldScene() {
 
   const drawEntity = (entry, options = {}) => {
     if (!entry || !Number.isFinite(entry.x) || !Number.isFinite(entry.y)) return;
-    const screenX = offsetX + renderWidth / 2 + (entry.x + 0.5 - cameraX) * tileSize;
-    const screenY = offsetY + renderHeight / 2 + (entry.y + 0.5 - cameraY) * tileSize;
+    const motionKey = options.motionKey || null;
+    const display = motionKey ? getWorldEntityDisplayPosition(entry, motionKey) : null;
+    const entityX = display && Number.isFinite(display.x) ? display.x : entry.x;
+    const entityY = display && Number.isFinite(display.y) ? display.y : entry.y;
+    const screenX = offsetX + renderWidth / 2 + (entityX + 0.5 - cameraX) * tileSize;
+    const screenY = offsetY + renderHeight / 2 + (entityY + 0.5 - cameraY) * tileSize;
     if (screenX < -tileSize || screenX > width + tileSize || screenY < -tileSize || screenY > height + tileSize) return;
     const baseSize = Math.max(12, Math.floor(tileSize * 0.65));
     let size = baseSize;
@@ -1266,12 +1395,14 @@ function renderWorldScene() {
 
   worldEnemiesState.forEach(entry => {
     if (entry && entry.zoneId && worldCurrentZoneId && entry.zoneId !== worldCurrentZoneId) return;
-    drawEntity(entry, { isEnemy: true });
+    const motionKey = entry && entry.id ? getWorldMotionKeyForEnemy(entry.id) : null;
+    drawEntity(entry, { isEnemy: true, motionKey });
   });
   worldPlayersState.forEach(entry => {
     if (entry && entry.zoneId && worldCurrentZoneId && entry.zoneId !== worldCurrentZoneId) return;
     const isYou = currentCharacter && entry && entry.characterId === currentCharacter.id;
-    drawEntity(entry, { isYou });
+    const motionKey = entry && entry.characterId ? getWorldMotionKeyForPlayer(entry.characterId) : null;
+    drawEntity(entry, { isYou, motionKey });
   });
 }
 
@@ -1289,11 +1420,16 @@ function startWorldRenderLoop() {
 
 function handleWorldStateUpdate(data) {
   if (!data) return;
+  const prevPlayersState = worldPlayersState;
+  const prevEnemiesState = worldEnemiesState;
   if (Array.isArray(data.players)) {
     const next = new Map();
+    const activeMotionKeys = new Set();
     data.players.forEach(player => {
       if (!player || !Number.isFinite(player.characterId)) return;
       const zoneId = typeof player.zoneId === 'string' && player.zoneId ? player.zoneId : null;
+      const prevEntry = prevPlayersState instanceof Map ? prevPlayersState.get(player.characterId) : null;
+      const prevZoneId = prevEntry ? prevEntry.zoneId || null : null;
       next.set(player.characterId, {
         characterId: player.characterId,
         name: player.name || `Adventurer ${player.characterId}`,
@@ -1302,7 +1438,25 @@ function handleWorldStateUpdate(data) {
         facing: player.facing || 'down',
         zoneId,
       });
+      const entry = next.get(player.characterId);
+      const motionKey = getWorldMotionKeyForPlayer(entry.characterId);
+      const zoneChanged = prevZoneId !== zoneId;
+      const teleport = prevEntry
+        ? Math.abs((prevEntry.x || 0) - entry.x) + Math.abs((prevEntry.y || 0) - entry.y) > 1.5
+        : false;
+      updateWorldEntityMotion(motionKey, entry.x, entry.y, {
+        immediate: !prevEntry || zoneChanged || teleport,
+      });
+      activeMotionKeys.add(motionKey);
     });
+    if (prevPlayersState instanceof Map) {
+      prevPlayersState.forEach((_, id) => {
+        const motionKey = getWorldMotionKeyForPlayer(id);
+        if (!activeMotionKeys.has(motionKey)) {
+          worldEntityMotion.delete(motionKey);
+        }
+      });
+    }
     worldPlayersState = next;
     updateWorldPlayerList();
     if (currentCharacter && worldPlayersState.has(currentCharacter.id)) {
@@ -1312,10 +1466,13 @@ function handleWorldStateUpdate(data) {
   }
   if (Object.prototype.hasOwnProperty.call(data, 'enemies')) {
     const nextEnemies = new Map();
+    const activeEnemyKeys = new Set();
     if (Array.isArray(data.enemies)) {
       data.enemies.forEach(enemy => {
         if (!enemy || !enemy.id) return;
         const zoneId = typeof enemy.zoneId === 'string' && enemy.zoneId ? enemy.zoneId : null;
+        const prevEnemy = prevEnemiesState instanceof Map ? prevEnemiesState.get(enemy.id) : null;
+        const prevZoneId = prevEnemy ? prevEnemy.zoneId || null : null;
         nextEnemies.set(enemy.id, {
           id: enemy.id,
           name: enemy.name || 'Foe',
@@ -1328,6 +1485,24 @@ function handleWorldStateUpdate(data) {
               ? enemy.sprite.trim()
               : null,
         });
+        const entry = nextEnemies.get(enemy.id);
+        const motionKey = getWorldMotionKeyForEnemy(entry.id);
+        const zoneChanged = prevZoneId !== zoneId;
+        const teleport = prevEnemy
+          ? Math.abs((prevEnemy.x || 0) - entry.x) + Math.abs((prevEnemy.y || 0) - entry.y) > 1.5
+          : false;
+        updateWorldEntityMotion(motionKey, entry.x, entry.y, {
+          immediate: !prevEnemy || zoneChanged || teleport,
+        });
+        activeEnemyKeys.add(motionKey);
+      });
+    }
+    if (prevEnemiesState instanceof Map) {
+      prevEnemiesState.forEach((_, id) => {
+        const motionKey = getWorldMotionKeyForEnemy(id);
+        if (!activeEnemyKeys.has(motionKey)) {
+          worldEntityMotion.delete(motionKey);
+        }
       });
     }
     worldEnemiesState = nextEnemies;
