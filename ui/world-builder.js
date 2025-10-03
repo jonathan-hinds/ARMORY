@@ -6,6 +6,9 @@ const worldNameInput = document.getElementById('world-name');
 const worldTileSizeInput = document.getElementById('world-tile-size');
 const worldMoveCooldownInput = document.getElementById('world-move-cooldown');
 const worldEnemyCountInput = document.getElementById('world-enemy-count');
+const worldEncounterTilesInput = document.getElementById('world-encounter-tiles');
+const worldEncounterChanceInput = document.getElementById('world-encounter-chance');
+const worldEncounterCooldownInput = document.getElementById('world-encounter-cooldown');
 
 const tilePaletteEl = document.getElementById('tile-palette');
 const tileForm = document.getElementById('tile-form');
@@ -57,6 +60,11 @@ const DEFAULT_TILES = [
   { id: '2', fill: '#dcdcdc', sprite: '/assets/Sprite-0002.png' },
 ];
 
+const DEFAULT_ENCOUNTER_TILES = [2];
+const DEFAULT_ENCOUNTER_CHANCE = 0.22;
+const DEFAULT_ENCOUNTER_COOLDOWN = 2000;
+const DEFAULT_ENEMY_COUNT = 6;
+
 const EQUIPMENT_SLOT_LABELS = {
   weapon: 'Weapon',
   helmet: 'Helmet',
@@ -90,7 +98,10 @@ const state = {
     name: '',
     tileSize: 32,
     moveCooldownMs: 180,
-    enemyCount: 6,
+    enemyCount: DEFAULT_ENEMY_COUNT,
+    encounterTiles: DEFAULT_ENCOUNTER_TILES.slice(),
+    encounterChance: DEFAULT_ENCOUNTER_CHANCE,
+    encounterCooldownMs: DEFAULT_ENCOUNTER_COOLDOWN,
   },
   palette: {},
   tileConfig: {},
@@ -104,6 +115,46 @@ const state = {
   enemyFormRotation: [],
   editingEnemyId: null,
 };
+
+function parseEncounterTilesInput(value) {
+  if (typeof value !== 'string') {
+    return [];
+  }
+  return value
+    .split(',')
+    .map(part => part.trim())
+    .filter(part => part.length)
+    .map(part => {
+      const numeric = Number(part);
+      if (Number.isFinite(numeric)) {
+        return Math.max(0, Math.round(numeric));
+      }
+      return null;
+    })
+    .filter(tile => Number.isFinite(tile));
+}
+
+function normalizeEncounterTiles(rawTiles) {
+  if (!Array.isArray(rawTiles)) {
+    return [];
+  }
+  return rawTiles
+    .map(tile => {
+      const numeric = Number(tile);
+      if (Number.isFinite(numeric)) {
+        return Math.max(0, Math.round(numeric));
+      }
+      return null;
+    })
+    .filter(tile => Number.isFinite(tile));
+}
+
+function formatEncounterTilesValue(tiles) {
+  if (!Array.isArray(tiles) || !tiles.length) {
+    return '';
+  }
+  return tiles.join(', ');
+}
 
 function initializeDefaults() {
   DEFAULT_TILES.forEach(tile => {
@@ -139,6 +190,27 @@ function attachWorldListeners() {
       state.world.enemyCount = value;
     }
   });
+  if (worldEncounterTilesInput) {
+    worldEncounterTilesInput.addEventListener('input', e => {
+      state.world.encounterTiles = parseEncounterTilesInput(e.target.value);
+    });
+  }
+  if (worldEncounterChanceInput) {
+    worldEncounterChanceInput.addEventListener('input', e => {
+      const value = parseFloat(e.target.value);
+      if (Number.isFinite(value)) {
+        state.world.encounterChance = Math.max(0, Math.min(1, value));
+      }
+    });
+  }
+  if (worldEncounterCooldownInput) {
+    worldEncounterCooldownInput.addEventListener('input', e => {
+      const value = parseInt(e.target.value, 10);
+      if (!Number.isNaN(value) && value >= 0) {
+        state.world.encounterCooldownMs = value;
+      }
+    });
+  }
 }
 
 function renderTilePalette() {
@@ -895,6 +967,16 @@ function buildWorldData() {
   if (!state.zones.length) {
     return null;
   }
+  const encounterTiles = normalizeEncounterTiles(state.world.encounterTiles);
+  const encounterChance = Number.isFinite(Number(state.world.encounterChance))
+    ? Math.max(0, Math.min(1, Number(state.world.encounterChance)))
+    : DEFAULT_ENCOUNTER_CHANCE;
+  const encounterCooldownMs = Number.isFinite(Number(state.world.encounterCooldownMs))
+    ? Math.max(0, Math.round(Number(state.world.encounterCooldownMs)))
+    : DEFAULT_ENCOUNTER_COOLDOWN;
+  const enemyCount = Number.isFinite(Number(state.world.enemyCount))
+    ? Math.max(1, Math.round(Number(state.world.enemyCount)))
+    : DEFAULT_ENEMY_COUNT;
   const world = {
     id: state.world.id || 'new_world',
     name: state.world.name || 'New World',
@@ -905,9 +987,10 @@ function buildWorldData() {
     ),
     moveCooldownMs: Number(state.world.moveCooldownMs) || 0,
     encounters: {
-      enemyCount: Number.isFinite(Number(state.world.enemyCount))
-        ? Number(state.world.enemyCount)
-        : 0,
+      tiles: encounterTiles,
+      chance: encounterChance,
+      cooldownMs: encounterCooldownMs,
+      enemyCount,
       templates: state.enemyTemplates.map(template => ({
         id: template.id,
         name: template.name,
@@ -979,10 +1062,10 @@ function buildWorldData() {
       };
     }),
   };
-  if (world.zones.length === 1) {
-    const zone = world.zones[0];
-    world.tiles = zone.tiles;
-    world.spawn = zone.spawn;
+  const primaryZone = world.zones[0];
+  if (primaryZone) {
+    world.tiles = primaryZone.tiles;
+    world.spawn = primaryZone.spawn ? { ...primaryZone.spawn } : null;
   }
   return world;
 }
@@ -993,7 +1076,7 @@ function generateWorldJson() {
     alert('Create at least one zone before generating.');
     return;
   }
-  worldOutput.value = JSON.stringify(world, null, 2);
+  worldOutput.value = JSON.stringify([world], null, 2);
 }
 
 function syncWorldForm() {
@@ -1002,33 +1085,94 @@ function syncWorldForm() {
   worldTileSizeInput.value = state.world.tileSize;
   worldMoveCooldownInput.value = state.world.moveCooldownMs;
   worldEnemyCountInput.value = state.world.enemyCount;
+  if (worldEncounterTilesInput) {
+    worldEncounterTilesInput.value = formatEncounterTilesValue(state.world.encounterTiles);
+  }
+  if (worldEncounterChanceInput) {
+    worldEncounterChanceInput.value = Number.isFinite(state.world.encounterChance)
+      ? state.world.encounterChance
+      : DEFAULT_ENCOUNTER_CHANCE;
+  }
+  if (worldEncounterCooldownInput) {
+    worldEncounterCooldownInput.value = Number.isFinite(state.world.encounterCooldownMs)
+      ? state.world.encounterCooldownMs
+      : DEFAULT_ENCOUNTER_COOLDOWN;
+  }
 }
 
 function applyWorldData(rawWorld) {
-  if (!rawWorld || typeof rawWorld !== 'object') {
+  let worldSource = rawWorld;
+  if (Array.isArray(worldSource)) {
+    if (!worldSource.length) {
+      alert('World JSON array is empty.');
+      return false;
+    }
+    if (worldSource.length > 1) {
+      console.warn('Multiple worlds provided. Loading the first entry only.');
+    }
+    [worldSource] = worldSource;
+  }
+  if (!worldSource || typeof worldSource !== 'object' || Array.isArray(worldSource)) {
     alert('World JSON must be an object.');
-    return;
+    return false;
   }
 
-  state.world.id = rawWorld.id || '';
-  state.world.name = rawWorld.name || '';
-  state.world.tileSize = Number(rawWorld.tileSize) || state.world.tileSize;
-  state.world.moveCooldownMs = Number(rawWorld.moveCooldownMs) || state.world.moveCooldownMs;
-  const enemyCount = Number(rawWorld?.encounters?.enemyCount);
-  if (Number.isInteger(enemyCount) && enemyCount > 0) {
-    state.world.enemyCount = enemyCount;
+  state.world.id = worldSource.id || '';
+  state.world.name = worldSource.name || '';
+  state.world.tileSize = Number(worldSource.tileSize) || state.world.tileSize;
+  state.world.moveCooldownMs = Number(worldSource.moveCooldownMs) || state.world.moveCooldownMs;
+
+  const encounterSource =
+    worldSource.encounters && typeof worldSource.encounters === 'object'
+      ? worldSource.encounters
+      : {};
+
+  if (Object.prototype.hasOwnProperty.call(encounterSource, 'enemyCount')) {
+    const enemyCount = Number(encounterSource.enemyCount);
+    state.world.enemyCount = Number.isInteger(enemyCount) && enemyCount > 0
+      ? enemyCount
+      : DEFAULT_ENEMY_COUNT;
+  } else {
+    state.world.enemyCount = DEFAULT_ENEMY_COUNT;
+  }
+
+  const tilesSpecified =
+    encounterSource && Object.prototype.hasOwnProperty.call(encounterSource, 'tiles');
+  const normalizedTiles = normalizeEncounterTiles(encounterSource.tiles);
+  state.world.encounterTiles =
+    normalizedTiles.length || tilesSpecified
+      ? normalizedTiles
+      : DEFAULT_ENCOUNTER_TILES.slice();
+
+  if (Object.prototype.hasOwnProperty.call(encounterSource, 'chance')) {
+    const chanceValue = Number(encounterSource.chance);
+    state.world.encounterChance = Number.isFinite(chanceValue)
+      ? Math.max(0, Math.min(1, chanceValue))
+      : DEFAULT_ENCOUNTER_CHANCE;
+  } else {
+    state.world.encounterChance = DEFAULT_ENCOUNTER_CHANCE;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(encounterSource, 'cooldownMs')) {
+    const cooldownValue = Number(encounterSource.cooldownMs);
+    state.world.encounterCooldownMs =
+      Number.isFinite(cooldownValue) && cooldownValue >= 0
+        ? Math.round(cooldownValue)
+        : DEFAULT_ENCOUNTER_COOLDOWN;
+  } else {
+    state.world.encounterCooldownMs = DEFAULT_ENCOUNTER_COOLDOWN;
   }
 
   state.palette = {};
   state.tileConfig = {};
 
-  const palette = rawWorld.palette && typeof rawWorld.palette === 'object' ? rawWorld.palette : {};
+  const palette = worldSource.palette && typeof worldSource.palette === 'object' ? worldSource.palette : {};
   Object.entries(palette).forEach(([key, value]) => {
     state.palette[String(key)] = value;
   });
 
   const tileConfig =
-    rawWorld.tileConfig && typeof rawWorld.tileConfig === 'object' ? rawWorld.tileConfig : {};
+    worldSource.tileConfig && typeof worldSource.tileConfig === 'object' ? worldSource.tileConfig : {};
   Object.entries(tileConfig).forEach(([key, value]) => {
     if (!value || typeof value !== 'object') return;
     state.tileConfig[String(key)] = {
@@ -1055,8 +1199,8 @@ function applyWorldData(rawWorld) {
     state.selectedTileId = tileIds[0] || null;
   }
 
-  const templates = Array.isArray(rawWorld?.encounters?.templates)
-    ? rawWorld.encounters.templates
+  const templates = Array.isArray(encounterSource?.templates)
+    ? encounterSource.templates
     : [];
   state.enemyTemplates = templates.map(template => {
     const attributes = template.attributes || {};
@@ -1093,19 +1237,19 @@ function applyWorldData(rawWorld) {
   renderEnemyTemplateList();
   updateEnemyModeInfo();
 
-  const rawZones = Array.isArray(rawWorld.zones) ? rawWorld.zones.slice() : [];
+  const rawZones = Array.isArray(worldSource.zones) ? worldSource.zones.slice() : [];
   let zonesSource = rawZones;
-  if (!zonesSource.length && Array.isArray(rawWorld.tiles)) {
+  if (!zonesSource.length && Array.isArray(worldSource.tiles)) {
     zonesSource = [
       {
-        id: rawWorld.id || 'zone',
-        name: rawWorld.name || rawWorld.id || 'Zone',
-        width: Array.isArray(rawWorld.tiles[0]) ? rawWorld.tiles[0].length : rawWorld.width,
-        height: rawWorld.tiles.length,
-        tiles: rawWorld.tiles,
-        spawn: rawWorld.spawn || null,
-        transports: rawWorld.transports || [],
-        enemyPlacements: rawWorld.enemyPlacements || [],
+        id: worldSource.id || 'zone',
+        name: worldSource.name || worldSource.id || 'Zone',
+        width: Array.isArray(worldSource.tiles[0]) ? worldSource.tiles[0].length : worldSource.width,
+        height: worldSource.tiles.length,
+        tiles: worldSource.tiles,
+        spawn: worldSource.spawn || null,
+        transports: worldSource.transports || [],
+        enemyPlacements: worldSource.enemyPlacements || [],
       },
     ];
   }
@@ -1173,6 +1317,7 @@ function applyWorldData(rawWorld) {
   renderZoneEditor();
   updateTransportOptions();
   syncWorldForm();
+  return true;
 }
 
 function handleLoadWorld() {
@@ -1188,9 +1333,11 @@ function handleLoadWorld() {
     alert(`Invalid JSON: ${err.message}`);
     return;
   }
-  applyWorldData(parsed);
+  if (!applyWorldData(parsed)) {
+    return;
+  }
   const world = buildWorldData();
-  worldOutput.value = world ? JSON.stringify(world, null, 2) : '';
+  worldOutput.value = world ? JSON.stringify([world], null, 2) : '';
 }
 
 generateWorldButton.addEventListener('click', generateWorldJson);

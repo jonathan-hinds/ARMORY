@@ -37,6 +37,25 @@
             <span>Encounter Enemy Count</span>
             <input id="world-enemy-count" type="number" min="1" value="6" />
           </label>
+          <label class="field-inline">
+            <span>Encounter Tiles</span>
+            <input id="world-encounter-tiles" type="text" placeholder="e.g. 2" />
+          </label>
+          <label class="field-inline">
+            <span>Encounter Chance</span>
+            <input
+              id="world-encounter-chance"
+              type="number"
+              min="0"
+              max="1"
+              step="0.01"
+              value="0.22"
+            />
+          </label>
+          <label class="field-inline">
+            <span>Encounter Cooldown (ms)</span>
+            <input id="world-encounter-cooldown" type="number" min="0" value="2000" />
+          </label>
         </section>
         <section class="panel palette-panel">
           <h2>Tile Palette</h2>
