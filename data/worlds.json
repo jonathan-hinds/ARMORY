@@ -1,151 +1,63 @@
-{
-  "id": "new_world",
-  "name": "New World",
-  "tileSize": 32,
-  "palette": {
-    "0": "#000000",
-    "1": "#ffffff",
-    "2": "#dcdcdc"
-  },
-  "tileConfig": {
-    "0": {
-      "sprite": "/assets/Sprite-0003.png",
-      "fill": "#000000"
+[
+  {
+    "id": "verdant_glen",
+    "name": "Verdant Glen",
+    "tileSize": 32,
+    "palette": {
+      "0": "#000000",
+      "1": "#ffffff",
+      "2": "#ffffff"
     },
-    "1": {
-      "sprite": "/assets/Sprite-0001.png",
-      "fill": "#ffffff"
+    "tileConfig": {
+      "0": { "sprite": "/assets/Sprite-0003.png", "fill": "#000000" },
+      "1": { "sprite": "/assets/Sprite-0001.png", "fill": "#ffffff" },
+      "2": { "sprite": "/assets/Sprite-0002.png", "fill": "#ffffff" }
     },
-    "2": {
-      "sprite": "/assets/Sprite-0002.png",
-      "fill": "#dcdcdc"
-    }
-  },
-  "moveCooldownMs": 180,
-  "encounters": {
-    "enemyCount": 6,
-    "templates": [
-      {
-        "id": "crocodile",
-        "name": "Crocodile",
-        "basicType": "melee",
-        "level": 1,
-        "attributes": {
-          "strength": 5,
-          "stamina": 5,
-          "agility": 5,
-          "intellect": 0,
-          "wisdom": 0
+    "tiles": [
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 0],
+      [0, 1, 2, 2, 1, 1, 1, 1, 0, 1, 2, 2, 2, 1, 1, 0],
+      [0, 1, 2, 2, 1, 1, 1, 1, 0, 1, 1, 1, 2, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 2, 1, 0],
+      [0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 2, 1, 2, 1, 0],
+      [0, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 2, 1, 2, 1, 0],
+      [0, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 2, 2, 2, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    ],
+    "spawn": { "x": 2, "y": 2 },
+    "moveCooldownMs": 180,
+    "encounters": {
+      "tiles": [2],
+      "chance": 0.22,
+      "cooldownMs": 2000,
+      "templates": [
+        {
+          "id": "wild_sprig",
+          "name": "Wild Sprig",
+          "basicType": "melee",
+          "level": 3,
+          "attributes": { "strength": 6, "stamina": 5, "agility": 5, "intellect": 2, "wisdom": 2 },
+          "rotation": [1, 2, 3],
+          "equipment": { "weapon": "weapon_rusted_shortsword" },
+          "xpPct": 0.08,
+          "gold": 9
         },
-        "rotation": [2, 1, 9, 14, 19, 26],
-        "equipment": {},
-        "xpPct": 0.05,
-        "gold": 5,
-        "spawnChance": 0.5
-      },
-      {
-        "id": "bog_beast",
-        "name": "Bog Beast",
-        "basicType": "melee",
-        "level": 3,
-        "attributes": {
-          "strength": 5,
-          "stamina": 5,
-          "agility": 2,
-          "intellect": 0,
-          "wisdom": 7
-        },
-        "rotation": [2, 1, 20, 11, 7],
-        "equipment": {},
-        "xpPct": 0.09,
-        "gold": 9,
-        "spawnChance": 0.5
-      }
-    ]
-  },
-  "zones": [
-    {
-      "id": "marsh",
-      "name": "Marsh",
-      "width": 20,
-      "height": 10,
-      "tiles": [
-        [0,0,0,0,0,0,0,0,2,2,2,2,1,2,1,1,1,0,0,0],
-        [0,0,0,0,0,1,1,2,1,2,2,1,2,1,1,1,1,1,1,0],
-        [0,0,0,1,1,1,1,1,2,2,2,2,1,2,1,1,1,2,1,1],
-        [0,0,1,1,1,2,1,2,1,2,2,1,2,1,1,1,2,1,1,1],
-        [0,0,1,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-        [0,0,0,1,1,1,1,1,1,1,1,1,1,1,2,1,2,1,2,1],
-        [0,0,0,2,1,1,1,1,1,1,1,2,1,1,0,2,1,2,1,1],
-        [0,0,1,1,2,2,2,2,1,1,2,1,1,0,0,2,2,1,1,1],
-        [0,0,2,2,2,2,2,2,1,1,1,1,0,0,0,2,1,2,1,1],
-        [0,0,1,1,2,1,2,1,2,1,1,1,0,0,0,0,2,1,2,1]
-      ],
-      "spawn": { "x": 3, "y": 3 },
-      "transports": [
-        { "from": { "x": 19, "y": 4 }, "toZoneId": "marsh_ruins", "to": { "x": 0, "y": 4 } },
-        { "from": { "x": 19, "y": 5 }, "toZoneId": "marsh_ruins", "to": { "x": 0, "y": 5 } },
-        { "from": { "x": 19, "y": 6 }, "toZoneId": "marsh_ruins", "to": { "x": 0, "y": 6 } }
-      ],
-      "enemyPlacements": [
-        { "x": 5, "y": 8, "templateId": "crocodile" },
-        { "x": 7, "y": 7, "templateId": "crocodile" },
-        { "x": 7, "y": 2, "templateId": "crocodile" },
-        { "x": 9, "y": 1, "templateId": "crocodile" },
-        { "x": 16, "y": 6, "templateId": "crocodile" },
-        { "x": 18, "y": 8, "templateId": "crocodile" }
-      ]
-    },
-    {
-      "id": "marsh_ruins",
-      "name": "Marsh Ruins",
-      "width": 35,
-      "height": 18,
-      "tiles": [
-        [0,0,0,0,0,0,0,0,2,1,1,1,1,1,1,2,1,0,0,0,0,0,0,2,1,1,2,2,1,1,0,0,1,1,1],
-        [0,0,0,0,0,0,2,1,1,1,1,1,1,1,1,2,1,2,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1],
-        [1,2,0,0,0,2,1,2,1,1,1,1,1,1,1,1,2,0,0,0,0,0,0,0,2,2,2,2,2,2,2,1,1,1,1],
-        [1,1,2,2,1,1,2,1,1,1,1,1,1,2,2,2,2,2,0,1,2,2,0,2,2,2,1,2,1,2,2,2,1,1,1],
-        [1,1,1,2,2,2,1,1,1,1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,2,1,2,1,2,2,1,2,2,1,1],
-        [1,1,2,1,2,1,1,1,1,2,2,2,2,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1],
-        [1,1,1,1,1,1,1,1,1,2,2,2,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,2,1],
-        [1,1,1,1,1,1,1,1,1,1,2,2,2,2,0,0,2,0,0,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1,1],
-        [1,1,1,1,1,1,1,1,1,1,1,1,2,0,0,0,0,0,0,0,2,2,2,2,1,2,2,2,1,2,2,2,2,1,1],
-        [1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,0,0,0,2,2,2,2,1,2,2,2,2,0,0,1,2,2,1,1],
-        [0,1,1,1,0,0,2,1,1,1,1,1,1,1,1,2,2,0,2,2,2,2,2,2,2,2,2,2,0,2,2,2,2,1,1],
-        [0,1,1,1,0,2,1,1,1,1,1,1,1,1,1,1,2,2,2,1,2,2,2,2,2,2,2,2,2,2,2,2,1,1,1],
-        [0,1,1,1,1,1,2,2,0,0,2,1,2,1,1,1,1,1,1,1,1,1,0,0,2,2,2,1,2,1,2,1,1,1,1],
-        [0,1,1,1,1,2,0,0,0,2,1,2,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1],
-        [0,0,1,1,1,0,0,0,1,2,1,2,2,1,2,1,1,1,1,0,0,0,0,0,1,1,1,1,1,2,1,1,2,1,1],
-        [0,0,1,1,1,1,1,1,1,1,2,1,1,1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,2,1,1,2,0,0,0],
-        [0,0,0,1,2,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,2,1,1,1,1,1,0,0,0,0],
-        [0,0,0,0,0,0,0,2,2,1,2,1,1,2,2,1,0,0,0,0,0,0,0,0,0,0,2,2,2,1,1,0,0,0,0]
-      ],
-      "spawn": { "x": 0, "y": 17 },
-      "transports": [
-        { "from": { "x": 0, "y": 4 }, "toZoneId": "marsh", "to": { "x": 19, "y": 4 } },
-        { "from": { "x": 0, "y": 5 }, "toZoneId": "marsh", "to": { "x": 19, "y": 5 } },
-        { "from": { "x": 0, "y": 6 }, "toZoneId": "marsh", "to": { "x": 19, "y": 6 } }
-      ],
-      "enemyPlacements": [
-        { "x": 2, "y": 12, "templateId": "crocodile" },
-        { "x": 5, "y": 3, "templateId": "crocodile" },
-        { "x": 9, "y": 10, "templateId": "crocodile" },
-        { "x": 14, "y": 1, "templateId": "crocodile" },
-        { "x": 16, "y": 2, "templateId": "crocodile" },
-        { "x": 14, "y": 14, "templateId": "crocodile" },
-        { "x": 22, "y": 8, "templateId": "crocodile" },
-        { "x": 20, "y": 10, "templateId": "crocodile" },
-        { "x": 20, "y": 4, "templateId": "crocodile" },
-        { "x": 26, "y": 14, "templateId": "crocodile" },
-        { "x": 29, "y": 15, "templateId": "crocodile" },
-        { "x": 29, "y": 2, "templateId": "crocodile" },
-        { "x": 3, "y": 10, "templateId": "bog_beast" },
-        { "x": 12, "y": 7, "templateId": "bog_beast" },
-        { "x": 16, "y": 7, "templateId": "bog_beast" },
-        { "x": 22, "y": 1, "templateId": "bog_beast" },
-        { "x": 31, "y": 15, "templateId": "bog_beast" }
+        {
+          "id": "feral_bloom",
+          "name": "Feral Bloom",
+          "basicType": "magic",
+          "level": 3,
+          "attributes": { "strength": 3, "stamina": 4, "agility": 5, "intellect": 7, "wisdom": 6 },
+          "rotation": [10, 11, 12],
+          "equipment": { "weapon": "weapon_apprentice_wand" },
+          "xpPct": 0.08,
+          "gold": 11
+        }
       ]
     }
-  ]
-}
+  }
+]
