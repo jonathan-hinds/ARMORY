@@ -47,6 +47,8 @@ const enemyPlacementTargetEl = document.getElementById('enemy-placement-target')
 const enemyForm = document.getElementById('enemy-form');
 const enemyIdInput = document.getElementById('enemy-id');
 const enemyNameInput = document.getElementById('enemy-name');
+const enemySpriteSelect = document.getElementById('enemy-sprite-select');
+const enemySpritePreview = document.getElementById('enemy-sprite-preview');
 const enemyBasicTypeInput = document.getElementById('enemy-basic-type');
 const enemyLevelInput = document.getElementById('enemy-level');
 const enemyStrInput = document.getElementById('enemy-str');
@@ -498,6 +500,7 @@ function renderSpriteAssets() {
     const empty = document.createElement('p');
     empty.textContent = 'No sprite assets found.';
     spriteAssetList.appendChild(empty);
+    renderEnemySpriteOptions();
     return;
   }
   state.spriteAssets.forEach(asset => {
@@ -520,6 +523,7 @@ function renderSpriteAssets() {
     });
     spriteAssetList.appendChild(button);
   });
+  renderEnemySpriteOptions();
 }
 
 function updateSpritePreview(assetUrl) {
@@ -535,6 +539,52 @@ function updateSpritePreview(assetUrl) {
     const message = document.createElement('p');
     message.textContent = 'Select an asset to preview';
     spritePreview.appendChild(message);
+  }
+}
+
+function renderEnemySpriteOptions(selectedValue = null) {
+  if (!enemySpriteSelect) return;
+  const previousValue =
+    selectedValue != null ? selectedValue : enemySpriteSelect.value;
+  enemySpriteSelect.innerHTML = '';
+  const noneOption = document.createElement('option');
+  noneOption.value = '';
+  noneOption.textContent = 'None (Default)';
+  enemySpriteSelect.appendChild(noneOption);
+  let hasMatch = false;
+  state.spriteAssets.forEach(asset => {
+    const option = document.createElement('option');
+    option.value = asset.url;
+    option.textContent = asset.id;
+    enemySpriteSelect.appendChild(option);
+    if (previousValue && asset.url === previousValue) {
+      hasMatch = true;
+    }
+  });
+  if (previousValue && !hasMatch) {
+    const customOption = document.createElement('option');
+    customOption.value = previousValue;
+    customOption.textContent = previousValue;
+    enemySpriteSelect.appendChild(customOption);
+    hasMatch = true;
+  }
+  enemySpriteSelect.value = hasMatch ? previousValue : '';
+  updateEnemySpritePreview(enemySpriteSelect.value);
+}
+
+function updateEnemySpritePreview(assetUrl) {
+  if (!enemySpritePreview) return;
+  enemySpritePreview.innerHTML = '';
+  if (assetUrl) {
+    const img = document.createElement('img');
+    img.src = assetUrl;
+    img.alt = 'Enemy sprite preview';
+    img.loading = 'lazy';
+    enemySpritePreview.appendChild(img);
+  } else {
+    const message = document.createElement('span');
+    message.textContent = 'No sprite selected';
+    enemySpritePreview.appendChild(message);
   }
 }
 
@@ -1059,8 +1109,22 @@ function renderZoneGrid() {
       if (zone.spawn && zone.spawn.x === x && zone.spawn.y === y) {
         cell.classList.add('is-spawn');
       }
-      if (zone.enemyPlacements.some(p => p.x === x && p.y === y)) {
+      const placement = zone.enemyPlacements.find(p => p.x === x && p.y === y);
+      if (placement) {
         cell.classList.add('has-enemy');
+        const template = state.enemyTemplates.find(t => t.id === placement.templateId);
+        if (template && template.sprite) {
+          cell.classList.add('has-enemy-sprite');
+          const overlay = document.createElement('div');
+          overlay.className = 'zone-cell-enemy';
+          overlay.style.backgroundImage = `url(${template.sprite})`;
+          const margin = Math.max(2, Math.floor(cellSize * 0.15));
+          overlay.style.left = `${margin}px`;
+          overlay.style.top = `${margin}px`;
+          overlay.style.right = `${margin}px`;
+          overlay.style.bottom = `${margin}px`;
+          cell.appendChild(overlay);
+        }
       }
       if (zone.transports.some(t => t.from.x === x && t.from.y === y)) {
         cell.classList.add('has-transport');
@@ -1124,8 +1188,38 @@ function renderZoneDetails() {
   zone.enemyPlacements.forEach((placement, index) => {
     const li = document.createElement('li');
     const template = state.enemyTemplates.find(t => t.id === placement.templateId);
-    const label = template ? `${template.name} (${placement.templateId})` : placement.templateId;
-    li.textContent = `${label} at ${placement.x}, ${placement.y}`;
+    li.classList.add('zone-enemy-row');
+    const infoWrapper = document.createElement('div');
+    infoWrapper.className = 'zone-enemy-info';
+    const preview = document.createElement('div');
+    preview.className = 'enemy-template-preview';
+    if (template && template.sprite) {
+      const img = document.createElement('img');
+      img.src = template.sprite;
+      img.alt = `${template.name} sprite`;
+      img.loading = 'lazy';
+      preview.appendChild(img);
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.textContent = '▣';
+      preview.appendChild(placeholder);
+    }
+    const textWrapper = document.createElement('div');
+    textWrapper.className = 'zone-enemy-text';
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = template ? template.name : placement.templateId;
+    const idEl = document.createElement('span');
+    idEl.className = 'zone-enemy-id';
+    idEl.textContent = placement.templateId;
+    const coordsEl = document.createElement('span');
+    coordsEl.className = 'zone-enemy-coords';
+    coordsEl.textContent = `(${placement.x}, ${placement.y})`;
+    textWrapper.appendChild(nameEl);
+    textWrapper.appendChild(idEl);
+    textWrapper.appendChild(coordsEl);
+    infoWrapper.appendChild(preview);
+    infoWrapper.appendChild(textWrapper);
+    li.appendChild(infoWrapper);
     const removeButton = document.createElement('button');
     removeButton.type = 'button';
     removeButton.textContent = 'Remove';
@@ -1310,9 +1404,19 @@ enemyResetButton.addEventListener('click', () => {
   state.enemyFormRotation = [];
   state.editingEnemyId = null;
   enemyForm.reset();
+  if (enemySpriteSelect) {
+    enemySpriteSelect.value = '';
+    updateEnemySpritePreview('');
+  }
   renderEnemyRotation();
   updateEquipmentSelection({});
 });
+
+if (enemySpriteSelect) {
+  enemySpriteSelect.addEventListener('change', event => {
+    updateEnemySpritePreview(event.target.value);
+  });
+}
 
 function collectEquipmentFromForm() {
   const equipment = {};
@@ -1335,6 +1439,7 @@ function normalizeEnemyTemplate(template) {
     return null;
   }
   const attributes = template.attributes || {};
+  const spriteValue = typeof template.sprite === 'string' ? template.sprite.trim() : '';
   const rotation = Array.isArray(template.rotation)
     ? template.rotation
         .map(value => {
@@ -1367,6 +1472,7 @@ function normalizeEnemyTemplate(template) {
     xpPct: Number(template.xpPct ?? template.xp ?? 0) || 0,
     gold: Number(template.gold) || 0,
     spawnChance: Number(template.spawnChance) || 0,
+    sprite: spriteValue || null,
   };
 }
 
@@ -1386,11 +1492,17 @@ async function handleEnemyFormSubmit(event) {
     return;
   }
 
+  const spriteValue =
+    enemySpriteSelect && typeof enemySpriteSelect.value === 'string'
+      ? enemySpriteSelect.value.trim()
+      : '';
+
   const payload = {
     templateId: id,
     name: enemyNameInput.value.trim() || id,
     basicType: enemyBasicTypeInput.value,
     level: parseInt(enemyLevelInput.value, 10) || 1,
+    sprite: spriteValue || null,
     attributes: {
       strength: parseInt(enemyStrInput.value, 10) || 0,
       stamina: parseInt(enemyStaInput.value, 10) || 0,
@@ -1440,6 +1552,9 @@ enemyForm.addEventListener('submit', handleEnemyFormSubmit);
 function loadEnemyTemplateIntoForm(template) {
   enemyIdInput.value = template.id;
   enemyNameInput.value = template.name;
+  if (enemySpriteSelect) {
+    renderEnemySpriteOptions(template.sprite || '');
+  }
   enemyBasicTypeInput.value = template.basicType;
   enemyLevelInput.value = template.level;
   enemyStrInput.value = template.attributes.strength ?? 0;
@@ -1479,7 +1594,21 @@ function renderEnemyTemplateList() {
     if (template.id === state.selectedEnemyTemplateId) {
       item.classList.add('active');
     }
+    const preview = document.createElement('div');
+    preview.className = 'enemy-template-preview';
+    if (template.sprite) {
+      const img = document.createElement('img');
+      img.src = template.sprite;
+      img.alt = `${template.name} sprite`;
+      img.loading = 'lazy';
+      preview.appendChild(img);
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.textContent = '▣';
+      preview.appendChild(placeholder);
+    }
     const info = document.createElement('div');
+    info.className = 'enemy-template-info';
     info.innerHTML = `<strong>${template.name}</strong><br /><span>${template.id}</span>`;
     const actions = document.createElement('div');
     actions.className = 'actions';
@@ -1520,6 +1649,7 @@ function renderEnemyTemplateList() {
     });
     actions.appendChild(removeButton);
 
+    item.appendChild(preview);
     item.appendChild(info);
     item.appendChild(actions);
     enemyTemplateListEl.appendChild(item);
@@ -1542,7 +1672,21 @@ function renderEnemyPickerList() {
     if (template.id === state.selectedEnemyTemplateId) {
       item.classList.add('active');
     }
+    const preview = document.createElement('div');
+    preview.className = 'enemy-template-preview';
+    if (template.sprite) {
+      const img = document.createElement('img');
+      img.src = template.sprite;
+      img.alt = `${template.name} sprite`;
+      img.loading = 'lazy';
+      preview.appendChild(img);
+    } else {
+      const placeholder = document.createElement('span');
+      placeholder.textContent = '▣';
+      preview.appendChild(placeholder);
+    }
     const info = document.createElement('div');
+    info.className = 'enemy-template-info';
     info.innerHTML = `<strong>${template.name}</strong><br /><span>${template.id}</span>`;
     const actions = document.createElement('div');
     actions.className = 'actions';
@@ -1559,6 +1703,7 @@ function renderEnemyPickerList() {
     editButton.addEventListener('click', () => loadEnemyTemplateIntoForm(template));
     actions.appendChild(editButton);
 
+    item.appendChild(preview);
     item.appendChild(info);
     item.appendChild(actions);
     enemyPickerListEl.appendChild(item);
@@ -1652,6 +1797,7 @@ function buildWorldData() {
         xpPct: Number(template.xpPct) || 0,
         gold: Number(template.gold) || 0,
         spawnChance: Number(template.spawnChance) || 0,
+        sprite: template.sprite || undefined,
       })),
     },
     zones: state.zones.map(zone => {
@@ -1869,6 +2015,10 @@ function applyWorldData(rawWorld) {
   state.enemyFormRotation = [];
   state.editingEnemyId = null;
   enemyForm.reset();
+  if (enemySpriteSelect) {
+    enemySpriteSelect.value = '';
+    updateEnemySpritePreview('');
+  }
   renderEnemyRotation();
   updateEquipmentSelection({});
   renderEnemyTemplateList();

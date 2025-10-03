@@ -160,6 +160,8 @@ function sanitizeEnemyTemplatePayload(payload) {
         .filter(value => value !== null && value !== "")
     : [];
   const equipment = payload.equipment && typeof payload.equipment === "object" ? payload.equipment : {};
+  const spriteRaw = typeof payload.sprite === "string" ? payload.sprite.trim() : "";
+  const sprite = spriteRaw ? spriteRaw : null;
   const attributes = payload.attributes && typeof payload.attributes === "object" ? payload.attributes : {};
   return {
     templateId: id,
@@ -178,6 +180,7 @@ function sanitizeEnemyTemplatePayload(payload) {
     xpPct: Number(payload.xpPct ?? payload.xp ?? 0) || 0,
     gold: Number.parseInt(payload.gold ?? 0, 10) || 0,
     spawnChance: Number(payload.spawnChance ?? 0) || 0,
+    sprite,
   };
 }
 

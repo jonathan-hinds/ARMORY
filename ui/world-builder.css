@@ -245,6 +245,38 @@ body.world-builder {
   gap:12px;
 }
 
+.enemy-sprite-field {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+}
+
+.enemy-sprite-field select {
+  border:1px solid #000;
+  background:#fff;
+  padding:4px;
+  font-family:'Courier New', monospace;
+}
+
+.enemy-sprite-preview {
+  border:1px solid #000;
+  background:#fff;
+  min-height:60px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:4px;
+  font-size:12px;
+  gap:4px;
+}
+
+.enemy-sprite-preview img {
+  width:56px;
+  height:56px;
+  object-fit:contain;
+  image-rendering:pixelated;
+}
+
 .enemy-attributes,
 .enemy-economy,
 .enemy-rotation,
@@ -340,6 +372,45 @@ body.world-builder {
 .enemy-template.active {
   background:#000;
   color:#fff;
+}
+
+.enemy-template-info {
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  font-size:12px;
+}
+
+.enemy-template-info strong {
+  font-size:14px;
+}
+
+.enemy-template-preview {
+  width:56px;
+  height:56px;
+  border:1px solid #000;
+  background:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  image-rendering:pixelated;
+}
+
+.enemy-template-preview img {
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  image-rendering:pixelated;
+}
+
+.enemy-template-preview span {
+  font-size:18px;
+  color:#000;
+}
+
+.enemy-template.active .enemy-template-preview {
+  border-color:#fff;
+  background:#fff;
 }
 
 .enemy-template .actions {
@@ -448,6 +519,37 @@ body.world-builder {
   gap:8px;
 }
 
+.zone-enemy-row {
+  align-items:center;
+}
+
+.zone-enemy-info {
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+
+.zone-enemy-text {
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  font-size:12px;
+}
+
+.zone-enemy-text strong {
+  font-size:13px;
+}
+
+.zone-enemy-id {
+  font-size:11px;
+  opacity:0.85;
+}
+
+.zone-enemy-coords {
+  font-size:11px;
+  opacity:0.7;
+}
+
 .zone-subsection button {
   border:1px solid #000;
   background:#fff;
@@ -482,6 +584,20 @@ body.world-builder {
   cursor:pointer;
   background-size:cover;
   background-position:center;
+}
+
+.zone-cell-enemy {
+  position:absolute;
+  inset:4px;
+  background-repeat:no-repeat;
+  background-position:center;
+  background-size:contain;
+  image-rendering:pixelated;
+  pointer-events:none;
+}
+
+.zone-cell.has-enemy-sprite::after {
+  display:none;
 }
 
 .zone-cell.has-enemy::after {
