@@ -189,6 +189,8 @@ let worldBattleCloseButton = null;
 let worldCanvasFocusActive = false;
 let worldFocusExitButton = null;
 let worldFocusControlsInitialized = false;
+let worldZoneMap = new Map();
+let worldCurrentZoneId = null;
 
 function shouldUseWorldFocusLayout() {
   if (typeof window !== 'undefined') {
@@ -427,7 +429,10 @@ function updateWorldPlayerList() {
     coord.className = 'player-coords';
     const x = Number.isFinite(entry.x) ? entry.x : 0;
     const y = Number.isFinite(entry.y) ? entry.y : 0;
-    coord.textContent = `(${x}, ${y})`;
+    const zoneLabel = entry.zoneId
+      ? (worldZoneMap.get(entry.zoneId)?.name || entry.zoneId)
+      : null;
+    coord.textContent = zoneLabel ? `${zoneLabel} (${x}, ${y})` : `(${x}, ${y})`;
     li.appendChild(coord);
     worldPlayerListEl.appendChild(li);
   });
@@ -456,6 +461,8 @@ function resetWorldState() {
   worldQueueState = null;
   setWorldQueueUIState('idle');
   worldTileSpriteRefs = new Map();
+  worldZoneMap = new Map();
+  worldCurrentZoneId = null;
   worldMovementPending = false;
   worldMovementLocked = false;
   worldLastMoveAt = 0;
@@ -1033,6 +1040,50 @@ function prepareWorldAssets(world) {
   });
 }
 
+function initializeWorldZones(world) {
+  worldZoneMap = new Map();
+  if (world && Array.isArray(world.zones)) {
+    world.zones.forEach(zone => {
+      if (!zone || !zone.id) return;
+      const safeId = String(zone.id);
+      worldZoneMap.set(safeId, {
+        id: safeId,
+        name: zone.name || safeId,
+        tiles: Array.isArray(zone.tiles) ? zone.tiles : [],
+        transports: Array.isArray(zone.transports) ? zone.transports : [],
+        spawn: zone.spawn || null,
+      });
+    });
+  }
+  const defaultZoneId = world && world.defaultZoneId && worldZoneMap.has(world.defaultZoneId)
+    ? world.defaultZoneId
+    : worldZoneMap.size
+      ? worldZoneMap.keys().next().value
+      : null;
+  worldCurrentZoneId = defaultZoneId || null;
+}
+
+function setActiveWorldZone(zoneId, options = {}) {
+  let nextZoneId = zoneId;
+  if (nextZoneId && !worldZoneMap.has(nextZoneId)) {
+    nextZoneId = null;
+  }
+  if (!nextZoneId) {
+    if (worldConfig && worldConfig.defaultZoneId && worldZoneMap.has(worldConfig.defaultZoneId)) {
+      nextZoneId = worldConfig.defaultZoneId;
+    } else if (worldZoneMap.size) {
+      nextZoneId = worldZoneMap.keys().next().value;
+    } else {
+      nextZoneId = null;
+    }
+  }
+  if (!options.force && nextZoneId === worldCurrentZoneId) {
+    return;
+  }
+  worldCurrentZoneId = nextZoneId;
+  renderWorldScene();
+}
+
 function strokeTile(tileConfigEntry, drawX, drawY, tileSize, fallback) {
   if (!worldCtx) return;
   if (!tileConfigEntry) return;
@@ -1068,10 +1119,18 @@ function renderWorldScene() {
   const { width, height } = worldCanvas;
   worldCtx.fillStyle = '#ffffff';
   worldCtx.fillRect(0, 0, width, height);
-  if (!worldConfig || !Array.isArray(worldConfig.tiles) || !worldConfig.tiles.length) {
+  const activeZone = worldCurrentZoneId && worldZoneMap.has(worldCurrentZoneId)
+    ? worldZoneMap.get(worldCurrentZoneId)
+    : null;
+  const tilesSource = activeZone && Array.isArray(activeZone.tiles)
+    ? activeZone.tiles
+    : worldConfig && Array.isArray(worldConfig.tiles)
+      ? worldConfig.tiles
+      : null;
+  if (!tilesSource || !tilesSource.length) {
     return;
   }
-  const tiles = worldConfig.tiles;
+  const tiles = tilesSource;
   const mapHeight = tiles.length;
   const mapWidth = tiles[0] ? tiles[0].length : 0;
   const visibleTiles = WORLD_VISIBLE_TILES;
@@ -1081,8 +1140,9 @@ function renderWorldScene() {
   const offsetX = Math.floor((width - renderWidth) / 2);
   const offsetY = Math.floor((height - renderHeight) / 2);
   const you = currentCharacter ? worldPlayersState.get(currentCharacter.id) : null;
-  const cameraX = you ? you.x + 0.5 : mapWidth / 2;
-  const cameraY = you ? you.y + 0.5 : mapHeight / 2;
+  const fallbackSpawn = activeZone && activeZone.spawn ? activeZone.spawn : worldConfig && worldConfig.spawn ? worldConfig.spawn : null;
+  const cameraX = you ? you.x + 0.5 : fallbackSpawn ? fallbackSpawn.x + 0.5 : mapWidth / 2;
+  const cameraY = you ? you.y + 0.5 : fallbackSpawn ? fallbackSpawn.y + 0.5 : mapHeight / 2;
   const halfTiles = visibleTiles / 2;
   const startX = Math.floor(cameraX - halfTiles) - 1;
   const endX = Math.ceil(cameraX + halfTiles) + 1;
@@ -1191,9 +1251,11 @@ function renderWorldScene() {
   };
 
   worldEnemiesState.forEach(entry => {
+    if (entry && entry.zoneId && worldCurrentZoneId && entry.zoneId !== worldCurrentZoneId) return;
     drawEntity(entry, { isEnemy: true });
   });
   worldPlayersState.forEach(entry => {
+    if (entry && entry.zoneId && worldCurrentZoneId && entry.zoneId !== worldCurrentZoneId) return;
     const isYou = currentCharacter && entry && entry.characterId === currentCharacter.id;
     drawEntity(entry, { isYou });
   });
@@ -1217,28 +1279,36 @@ function handleWorldStateUpdate(data) {
     const next = new Map();
     data.players.forEach(player => {
       if (!player || !Number.isFinite(player.characterId)) return;
+      const zoneId = typeof player.zoneId === 'string' && player.zoneId ? player.zoneId : null;
       next.set(player.characterId, {
         characterId: player.characterId,
         name: player.name || `Adventurer ${player.characterId}`,
         x: Number.isFinite(player.x) ? player.x : 0,
         y: Number.isFinite(player.y) ? player.y : 0,
         facing: player.facing || 'down',
+        zoneId,
       });
     });
     worldPlayersState = next;
     updateWorldPlayerList();
+    if (currentCharacter && worldPlayersState.has(currentCharacter.id)) {
+      const selfEntry = worldPlayersState.get(currentCharacter.id);
+      setActiveWorldZone(selfEntry.zoneId);
+    }
   }
   if (Object.prototype.hasOwnProperty.call(data, 'enemies')) {
     const nextEnemies = new Map();
     if (Array.isArray(data.enemies)) {
       data.enemies.forEach(enemy => {
         if (!enemy || !enemy.id) return;
+        const zoneId = typeof enemy.zoneId === 'string' && enemy.zoneId ? enemy.zoneId : null;
         nextEnemies.set(enemy.id, {
           id: enemy.id,
           name: enemy.name || 'Foe',
           x: Number.isFinite(enemy.x) ? enemy.x : 0,
           y: Number.isFinite(enemy.y) ? enemy.y : 0,
           facing: enemy.facing || 'down',
+          zoneId,
         });
       });
     }
@@ -1311,6 +1381,8 @@ async function enterWorldInstance(worldId, instanceId, worldPayload = null) {
     worldCurrentInstanceId = payload.instanceId || instanceId;
     worldConfig = world;
     prepareWorldAssets(world);
+    initializeWorldZones(world);
+    setActiveWorldZone(worldCurrentZoneId, { force: true });
     worldMoveCooldownMs = world && Number.isFinite(world.moveCooldownMs) ? world.moveCooldownMs : 180;
     handleWorldStateUpdate(payload);
     if (worldTitleEl && world && world.name) {
@@ -1362,15 +1434,18 @@ async function queueWorldMove(direction) {
     });
     worldLastMoveAt = Date.now();
     if (payload && payload.position) {
+      const zoneId = payload.position.zoneId || (worldPlayersState.get(currentCharacter.id)?.zoneId ?? null);
       const you = {
         characterId: currentCharacter.id,
         name: currentCharacter.name,
         x: Number.isFinite(payload.position.x) ? payload.position.x : 0,
         y: Number.isFinite(payload.position.y) ? payload.position.y : 0,
         facing: payload.position.facing || 'down',
+        zoneId,
       };
       worldPlayersState.set(currentCharacter.id, you);
       updateWorldPlayerList();
+      setActiveWorldZone(zoneId);
     }
     if (payload && payload.encounter && payload.encounter.token) {
       beginWorldEncounter(payload.encounter.token);

@@ -43,7 +43,13 @@ function normalizeTiles(rawTiles) {
     return [];
   }
   return rawTiles
-    .map(row => (Array.isArray(row) ? row.map(v => Number.isFinite(v) ? Math.round(v) : parseInt(v, 10)).map(v => (Number.isFinite(v) ? v : 0)) : []))
+    .map(row =>
+      (Array.isArray(row)
+        ? row
+            .map(v => (Number.isFinite(v) ? Math.round(v) : parseInt(v, 10)))
+            .map(v => (Number.isFinite(v) ? v : 0))
+        : []),
+    )
     .filter(row => row.length > 0);
 }
 
@@ -151,28 +157,206 @@ function normalizeEncounter(raw = {}) {
   };
 }
 
-function normalizeWorld(entry) {
-  if (!entry || typeof entry !== 'object') {
-    return null;
+function sanitizeZoneId(value) {
+  const base = typeof value === 'string' ? value : '';
+  const sanitized = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return sanitized || 'zone';
+}
+
+function uniqueZoneId(baseId, used) {
+  const sanitized = sanitizeZoneId(baseId);
+  let candidate = sanitized;
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${sanitized}_${suffix}`;
+    suffix += 1;
   }
-  const tiles = normalizeTiles(entry.tiles);
-  const width = tiles.length ? tiles[0].length : 0;
-  const height = tiles.length;
-  const spawn = entry.spawn && typeof entry.spawn === 'object' ? {
-    x: Number.isFinite(entry.spawn.x) ? Math.max(0, Math.round(entry.spawn.x)) : 0,
-    y: Number.isFinite(entry.spawn.y) ? Math.max(0, Math.round(entry.spawn.y)) : 0,
-  } : { x: 0, y: 0 };
-  const walkableTiles = [];
+  used.add(candidate);
+  return candidate;
+}
+
+function collectWalkableTiles(tiles) {
+  const walkable = [];
+  if (!Array.isArray(tiles)) {
+    return walkable;
+  }
   for (let y = 0; y < tiles.length; y += 1) {
     const row = tiles[y];
     if (!Array.isArray(row)) continue;
     for (let x = 0; x < row.length; x += 1) {
       const tile = row[x];
       if (tile === 1 || tile === 2) {
-        walkableTiles.push({ x, y });
+        walkable.push({ x, y });
       }
     }
   }
+  return walkable;
+}
+
+function normalizeTransports(rawTransports) {
+  if (!Array.isArray(rawTransports)) {
+    return [];
+  }
+  return rawTransports
+    .map(entry => {
+      if (!entry || typeof entry !== 'object') {
+        return null;
+      }
+      const fromXRaw = entry.from && Number.isFinite(entry.from.x) ? entry.from.x : parseInt(entry?.from?.x, 10);
+      const fromYRaw = entry.from && Number.isFinite(entry.from.y) ? entry.from.y : parseInt(entry?.from?.y, 10);
+      const toXRaw = entry.to && Number.isFinite(entry.to.x) ? entry.to.x : parseInt(entry?.to?.x, 10);
+      const toYRaw = entry.to && Number.isFinite(entry.to.y) ? entry.to.y : parseInt(entry?.to?.y, 10);
+      const fromX = Number.isFinite(fromXRaw) ? Math.max(0, Math.round(fromXRaw)) : 0;
+      const fromY = Number.isFinite(fromYRaw) ? Math.max(0, Math.round(fromYRaw)) : 0;
+      const toX = Number.isFinite(toXRaw) ? Math.max(0, Math.round(toXRaw)) : 0;
+      const toY = Number.isFinite(toYRaw) ? Math.max(0, Math.round(toYRaw)) : 0;
+      const toZoneId = entry.toZoneId ? String(entry.toZoneId) : '';
+      return {
+        from: { x: fromX, y: fromY },
+        toZoneId,
+        to: { x: toX, y: toY },
+      };
+    })
+    .filter(Boolean);
+}
+
+function normalizeEnemyPlacements(rawPlacements) {
+  if (!Array.isArray(rawPlacements)) {
+    return [];
+  }
+  return rawPlacements
+    .map(entry => {
+      if (!entry || typeof entry !== 'object') return null;
+      const xRaw = Number.isFinite(entry.x) ? entry.x : parseInt(entry.x, 10);
+      const yRaw = Number.isFinite(entry.y) ? entry.y : parseInt(entry.y, 10);
+      const x = Number.isFinite(xRaw) ? Math.max(0, Math.round(xRaw)) : 0;
+      const y = Number.isFinite(yRaw) ? Math.max(0, Math.round(yRaw)) : 0;
+      const templateId = entry.templateId ? String(entry.templateId) : '';
+      return { x, y, templateId };
+    })
+    .filter(Boolean);
+}
+
+function normalizeZoneEntry(entry, fallbackBaseId, usedIds) {
+  const baseId = entry && entry.id ? String(entry.id) : fallbackBaseId;
+  const id = uniqueZoneId(baseId, usedIds);
+  const name = entry && entry.name ? String(entry.name) : id;
+  const tiles = normalizeTiles(entry && entry.tiles ? entry.tiles : []);
+  const width = tiles[0] ? tiles[0].length : 0;
+  const height = tiles.length;
+  const walkableTiles = collectWalkableTiles(tiles);
+  const spawnCandidate = entry && entry.spawn ? entry.spawn : null;
+  let spawn = { x: 0, y: 0 };
+  if (spawnCandidate && typeof spawnCandidate === 'object') {
+    const spawnXRaw = Number.isFinite(spawnCandidate.x) ? spawnCandidate.x : parseInt(spawnCandidate.x, 10);
+    const spawnYRaw = Number.isFinite(spawnCandidate.y) ? spawnCandidate.y : parseInt(spawnCandidate.y, 10);
+    const spawnX = Number.isFinite(spawnXRaw) ? Math.max(0, Math.round(spawnXRaw)) : null;
+    const spawnY = Number.isFinite(spawnYRaw) ? Math.max(0, Math.round(spawnYRaw)) : null;
+    if (spawnX != null && spawnY != null) {
+      spawn = { x: spawnX, y: spawnY };
+    }
+  }
+  if (!walkableTiles.some(tile => tile.x === spawn.x && tile.y === spawn.y)) {
+    if (walkableTiles.length) {
+      spawn = { ...walkableTiles[0] };
+    } else {
+      spawn = { x: 0, y: 0 };
+    }
+  }
+  const transports = normalizeTransports(entry && entry.transports ? entry.transports : []);
+  const enemyPlacements = normalizeEnemyPlacements(entry && entry.enemyPlacements ? entry.enemyPlacements : []);
+  return {
+    id,
+    name,
+    tiles,
+    width,
+    height,
+    spawn,
+    transports,
+    enemyPlacements,
+    walkableTiles,
+  };
+}
+
+function normalizeZones(entry) {
+  const used = new Set();
+  const zones = [];
+  if (entry && Array.isArray(entry.zones) && entry.zones.length) {
+    entry.zones.forEach((zoneEntry, index) => {
+      const fallbackBase = entry && entry.id ? `${entry.id}_zone_${index + 1}` : `zone_${index + 1}`;
+      const normalized = normalizeZoneEntry(zoneEntry, fallbackBase, used);
+      zones.push(normalized);
+    });
+  }
+  if (!zones.length) {
+    const fallbackBase = entry && entry.id ? String(entry.id) : 'zone';
+    zones.push(
+      normalizeZoneEntry(
+        {
+          id: fallbackBase,
+          name: entry && entry.name ? String(entry.name) : fallbackBase,
+          tiles: entry ? entry.tiles : [],
+          spawn: entry ? entry.spawn : null,
+          transports: entry ? entry.transports : [],
+          enemyPlacements: entry ? entry.enemyPlacements : [],
+        },
+        fallbackBase,
+        used,
+      ),
+    );
+  }
+  return zones;
+}
+
+function getZone(world, zoneId) {
+  if (!world) {
+    return null;
+  }
+  if (zoneId && world.zoneMap && world.zoneMap.has(zoneId)) {
+    return world.zoneMap.get(zoneId);
+  }
+  if (world.defaultZoneId && world.zoneMap && world.zoneMap.has(world.defaultZoneId)) {
+    return world.zoneMap.get(world.defaultZoneId);
+  }
+  if (world.zoneMap && typeof world.zoneMap.values === 'function') {
+    const iterator = world.zoneMap.values().next();
+    if (!iterator.done) {
+      return iterator.value;
+    }
+  }
+  return null;
+}
+
+function getTransportAt(world, zoneId, x, y) {
+  const zone = getZone(world, zoneId);
+  if (!zone || !Array.isArray(zone.transports)) {
+    return null;
+  }
+  return zone.transports.find(entry => entry && entry.from && entry.from.x === x && entry.from.y === y) || null;
+}
+
+function normalizeWorld(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return null;
+  }
+  const zones = normalizeZones(entry);
+  const zoneMap = new Map();
+  zones.forEach(zone => {
+    zoneMap.set(zone.id, zone);
+  });
+  const defaultZone = zones[0] || null;
+  const defaultZoneId = defaultZone ? defaultZone.id : null;
+  const tiles = defaultZone ? defaultZone.tiles : [];
+  const width = defaultZone ? defaultZone.width : tiles.length ? tiles[0].length : 0;
+  const height = defaultZone ? defaultZone.height : tiles.length;
+  const spawn = defaultZone ? { ...defaultZone.spawn } : { x: 0, y: 0 };
+  const walkableTiles = [];
+  zones.forEach(zone => {
+    if (!zone || !Array.isArray(zone.walkableTiles)) return;
+    zone.walkableTiles.forEach(tile => {
+      walkableTiles.push({ zoneId: zone.id, x: tile.x, y: tile.y });
+    });
+  });
   return {
     id: entry.id || uuid(),
     name: typeof entry.name === 'string' && entry.name ? entry.name : 'World',
@@ -185,6 +369,9 @@ function normalizeWorld(entry) {
     spawn,
     moveCooldownMs: Number.isFinite(entry.moveCooldownMs) ? Math.max(60, Math.round(entry.moveCooldownMs)) : 180,
     encounters: normalizeEncounter(entry.encounters),
+    zones,
+    zoneMap,
+    defaultZoneId,
     walkableTiles,
   };
 }
@@ -238,14 +425,26 @@ function cleanupInstance(instanceId) {
 
 function sanitizeWorld(world) {
   if (!world) return null;
+  const zones = Array.isArray(world.zones)
+    ? world.zones.map(zone => ({
+        id: zone.id,
+        name: zone.name,
+        tiles: zone.tiles,
+        spawn: zone.spawn,
+        transports: zone.transports,
+      }))
+    : [];
   return {
     id: world.id,
     name: world.name,
     tileSize: world.tileSize,
     tiles: world.tiles,
+    spawn: world.spawn,
     palette: world.palette,
     tileConfig: world.tileConfig,
     moveCooldownMs: world.moveCooldownMs,
+    defaultZoneId: world.defaultZoneId || null,
+    zones,
   };
 }
 
@@ -256,6 +455,7 @@ function serializePlayersForClient(state) {
     x: player.x,
     y: player.y,
     facing: player.facing,
+    zoneId: player.zoneId || null,
   }));
 }
 
@@ -269,6 +469,7 @@ function serializeEnemiesForClient(state) {
     x: enemy.x,
     y: enemy.y,
     facing: enemy.facing,
+    zoneId: enemy.zoneId || null,
   }));
 }
 
@@ -317,26 +518,19 @@ async function prepareCharacterForCombat(characterId) {
   };
 }
 
-function firstWalkable(world) {
-  if (!world || !Array.isArray(world.tiles)) {
+function firstWalkableInZone(zone) {
+  if (!zone || !Array.isArray(zone.walkableTiles) || !zone.walkableTiles.length) {
     return { x: 0, y: 0 };
   }
-  for (let y = 0; y < world.tiles.length; y += 1) {
-    const row = world.tiles[y];
-    if (!Array.isArray(row)) continue;
-    for (let x = 0; x < row.length; x += 1) {
-      if (isWalkableTile(world, x, y)) {
-        return { x, y };
-      }
-    }
-  }
-  return { x: 0, y: 0 };
+  const first = zone.walkableTiles[0];
+  return { x: first.x, y: first.y };
 }
 
-function isWalkableTile(world, x, y) {
-  if (!world || !Array.isArray(world.tiles)) return false;
-  if (y < 0 || y >= world.tiles.length) return false;
-  const row = world.tiles[y];
+function isWalkableTile(world, zoneId, x, y) {
+  const zone = getZone(world, zoneId);
+  if (!zone || !Array.isArray(zone.tiles)) return false;
+  if (y < 0 || y >= zone.tiles.length) return false;
+  const row = zone.tiles[y];
   if (!Array.isArray(row)) return false;
   if (x < 0 || x >= row.length) return false;
   const tile = row[x];
@@ -350,18 +544,27 @@ function ensurePlayerEntry(state, characterId, name) {
   let entry = state.players.get(characterId);
   if (!entry) {
     const world = state.world;
-    const spawn = isWalkableTile(world, world.spawn.x, world.spawn.y) ? world.spawn : firstWalkable(world);
+    const zone = getZone(world, world.defaultZoneId);
+    const spawn = zone && isWalkableTile(world, zone.id, zone.spawn.x, zone.spawn.y)
+      ? zone.spawn
+      : zone
+        ? firstWalkableInZone(zone)
+        : { x: 0, y: 0 };
     entry = {
       characterId,
       name,
       x: spawn.x,
       y: spawn.y,
       facing: 'down',
+      zoneId: zone ? zone.id : world.defaultZoneId || null,
       updatedAt: Date.now(),
     };
     state.players.set(characterId, entry);
   } else {
     entry.name = name;
+    if (!entry.zoneId) {
+      entry.zoneId = state.world.defaultZoneId || null;
+    }
   }
   return entry;
 }
@@ -441,8 +644,9 @@ function shuffleArray(array) {
   return array;
 }
 
-function positionKey(x, y) {
-  return `${x}:${y}`;
+function positionKey(zoneId, x, y) {
+  const zoneKey = zoneId || 'zone';
+  return `${zoneKey}:${x}:${y}`;
 }
 
 function distanceSquared(ax, ay, bx, by) {
@@ -477,82 +681,113 @@ function spawnMissingEnemies(state) {
   const desired = desiredEnemyCount(world);
   if (!desired) return;
   const enemyMap = ensureEnemyMap(state);
-  if (enemyMap.size >= desired) return;
-  const walkable = Array.isArray(world.walkableTiles) ? world.walkableTiles.slice() : [];
-  if (!walkable.length) return;
-  shuffleArray(walkable);
-  const occupied = new Set();
-  const enemyPositions = [];
-  const playerPositions = [];
+  const zonesToPopulate = new Set();
   state.players.forEach(player => {
-    occupied.add(positionKey(player.x, player.y));
-    playerPositions.push({ x: player.x, y: player.y });
+    if (player && player.zoneId) {
+      zonesToPopulate.add(player.zoneId);
+    }
   });
-  enemyMap.forEach(enemy => {
-    occupied.add(positionKey(enemy.x, enemy.y));
-    enemyPositions.push({ x: enemy.x, y: enemy.y });
-  });
-  if (world.spawn) {
-    occupied.add(positionKey(world.spawn.x, world.spawn.y));
+  if (!zonesToPopulate.size && world.defaultZoneId) {
+    zonesToPopulate.add(world.defaultZoneId);
   }
   const now = Date.now();
-  const minEnemyDistanceSq = 9; // ~3 tiles
-  const minPlayerDistanceSq = 4; // ~2 tiles
+  const minEnemyDistanceSq = 9;
+  const minPlayerDistanceSq = 4;
 
-  const trySpawn = enforceDistance => {
-    for (let idx = 0; idx < walkable.length && enemyMap.size < desired; idx += 1) {
-      const pos = walkable[idx];
-      const key = positionKey(pos.x, pos.y);
-      if (occupied.has(key)) continue;
-      if (enforceDistance) {
-        let tooCloseToEnemy = false;
-        for (let i = 0; i < enemyPositions.length; i += 1) {
-          const existing = enemyPositions[i];
-          if (distanceSquared(existing.x, existing.y, pos.x, pos.y) < minEnemyDistanceSq) {
-            tooCloseToEnemy = true;
-            break;
-          }
-        }
-        if (tooCloseToEnemy) continue;
-        let tooCloseToPlayer = false;
-        for (let i = 0; i < playerPositions.length; i += 1) {
-          const playerPos = playerPositions[i];
-          if (distanceSquared(playerPos.x, playerPos.y, pos.x, pos.y) < minPlayerDistanceSq) {
-            tooCloseToPlayer = true;
-            break;
-          }
-        }
-        if (tooCloseToPlayer) continue;
+  const spawnInZone = zoneId => {
+    const zone = getZone(world, zoneId);
+    if (!zone || !Array.isArray(zone.walkableTiles) || !zone.walkableTiles.length) {
+      return;
+    }
+    const zoneWalkable = shuffleArray(zone.walkableTiles.slice());
+    const occupied = new Set();
+    const enemyPositions = [];
+    const playerPositions = [];
+    let existingCount = 0;
+    enemyMap.forEach(enemy => {
+      if (enemy.zoneId === zone.id) {
+        occupied.add(positionKey(zone.id, enemy.x, enemy.y));
+        enemyPositions.push({ x: enemy.x, y: enemy.y });
+        existingCount += 1;
       }
-      const template = chooseEncounterTemplate(world);
-      if (!template) {
-        return;
+    });
+    if (existingCount >= desired) {
+      return;
+    }
+    state.players.forEach(player => {
+      if (!player) return;
+      const playerZoneId = player.zoneId || world.defaultZoneId || null;
+      if (playerZoneId !== zone.id) return;
+      occupied.add(positionKey(zone.id, player.x, player.y));
+      playerPositions.push({ x: player.x, y: player.y });
+    });
+    if (zone.spawn) {
+      occupied.add(positionKey(zone.id, zone.spawn.x, zone.spawn.y));
+    }
+
+    const trySpawn = enforceDistance => {
+      for (let idx = 0; idx < zoneWalkable.length && existingCount < desired; idx += 1) {
+        const pos = zoneWalkable[idx];
+        const key = positionKey(zone.id, pos.x, pos.y);
+        if (occupied.has(key)) continue;
+        if (enforceDistance) {
+          let tooCloseToEnemy = false;
+          for (let i = 0; i < enemyPositions.length; i += 1) {
+            const existing = enemyPositions[i];
+            if (distanceSquared(existing.x, existing.y, pos.x, pos.y) < minEnemyDistanceSq) {
+              tooCloseToEnemy = true;
+              break;
+            }
+          }
+          if (tooCloseToEnemy) continue;
+          let tooCloseToPlayer = false;
+          for (let i = 0; i < playerPositions.length; i += 1) {
+            const playerPos = playerPositions[i];
+            if (distanceSquared(playerPos.x, playerPos.y, pos.x, pos.y) < minPlayerDistanceSq) {
+              tooCloseToPlayer = true;
+              break;
+            }
+          }
+          if (tooCloseToPlayer) continue;
+        }
+        const template = chooseEncounterTemplate(world);
+        if (!template) {
+          return;
+        }
+        const enemy = {
+          id: uuid(),
+          templateId: template.id,
+          name: template.name,
+          x: pos.x,
+          y: pos.y,
+          zoneId: zone.id,
+          facing: 'down',
+          updatedAt: now,
+        };
+        enemyMap.set(enemy.id, enemy);
+        enemyPositions.push({ x: enemy.x, y: enemy.y });
+        occupied.add(key);
+        existingCount += 1;
       }
-      const enemy = {
-        id: uuid(),
-        templateId: template.id,
-        name: template.name,
-        x: pos.x,
-        y: pos.y,
-        facing: 'down',
-        updatedAt: now,
-      };
-      enemyMap.set(enemy.id, enemy);
-      enemyPositions.push({ x: enemy.x, y: enemy.y });
-      occupied.add(key);
+    };
+
+    trySpawn(true);
+    if (existingCount < desired) {
+      trySpawn(false);
     }
   };
 
-  trySpawn(true);
-  if (enemyMap.size < desired) {
-    trySpawn(false);
+  if (!zonesToPopulate.size) {
+    spawnInZone(world.defaultZoneId || null);
+  } else {
+    zonesToPopulate.forEach(zoneId => spawnInZone(zoneId));
   }
 }
 
-function findEnemyAtPosition(state, x, y) {
+function findEnemyAtPosition(state, zoneId, x, y) {
   if (!state || !state.enemies) return null;
   for (const enemy of state.enemies.values()) {
-    if (enemy.x === x && enemy.y === y) {
+    if (enemy.zoneId === zoneId && enemy.x === x && enemy.y === y) {
       return enemy;
     }
   }
@@ -571,25 +806,26 @@ function moveEnemies(state) {
   const collisions = [];
   const occupied = new Map();
   enemies.forEach(enemy => {
-    occupied.set(positionKey(enemy.x, enemy.y), enemy.id);
+    occupied.set(positionKey(enemy.zoneId, enemy.x, enemy.y), enemy.id);
   });
   const playerPositions = new Map();
   state.players.forEach(player => {
-    playerPositions.set(positionKey(player.x, player.y), player.characterId);
+    const zoneId = player.zoneId || world.defaultZoneId || null;
+    playerPositions.set(positionKey(zoneId, player.x, player.y), player.characterId);
   });
   const now = Date.now();
   enemies.forEach(enemy => {
     const moves = shuffleArray(ENEMY_MOVE_DELTAS.slice());
     moves.push(ENEMY_IDLE_MOVE);
-    const originKey = positionKey(enemy.x, enemy.y);
+    const originKey = positionKey(enemy.zoneId, enemy.x, enemy.y);
     for (let idx = 0; idx < moves.length; idx += 1) {
       const move = moves[idx];
       const nextX = enemy.x + move.dx;
       const nextY = enemy.y + move.dy;
-      if (!isWalkableTile(world, nextX, nextY)) {
+      if (!isWalkableTile(world, enemy.zoneId, nextX, nextY)) {
         continue;
       }
-      const key = positionKey(nextX, nextY);
+      const key = positionKey(enemy.zoneId, nextX, nextY);
       const occupiedBy = occupied.get(key);
       if (occupiedBy && occupiedBy !== enemy.id) {
         continue;
@@ -772,7 +1008,14 @@ async function joinWorld(worldId, instanceId, characterId) {
   return {
     world: sanitizeWorld(state.world),
     instanceId: state.id,
-    player: { characterId: entry.characterId, name: entry.name, x: entry.x, y: entry.y, facing: entry.facing },
+    player: {
+      characterId: entry.characterId,
+      name: entry.name,
+      x: entry.x,
+      y: entry.y,
+      facing: entry.facing,
+      zoneId: entry.zoneId || null,
+    },
     players: serializePlayersForClient(state),
     enemies: serializeEnemiesForClient(state),
     phase: state.phase,
@@ -832,9 +1075,10 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
     return { position: { x: player.x, y: player.y, facing: player.facing }, moved: false };
   }
   let moved = false;
+  const zoneBeforeMove = player.zoneId || world.defaultZoneId || null;
   const nextX = player.x + delta.dx;
   const nextY = player.y + delta.dy;
-  if (isWalkableTile(world, nextX, nextY)) {
+  if (isWalkableTile(world, zoneBeforeMove, nextX, nextY)) {
     player.x = nextX;
     player.y = nextY;
     moved = true;
@@ -844,7 +1088,31 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
   player.moveCooldown = now + world.moveCooldownMs;
 
   let encounter = null;
-  const collidedEnemy = findEnemyAtPosition(state, player.x, player.y);
+  const currentZoneId = player.zoneId || world.defaultZoneId || null;
+  const currentTransport = getTransportAt(world, currentZoneId, player.x, player.y);
+  let transportTriggered = false;
+  if (currentTransport) {
+    const targetZone = getZone(world, currentTransport.toZoneId);
+    if (targetZone) {
+      let destX = currentTransport.to.x;
+      let destY = currentTransport.to.y;
+      if (!isWalkableTile(world, targetZone.id, destX, destY)) {
+        const fallback = firstWalkableInZone(targetZone);
+        destX = fallback.x;
+        destY = fallback.y;
+      }
+      player.zoneId = targetZone.id;
+      player.x = destX;
+      player.y = destY;
+      transportTriggered = true;
+    }
+  }
+
+  if (!player.zoneId) {
+    player.zoneId = world.defaultZoneId || null;
+  }
+
+  const collidedEnemy = findEnemyAtPosition(state, player.zoneId || world.defaultZoneId || null, player.x, player.y);
   if (collidedEnemy) {
     encounter = beginEnemyEncounter(state, collidedEnemy, characterId);
   }
@@ -863,8 +1131,13 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
 
   broadcastWorldState(state);
   return {
-    position: { x: player.x, y: player.y, facing: player.facing },
-    moved,
+    position: {
+      x: player.x,
+      y: player.y,
+      facing: player.facing,
+      zoneId: player.zoneId || world.defaultZoneId || null,
+    },
+    moved: moved || transportTriggered,
     encounter,
   };
 }
