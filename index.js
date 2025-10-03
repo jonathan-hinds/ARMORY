@@ -80,6 +80,10 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "ui", "index.html"));
 });
 
+app.get("/dev/world-builder", (req, res) => {
+  res.sendFile(path.join(__dirname, "ui", "world-builder.html"));
+});
+
 app.post("/register", async (req, res) => {
   const name = req.body.name && req.body.name.trim();
   if (!name) {

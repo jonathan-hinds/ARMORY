@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>World Builder Utility</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/world-builder.css" />
+  </head>
+  <body class="world-builder">
+    <header class="builder-header">
+      <h1>World Mode Builder</h1>
+      <p>Create and export world configuration files for developers.</p>
+      <a class="builder-link" href="/">← Back to Game</a>
+    </header>
+    <main id="builder" class="builder-layout hidden">
+      <div class="builder-column builder-column-settings">
+        <section class="panel">
+          <h2>World Settings</h2>
+          <label class="field-label">
+            World ID
+            <input id="world-id" type="text" placeholder="unique_world_id" />
+          </label>
+          <label class="field-label">
+            World Name
+            <input id="world-name" type="text" placeholder="World Name" />
+          </label>
+          <label class="field-inline">
+            <span>Tile Size</span>
+            <input id="world-tile-size" type="number" min="8" value="32" />
+          </label>
+          <label class="field-inline">
+            <span>Move Cooldown (ms)</span>
+            <input id="world-move-cooldown" type="number" min="0" value="180" />
+          </label>
+          <label class="field-inline">
+            <span>Encounter Enemy Count</span>
+            <input id="world-enemy-count" type="number" min="1" value="6" />
+          </label>
+        </section>
+        <section class="panel palette-panel">
+          <h2>Tile Palette</h2>
+          <div id="tile-palette" class="tile-palette"></div>
+          <form id="tile-form" class="tile-form">
+            <div class="field-inline">
+              <span>ID</span>
+              <input id="tile-id" type="text" placeholder="e.g. 0" />
+            </div>
+            <div class="field-inline">
+              <span>Fill</span>
+              <input id="tile-fill" type="text" placeholder="#000000" />
+            </div>
+            <div class="field-inline">
+              <span>Sprite</span>
+              <input id="tile-sprite" type="text" placeholder="/assets/Sprite.png" />
+            </div>
+            <button type="submit">Add / Update Tile</button>
+          </form>
+        </section>
+        <section class="panel enemy-panel">
+          <h2>Enemy Templates</h2>
+          <form id="enemy-form" class="enemy-form">
+            <div class="enemy-grid">
+              <label class="field-label">
+                Template ID
+                <input id="enemy-id" type="text" placeholder="wild_sprig" required />
+              </label>
+              <label class="field-label">
+                Name
+                <input id="enemy-name" type="text" placeholder="Wild Sprig" required />
+              </label>
+              <label class="field-label">
+                Basic Type
+                <select id="enemy-basic-type">
+                  <option value="melee">Melee</option>
+                  <option value="magic">Magic</option>
+                </select>
+              </label>
+              <label class="field-label">
+                Level
+                <input id="enemy-level" type="number" min="1" value="1" required />
+              </label>
+              <fieldset class="enemy-attributes">
+                <legend>Attributes</legend>
+                <label>STR <input id="enemy-str" type="number" min="0" value="5" /></label>
+                <label>STA <input id="enemy-sta" type="number" min="0" value="5" /></label>
+                <label>AGI <input id="enemy-agi" type="number" min="0" value="5" /></label>
+                <label>INT <input id="enemy-int" type="number" min="0" value="2" /></label>
+                <label>WIS <input id="enemy-wis" type="number" min="0" value="2" /></label>
+              </fieldset>
+              <fieldset class="enemy-economy">
+                <legend>Rewards</legend>
+                <label>XP % <input id="enemy-xp" type="number" min="0" max="1" step="0.01" value="0.05" /></label>
+                <label>Gold <input id="enemy-gold" type="number" min="0" value="5" /></label>
+                <label>Spawn Chance <input id="enemy-spawn-chance" type="number" min="0" max="1" step="0.01" value="0.5" /></label>
+              </fieldset>
+              <fieldset class="enemy-rotation">
+                <legend>Rotation</legend>
+                <div class="rotation-picker">
+                  <select id="enemy-ability-select"></select>
+                  <button type="button" id="enemy-add-ability">Add Ability</button>
+                </div>
+                <ol id="enemy-rotation-list" class="rotation-list"></ol>
+              </fieldset>
+              <fieldset class="enemy-equipment">
+                <legend>Equipment</legend>
+                <div id="enemy-equipment-slots" class="equipment-slots"></div>
+              </fieldset>
+            </div>
+            <div class="enemy-actions">
+              <button type="submit" id="enemy-save">Save Template</button>
+              <button type="button" id="enemy-reset">Clear</button>
+            </div>
+          </form>
+          <div id="enemy-template-list" class="enemy-template-list"></div>
+        </section>
+      </div>
+      <div class="builder-column builder-column-main">
+        <section class="panel zone-panel">
+          <div class="zone-panel-header">
+            <h2>Zones</h2>
+            <button id="add-zone">Add Zone</button>
+          </div>
+          <div id="zone-list" class="zone-list"></div>
+        </section>
+        <section class="panel zone-editor">
+          <div class="zone-toolbar">
+            <div class="mode-switcher">
+              <span class="mode-label">Edit Mode:</span>
+              <button data-mode="tile" class="mode-button active">Tiles</button>
+              <button data-mode="enemy" class="mode-button">Enemies</button>
+              <button data-mode="transport" class="mode-button">Transports</button>
+              <button data-mode="spawn" class="mode-button">Spawn</button>
+            </div>
+            <div class="transport-controls hidden" id="transport-controls">
+              <label>
+                Target Zone
+                <select id="transport-zone-select"></select>
+              </label>
+              <label>
+                Target X
+                <input id="transport-target-x" type="number" min="0" />
+              </label>
+              <label>
+                Target Y
+                <input id="transport-target-y" type="number" min="0" />
+              </label>
+              <button type="button" id="transport-clear">Clear Target</button>
+            </div>
+            <div class="enemy-mode-info hidden" id="enemy-mode-info">
+              <span>Placement Target:</span>
+              <span id="enemy-placement-target">None Selected</span>
+            </div>
+          </div>
+          <div id="zone-details" class="zone-details"></div>
+          <div id="zone-grid" class="zone-grid-container"></div>
+        </section>
+        <section class="panel output-panel">
+          <h2>Generated world.json</h2>
+          <button id="generate-world">Generate</button>
+          <textarea id="world-output" readonly placeholder="Generated JSON will appear here..."></textarea>
+        </section>
+      </div>
+    </main>
+    <div id="builder-loading" class="builder-loading">
+      <div class="loading-panel">
+        <p>Loading catalogs...</p>
+      </div>
+    </div>
+    <script src="/world-builder.js" type="module"></script>
+  </body>
+</html>
