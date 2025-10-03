@@ -302,25 +302,63 @@ body.world-builder {
   gap:8px;
 }
 
-.rotation-list {
-  margin:0;
-  padding-left:18px;
-  font-size:13px;
-}
-
-.rotation-list li {
+.rotation-card-list {
   display:flex;
-  justify-content:space-between;
+  flex-wrap:wrap;
   gap:8px;
-  margin-bottom:4px;
+  margin:0;
+  padding:8px;
+  list-style:none;
+  border:2px solid #000;
+  background:#fff;
+  min-height:120px;
 }
 
-.rotation-list button {
+
+.rotation-card-empty {
+  font-size:12px;
+  color:#111;
+  font-style:italic;
+}
+
+.builder-ability-card {
+  position:relative;
+  min-width:180px;
+  max-width:220px;
+  padding:10px;
+  cursor:default;
+}
+
+.builder-ability-card .ability-name {
+  padding-right:28px;
+}
+
+.builder-ability-card .builder-card-index {
+  position:absolute;
+  top:6px;
+  right:6px;
+  font-size:11px;
+  font-weight:bold;
   border:1px solid #000;
   background:#fff;
-  padding:0 6px;
+  padding:0 4px;
+}
+
+.builder-card-remove {
+  margin-top:8px;
+  border:1px solid #000;
+  background:#fff;
+  padding:4px 6px;
   font-family:'Courier New', monospace;
+  text-transform:uppercase;
   cursor:pointer;
+  align-self:flex-start;
+}
+
+.builder-card-remove:hover,
+.builder-card-remove:focus {
+  background:#000;
+  color:#fff;
 }
 
 .equipment-slots {
@@ -335,6 +373,38 @@ body.world-builder {
   flex-direction:column;
   gap:4px;
   font-size:12px;
+}
+
+.equipment-slot select {
+  border:1px solid #000;
+  background:#fff;
+  font-family:'Courier New', monospace;
+  padding:4px;
+  width:100%;
+}
+
+.equipment-slot-preview {
+  border:1px solid #000;
+  background:#fff;
+  padding:6px;
+  min-height:64px;
+  display:flex;
+  align-items:stretch;
+  justify-content:center;
+  font-size:11px;
+}
+
+.equipment-slot-preview .builder-item-card {
+  width:100%;
+}
+
+.equipment-card-placeholder {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  width:100%;
+  color:#555;
+  font-style:italic;
 }
 
 .enemy-actions {

@@ -106,6 +106,442 @@ const PREFERRED_SLOTS = [
   'useable2',
 ];
 
+const RESOURCE_LABELS = { health: 'HP', mana: 'MP', stamina: 'Stamina' };
+const CHANCE_LABELS = {
+  critchance: 'Crit Chance',
+  blockchance: 'Block Chance',
+  dodgechance: 'Dodge Chance',
+  hitchance: 'Hit Chance',
+};
+
+function titleCase(value) {
+  if (!value) return '';
+  return String(value)
+    .split(/[\s_]+/)
+    .map(part => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
+    .join(' ')
+    .trim();
+}
+
+function statLabel(stat) {
+  if (!stat) return '';
+  return stat.charAt(0).toUpperCase() + stat.slice(1);
+}
+
+function slotLabel(slot) {
+  if (!slot) return '';
+  return EQUIPMENT_SLOT_LABELS[slot] || titleCase(slot);
+}
+
+function formatNumericValue(value) {
+  if (!Number.isFinite(value)) return '';
+  if (Math.abs(value) >= 100 || Number.isInteger(value)) {
+    return String(Math.round(value));
+  }
+  if (Math.abs(value) >= 10) {
+    return value.toFixed(1).replace(/\.0$/, '');
+  }
+  return value.toFixed(2).replace(/\.00$/, '').replace(/\.0$/, '');
+}
+
+function formatPercentValue(value, { fromFraction = false } = {}) {
+  if (!Number.isFinite(value)) return '';
+  const normalized = fromFraction ? value * 100 : value;
+  const rounded = Math.abs(normalized - Math.round(normalized)) < 1e-6
+    ? Math.round(normalized)
+    : Number(normalized.toFixed(1));
+  return `${rounded}%`;
+}
+
+function formatValue(value, key = '') {
+  if (value == null) return '';
+  if (typeof value === 'number') {
+    const lowered = key ? key.toLowerCase() : '';
+    if (lowered.includes('percent') || lowered.includes('chance')) {
+      return formatPercentValue(value, { fromFraction: value > 0 && value <= 1 });
+    }
+    if (lowered.includes('amount') && Math.abs(value) < 1 && value > 0) {
+      return formatPercentValue(value, { fromFraction: true });
+    }
+    return formatNumericValue(value);
+  }
+  if (typeof value === 'string') {
+    if (key && key.toLowerCase().includes('type')) {
+      return titleCase(value);
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(entry => formatValue(entry)).filter(Boolean).join(', ');
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([nestedKey, nestedValue]) => `${titleCase(nestedKey)}: ${formatValue(nestedValue, nestedKey)}`)
+      .join(', ');
+  }
+  return String(value);
+}
+
+function formatAbilityCost(ability) {
+  if (!ability || typeof ability !== 'object') return 'None';
+  const costs = Array.isArray(ability.costs) && ability.costs.length
+    ? ability.costs
+    : ability.costType
+    ? [{ type: ability.costType, value: ability.costValue }]
+    : [];
+  if (!costs.length) return 'None';
+  const parts = costs
+    .map(entry => {
+      const value = Number.isFinite(entry.value) ? entry.value : ability.costValue;
+      const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
+      const label = RESOURCE_LABELS[type] || titleCase(type || 'Resource');
+      const amountText = Number.isFinite(value) ? formatNumericValue(value) : '';
+      return amountText ? `${amountText} ${label}` : label;
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join(', ') : 'None';
+}
+
+function formatAbilityScaling(ability) {
+  const scaling = Array.isArray(ability?.scaling) ? ability.scaling : [];
+  if (!scaling.length) return '';
+  return scaling.map(statLabel).join(', ');
+}
+
+function formatAbilityEffect(effect) {
+  if (!effect || typeof effect !== 'object') return '';
+  const { type, chance, ...rest } = effect;
+  const detailText = Object.entries(rest)
+    .map(([key, value]) => `${titleCase(key)}: ${formatValue(value, key)}`)
+    .join(', ');
+  const base = titleCase(type || 'Effect');
+  if (Number.isFinite(chance) && chance > 0) {
+    const chanceText = formatPercentValue(chance, { fromFraction: chance <= 1 });
+    return detailText ? `${chanceText} chance • ${base} (${detailText})` : `${chanceText} chance • ${base}`;
+  }
+  return detailText ? `${base} (${detailText})` : base;
+}
+
+function formatConditionalCost(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  const label = entry.type ? titleCase(entry.type) : 'Condition';
+  const parts = [];
+  if (Array.isArray(entry.resources) && entry.resources.length) {
+    const resources = entry.resources
+      .map(resource => RESOURCE_LABELS[resource] || titleCase(resource))
+      .join(', ');
+    parts.push(`Resources: ${resources}`);
+  }
+  if (entry.description) {
+    parts.push(entry.description);
+  }
+  return parts.length ? `${label} – ${parts.join('; ')}` : label;
+}
+
+function createTooltipGrid(pairs = []) {
+  const container = document.createElement('div');
+  container.className = 'tooltip-grid';
+  pairs
+    .filter(pair => pair && pair[1] != null && pair[1] !== '')
+    .forEach(([label, value]) => {
+      const l = document.createElement('div');
+      l.className = 'label';
+      l.textContent = label;
+      container.appendChild(l);
+      const v = document.createElement('div');
+      v.innerHTML = value;
+      container.appendChild(v);
+    });
+  return container;
+}
+
+function createAbilityTooltip(ability) {
+  if (!ability) {
+    return createTooltipGrid([
+      ['Ability', 'Unknown ability'],
+    ]);
+  }
+  const pairs = [
+    ['Name', ability.name || ability.id],
+    ['ID', ability.id],
+  ];
+  if (ability.school) {
+    pairs.push(['School', titleCase(ability.school)]);
+  }
+  pairs.push(['Cost', formatAbilityCost(ability)]);
+  if (Number.isFinite(ability.cooldown)) {
+    pairs.push(['Cooldown', `${formatNumericValue(ability.cooldown)}s`]);
+  }
+  const scalingText = formatAbilityScaling(ability);
+  if (scalingText) {
+    pairs.push(['Scaling', scalingText]);
+  }
+  if (ability.description) {
+    pairs.push(['Description', ability.description]);
+  }
+  if (Array.isArray(ability.effects) && ability.effects.length) {
+    pairs.push(['Effects', ability.effects.map(formatAbilityEffect).join('<br/>')]);
+  }
+  if (Array.isArray(ability.conditionalCosts) && ability.conditionalCosts.length) {
+    pairs.push(['Conditional Costs', ability.conditionalCosts.map(formatConditionalCost).join('<br/>')]);
+  }
+  return createTooltipGrid(pairs);
+}
+
+function formatDamageRange(range) {
+  if (!range || typeof range !== 'object') return '';
+  const min = Number.isFinite(range.min) ? range.min : null;
+  const max = Number.isFinite(range.max) ? range.max : null;
+  if (min == null && max == null) return '';
+  if (min != null && max != null && min !== max) {
+    return `${formatNumericValue(min)}-${formatNumericValue(max)}`;
+  }
+  const value = max != null ? max : min;
+  return formatNumericValue(value);
+}
+
+function formatItemScaling(scaling) {
+  if (!scaling || typeof scaling !== 'object') return '';
+  const entries = Object.entries(scaling)
+    .filter(([, letter]) => letter)
+    .map(([stat, letter]) => `${statLabel(stat)} ${String(letter).toUpperCase()}`);
+  return entries.join(', ');
+}
+
+function formatBonusEntries(bonuses, { percent = false } = {}) {
+  if (!bonuses || typeof bonuses !== 'object') return '';
+  const entries = Object.entries(bonuses)
+    .filter(([, value]) => Number.isFinite(value) && value !== 0)
+    .map(([stat, value]) => {
+      const label = statLabel(stat);
+      if (percent) {
+        return `${label} ${formatPercentValue(value, { fromFraction: value > 0 && value <= 1 })}`;
+      }
+      return `${label} ${formatNumericValue(value)}`;
+    });
+  return entries.join(', ');
+}
+
+function formatResourceBonuses(bonuses) {
+  if (!bonuses || typeof bonuses !== 'object') return '';
+  const entries = Object.entries(bonuses)
+    .filter(([, value]) => Number.isFinite(value) && value !== 0)
+    .map(([resource, value]) => {
+      const label = RESOURCE_LABELS[resource] || titleCase(resource);
+      return `${label} ${formatNumericValue(value)}`;
+    });
+  return entries.join(', ');
+}
+
+function formatChanceBonuses(bonuses) {
+  if (!bonuses || typeof bonuses !== 'object') return '';
+  const entries = Object.entries(bonuses)
+    .filter(([, value]) => Number.isFinite(value) && value !== 0)
+    .map(([stat, value]) => {
+      const label = CHANCE_LABELS[stat.toLowerCase()] || titleCase(stat);
+      return `${label} ${formatPercentValue(value, { fromFraction: value > 0 && value <= 1 })}`;
+    });
+  return entries.join(', ');
+}
+
+function formatResistances(resistances) {
+  if (!resistances || typeof resistances !== 'object') return '';
+  const entries = Object.entries(resistances)
+    .filter(([, value]) => Number.isFinite(value) && value !== 0)
+    .map(([type, value]) => `${titleCase(type)} ${formatPercentValue(value, { fromFraction: value > 0 && value <= 1 })}`);
+  return entries.join(', ');
+}
+
+function isUseableItem(item) {
+  return item && item.slot === 'useable';
+}
+
+function createItemTooltip(item) {
+  if (!item) {
+    return createTooltipGrid([
+      ['Item', 'None selected'],
+    ]);
+  }
+  const pairs = [
+    ['Name', item.name || item.id],
+    ['ID', item.id],
+  ];
+  if (item.rarity) {
+    pairs.push(['Rarity', titleCase(item.rarity)]);
+  }
+  if (item.slot) {
+    pairs.push(['Slot', slotLabel(item.slot)]);
+  }
+  if (item.type) {
+    pairs.push(['Type', titleCase(item.type)]);
+  }
+  if (Number.isFinite(item.cost)) {
+    pairs.push(['Cost', `${formatNumericValue(item.cost)} Gold`]);
+  }
+  if (item.damageType) {
+    pairs.push(['Damage Type', titleCase(item.damageType)]);
+  }
+  if (item.baseDamage) {
+    const range = formatDamageRange(item.baseDamage);
+    if (range) {
+      pairs.push(['Base Damage', range]);
+    }
+  }
+  const scalingText = formatItemScaling(item.scaling);
+  if (scalingText) {
+    pairs.push(['Scaling', scalingText]);
+  }
+  const attrText = formatBonusEntries(item.attributeBonuses);
+  if (attrText) {
+    pairs.push(['Attributes', attrText]);
+  }
+  const resourceText = formatResourceBonuses(item.resourceBonuses);
+  if (resourceText) {
+    pairs.push(['Resources', resourceText]);
+  }
+  const resistText = formatResistances(item.resistances);
+  if (resistText) {
+    pairs.push(['Resistances', resistText]);
+  }
+  const chanceText = formatChanceBonuses(item.chanceBonuses);
+  if (chanceText) {
+    pairs.push(['Chance', chanceText]);
+  }
+  if (isUseableItem(item)) {
+    if (item.useTrigger) {
+      pairs.push(['Use Trigger', titleCase(item.useTrigger)]);
+    }
+    if (item.useEffect) {
+      pairs.push(['Use Effect', formatAbilityEffect(item.useEffect)]);
+    }
+    if (item.useDuration) {
+      pairs.push(['Duration', titleCase(item.useDuration)]);
+    }
+    if (typeof item.useConsumed === 'boolean') {
+      pairs.push(['Consumed', item.useConsumed ? 'Yes' : 'No']);
+    }
+  }
+  if (item.description) {
+    pairs.push(['Description', item.description]);
+  }
+  return createTooltipGrid(pairs);
+}
+
+function formatItemSummary(item) {
+  if (!item) return '';
+  const parts = [];
+  if (item.damageType && item.baseDamage) {
+    const range = formatDamageRange(item.baseDamage);
+    if (range) {
+      parts.push(`${titleCase(item.damageType)} ${range}`);
+    }
+  }
+  const scalingText = formatItemScaling(item.scaling);
+  if (scalingText) {
+    parts.push(`Scaling ${scalingText}`);
+  }
+  const attrText = formatBonusEntries(item.attributeBonuses);
+  if (attrText) {
+    parts.push(`Stats ${attrText}`);
+  }
+  const resourceText = formatResourceBonuses(item.resourceBonuses);
+  if (resourceText) {
+    parts.push(`Resources ${resourceText}`);
+  }
+  const resistText = formatResistances(item.resistances);
+  if (resistText) {
+    parts.push(`Resist ${resistText}`);
+  }
+  const chanceText = formatChanceBonuses(item.chanceBonuses);
+  if (chanceText) {
+    parts.push(`Chance ${chanceText}`);
+  }
+  if (isUseableItem(item) && item.useEffect) {
+    parts.push(`Use: ${formatAbilityEffect(item.useEffect)}`);
+  }
+  if (item.description) {
+    parts.push(item.description);
+  }
+  return parts.join(' • ');
+}
+
+function createEquipmentCard(item) {
+  const card = document.createElement('div');
+  card.className = 'shop-item-card inventory-item-card builder-item-card';
+
+  const header = document.createElement('div');
+  header.className = 'card-header';
+  const name = document.createElement('div');
+  name.className = 'card-name';
+  name.textContent = item?.name || 'Unknown Item';
+  header.appendChild(name);
+  const rarity = document.createElement('div');
+  rarity.className = 'card-rarity';
+  rarity.textContent = item?.rarity || 'Common';
+  header.appendChild(rarity);
+  card.appendChild(header);
+
+  if (item) {
+    const tags = document.createElement('div');
+    tags.className = 'card-tags';
+    if (item.slot) {
+      const slotTag = document.createElement('span');
+      slotTag.className = 'card-tag';
+      slotTag.textContent = slotLabel(item.slot);
+      tags.appendChild(slotTag);
+    }
+    if (item.type && !isUseableItem(item)) {
+      const typeTag = document.createElement('span');
+      typeTag.className = 'card-tag';
+      typeTag.textContent = titleCase(item.type);
+      tags.appendChild(typeTag);
+    }
+    if (isUseableItem(item) && item.category) {
+      const categoryTag = document.createElement('span');
+      categoryTag.className = 'card-tag';
+      categoryTag.textContent = titleCase(item.category);
+      tags.appendChild(categoryTag);
+    }
+    if (tags.childElementCount) {
+      card.appendChild(tags);
+    }
+    const meta = document.createElement('div');
+    meta.className = 'card-description inventory-card-meta';
+    meta.textContent = formatItemSummary(item) || 'No additional effects.';
+    card.appendChild(meta);
+  } else {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'equipment-card-placeholder';
+    placeholder.textContent = 'No item selected';
+    card.appendChild(placeholder);
+  }
+
+  if (typeof attachTooltip === 'function' && item) {
+    attachTooltip(card, () => createItemTooltip(item));
+  }
+
+  return card;
+}
+
+function renderEquipmentPreview(slot, itemId) {
+  const preview = enemyEquipmentSlotsContainer.querySelector(
+    `.equipment-slot-preview[data-slot="${slot}"]`
+  );
+  if (!preview) return;
+  preview.innerHTML = '';
+  if (!itemId) {
+    const placeholder = document.createElement('div');
+    placeholder.className = 'equipment-card-placeholder';
+    placeholder.textContent = 'None equipped';
+    preview.appendChild(placeholder);
+    return;
+  }
+  const items = state.equipmentBySlot.get(slot) || [];
+  const item = items.find(entry => entry.id === itemId);
+  const card = createEquipmentCard(item);
+  preview.appendChild(card);
+}
+
 const state = {
   abilities: [],
   equipmentBySlot: new Map(),
@@ -1339,10 +1775,18 @@ function renderEquipmentSlots() {
       option.textContent = item.name;
       select.appendChild(option);
     });
+    select.addEventListener('change', () => {
+      renderEquipmentPreview(slotId, select.value);
+    });
     wrapper.appendChild(title);
     wrapper.appendChild(select);
+    const preview = document.createElement('div');
+    preview.className = 'equipment-slot-preview';
+    preview.dataset.slot = slotId;
+    wrapper.appendChild(preview);
     enemyEquipmentSlotsContainer.appendChild(wrapper);
     created.add(slotId);
+    renderEquipmentPreview(slotId, select.value);
   };
 
   PREFERRED_SLOTS.forEach(slot => {
@@ -1364,32 +1808,70 @@ function updateEquipmentSelection(equipment) {
     const slot = select.dataset.slot;
     const value = equipment[slot] || '';
     select.value = value;
+    renderEquipmentPreview(slot, value);
   });
 }
 
 function renderEnemyRotation() {
   enemyRotationList.innerHTML = '';
   if (!state.enemyFormRotation.length) {
-    const empty = document.createElement('li');
+    const empty = document.createElement('div');
+    empty.className = 'rotation-card-empty';
     empty.textContent = 'No abilities yet.';
     enemyRotationList.appendChild(empty);
     return;
   }
   state.enemyFormRotation.forEach((abilityId, index) => {
     const ability = state.abilities.find(a => String(a.id) === String(abilityId));
-    const li = document.createElement('li');
-    const label = document.createElement('span');
-    label.textContent = ability ? `${ability.id} – ${ability.name}` : abilityId;
+    const card = document.createElement('div');
+    card.className = 'ability-card builder-ability-card';
+    card.dataset.index = index;
+    card.dataset.id = abilityId;
+
+    const badge = document.createElement('span');
+    badge.className = 'builder-card-index';
+    badge.textContent = index + 1;
+    card.appendChild(badge);
+
+    const name = document.createElement('div');
+    name.className = 'ability-name';
+    name.textContent = ability ? `${ability.id} – ${ability.name}` : String(abilityId);
+    card.appendChild(name);
+
+    if (ability) {
+      const metaParts = [];
+      if (ability.school) {
+        metaParts.push(titleCase(ability.school));
+      }
+      const costText = formatAbilityCost(ability);
+      if (costText && costText !== 'None') {
+        metaParts.push(costText);
+      }
+      if (Number.isFinite(ability.cooldown)) {
+        metaParts.push(`${formatNumericValue(ability.cooldown)}s CD`);
+      }
+      if (metaParts.length) {
+        const meta = document.createElement('div');
+        meta.className = 'ability-meta';
+        meta.textContent = metaParts.join(' • ');
+        card.appendChild(meta);
+      }
+      if (typeof attachTooltip === 'function') {
+        attachTooltip(card, () => createAbilityTooltip(ability));
+      }
+    }
+
     const removeButton = document.createElement('button');
     removeButton.type = 'button';
-    removeButton.textContent = '✕';
+    removeButton.className = 'builder-card-remove';
+    removeButton.textContent = 'Remove';
     removeButton.addEventListener('click', () => {
       state.enemyFormRotation.splice(index, 1);
       renderEnemyRotation();
     });
-    li.appendChild(label);
-    li.appendChild(removeButton);
-    enemyRotationList.appendChild(li);
+    card.appendChild(removeButton);
+
+    enemyRotationList.appendChild(card);
   });
 }
 
