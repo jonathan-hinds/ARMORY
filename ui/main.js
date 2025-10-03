@@ -145,6 +145,7 @@ let worldCurrentWorldId = null;
 let worldCurrentInstanceId = null;
 let worldConfig = null;
 let worldPlayersState = new Map();
+let worldEnemiesState = new Map();
 let worldStreamSource = null;
 let worldQueueSource = null;
 let worldQueueState = null;
@@ -448,6 +449,7 @@ function resetWorldState() {
   }
   closeWorldEncounterDialog();
   worldPlayersState = new Map();
+  worldEnemiesState = new Map();
   worldConfig = null;
   worldCurrentWorldId = null;
   worldCurrentInstanceId = null;
@@ -1118,41 +1120,82 @@ function renderWorldScene() {
     }
   }
 
-  worldPlayersState.forEach(entry => {
-    if (!entry) return;
+  const drawNameplate = (text, centerX, topY, options = {}) => {
+    if (!text) return;
+    const safeText = String(text);
+    const baseOffset = Math.max(6, Math.floor(tileSize * 0.25));
+    let baseY = topY - baseOffset;
+    const fontSize = Math.max(14, Math.floor(tileSize * 0.45));
+    const paddingX = Math.max(4, Math.floor(fontSize / 3));
+    const paddingY = Math.max(2, Math.floor(fontSize / 4));
+    worldCtx.save();
+    worldCtx.font = `bold ${fontSize}px "Courier New", monospace`;
+    worldCtx.textAlign = 'center';
+    worldCtx.textBaseline = 'middle';
+    const measured = worldCtx.measureText(safeText);
+    const textWidth = Number.isFinite(measured.width) ? Math.ceil(measured.width) : safeText.length * fontSize;
+    const rectWidth = textWidth + paddingX * 2;
+    const rectHeight = fontSize + paddingY * 2;
+    let rectX = Math.round(centerX - rectWidth / 2);
+    if (rectX < 4) rectX = 4;
+    if (rectX + rectWidth > width - 4) rectX = width - rectWidth - 4;
+    if (baseY - rectHeight < 4) {
+      baseY = rectHeight + 4;
+    }
+    const rectY = Math.round(baseY - rectHeight);
+    const isEnemy = options.isEnemy;
+    const backgroundColor = isEnemy ? '#ffffff' : '#000000';
+    const borderColor = isEnemy ? '#000000' : '#ffffff';
+    const textColor = isEnemy ? '#000000' : '#ffffff';
+    worldCtx.fillStyle = backgroundColor;
+    worldCtx.fillRect(rectX, rectY, rectWidth, rectHeight);
+    worldCtx.strokeStyle = borderColor;
+    worldCtx.lineWidth = Math.max(1, Math.floor(fontSize / 10));
+    worldCtx.strokeRect(rectX + 0.5, rectY + 0.5, rectWidth, rectHeight);
+    worldCtx.fillStyle = textColor;
+    worldCtx.fillText(safeText, Math.round(centerX), rectY + rectHeight / 2);
+    worldCtx.restore();
+  };
+
+  const drawEntity = (entry, options = {}) => {
+    if (!entry || !Number.isFinite(entry.x) || !Number.isFinite(entry.y)) return;
     const screenX = offsetX + renderWidth / 2 + (entry.x + 0.5 - cameraX) * tileSize;
     const screenY = offsetY + renderHeight / 2 + (entry.y + 0.5 - cameraY) * tileSize;
     if (screenX < -tileSize || screenX > width + tileSize || screenY < -tileSize || screenY > height + tileSize) return;
-    const size = Math.max(10, Math.floor(tileSize * 0.6));
-    const left = screenX - size / 2;
-    const top = screenY - size / 2;
-    const isYou = currentCharacter && entry.characterId === currentCharacter.id;
-    const fill = isYou ? '#ffffff' : '#000000';
-    const border = isYou ? '#000000' : '#ffffff';
-    const drawLeft = Math.round(left);
-    const drawTop = Math.round(top);
-    worldCtx.fillStyle = fill;
-    worldCtx.fillRect(drawLeft, drawTop, size, size);
-    worldCtx.strokeStyle = border;
-    worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
-
-    const label = entry.name || 'Adventurer';
-    const labelY = drawTop - 6;
-    if (labelY > 6) {
-      worldCtx.font = '12px "Courier New", monospace';
-      worldCtx.textAlign = 'center';
-      worldCtx.textBaseline = 'bottom';
-      const textWidth = Math.ceil(worldCtx.measureText(label).width) + 6;
-      const textHeight = 12;
-      const rectX = Math.round(screenX - textWidth / 2);
-      const rectY = Math.round(labelY - textHeight);
+    const size = Math.max(12, Math.floor(tileSize * 0.65));
+    const drawLeft = Math.round(screenX - size / 2);
+    const drawTop = Math.round(screenY - size / 2);
+    worldCtx.save();
+    worldCtx.lineWidth = Math.max(1, Math.floor(size / 8));
+    if (options.isEnemy) {
       worldCtx.fillStyle = '#ffffff';
-      worldCtx.fillRect(rectX, rectY, textWidth, textHeight);
+      worldCtx.fillRect(drawLeft, drawTop, size, size);
       worldCtx.strokeStyle = '#000000';
-      worldCtx.strokeRect(rectX + 0.5, rectY + 0.5, textWidth, textHeight);
+      worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
+      const innerSize = Math.max(4, Math.floor(size / 2));
+      const innerLeft = Math.round(drawLeft + (size - innerSize) / 2);
+      const innerTop = Math.round(drawTop + (size - innerSize) / 2);
       worldCtx.fillStyle = '#000000';
-      worldCtx.fillText(label, Math.round(screenX), labelY - 2);
+      worldCtx.fillRect(innerLeft, innerTop, innerSize, innerSize);
+    } else {
+      const fill = options.isYou ? '#ffffff' : '#000000';
+      const border = options.isYou ? '#000000' : '#ffffff';
+      worldCtx.fillStyle = fill;
+      worldCtx.fillRect(drawLeft, drawTop, size, size);
+      worldCtx.strokeStyle = border;
+      worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
     }
+    worldCtx.restore();
+    const label = entry.name || (options.isEnemy ? 'Foe' : 'Adventurer');
+    drawNameplate(label, screenX, drawTop, options);
+  };
+
+  worldEnemiesState.forEach(entry => {
+    drawEntity(entry, { isEnemy: true });
+  });
+  worldPlayersState.forEach(entry => {
+    const isYou = currentCharacter && entry && entry.characterId === currentCharacter.id;
+    drawEntity(entry, { isYou });
   });
 }
 
@@ -1184,6 +1227,22 @@ function handleWorldStateUpdate(data) {
     });
     worldPlayersState = next;
     updateWorldPlayerList();
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'enemies')) {
+    const nextEnemies = new Map();
+    if (Array.isArray(data.enemies)) {
+      data.enemies.forEach(enemy => {
+        if (!enemy || !enemy.id) return;
+        nextEnemies.set(enemy.id, {
+          id: enemy.id,
+          name: enemy.name || 'Foe',
+          x: Number.isFinite(enemy.x) ? enemy.x : 0,
+          y: Number.isFinite(enemy.y) ? enemy.y : 0,
+          facing: enemy.facing || 'down',
+        });
+      });
+    }
+    worldEnemiesState = nextEnemies;
   }
   const phase = data.phase || 'explore';
   if (phase === 'encounter') {
