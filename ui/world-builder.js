@@ -266,10 +266,20 @@ function renderTilePalette() {
     const token = document.createElement('button');
     token.type = 'button';
     token.className = 'tile-token';
+    const hasSprite = Boolean(config.sprite);
+    if (hasSprite) {
+      token.classList.add('has-sprite');
+      token.style.backgroundImage = `url(${config.sprite})`;
+      token.style.backgroundSize = 'cover';
+      token.style.backgroundPosition = 'center';
+      token.style.backgroundColor = config.fill || '#ffffff';
+    } else {
+      token.style.background = config.fill || '#ffffff';
+      token.style.backgroundImage = '';
+    }
     if (state.selectedTileId === id) {
       token.classList.add('active');
     }
-    token.style.background = config.fill || '#ffffff';
     token.innerHTML = `<strong>${id}</strong><span>${config.fill || ''}</span>`;
     token.title = config.walkable ? 'Walkable' : 'Blocked';
     token.addEventListener('click', () => {
@@ -1029,8 +1039,18 @@ function renderZoneGrid() {
       cell.dataset.y = y;
       const tileId = zone.tiles[y][x];
       const tileConfig = state.tileConfig[tileId] || {};
-      cell.style.background = tileConfig.fill || '#ffffff';
-      cell.textContent = tileId;
+      cell.dataset.tileId = tileId;
+      if (tileConfig.sprite) {
+        cell.style.backgroundImage = `url(${tileConfig.sprite})`;
+        cell.style.backgroundSize = 'cover';
+        cell.style.backgroundPosition = 'center';
+        cell.style.backgroundColor = tileConfig.fill || '#ffffff';
+        cell.textContent = '';
+      } else {
+        cell.style.backgroundImage = '';
+        cell.style.backgroundColor = tileConfig.fill || '#ffffff';
+        cell.textContent = tileId;
+      }
       if (tileConfig.walkable === false) {
         cell.classList.add('not-walkable');
       } else {
