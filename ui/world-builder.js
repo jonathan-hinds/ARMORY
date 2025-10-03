@@ -1,5 +1,9 @@
-const builderEl = document.getElementById('builder');
+const builderWrapper = document.getElementById('builder-wrapper');
 const loadingEl = document.getElementById('builder-loading');
+
+const tabButtons = Array.from(document.querySelectorAll('[data-tab]'));
+const tabPanels = Array.from(document.querySelectorAll('[data-tab-panel]'));
+const tabLinkButtons = Array.from(document.querySelectorAll('[data-tab-target]'));
 
 const worldIdInput = document.getElementById('world-id');
 const worldNameInput = document.getElementById('world-name');
@@ -11,10 +15,20 @@ const worldEncounterChanceInput = document.getElementById('world-encounter-chanc
 const worldEncounterCooldownInput = document.getElementById('world-encounter-cooldown');
 
 const tilePaletteEl = document.getElementById('tile-palette');
-const tileForm = document.getElementById('tile-form');
-const tileIdInput = document.getElementById('tile-id');
-const tileFillInput = document.getElementById('tile-fill');
-const tileSpriteInput = document.getElementById('tile-sprite');
+const paletteSelect = document.getElementById('palette-select');
+const paletteNameInput = document.getElementById('palette-name');
+const paletteDescriptionInput = document.getElementById('palette-description');
+const createPaletteButton = document.getElementById('create-palette');
+const savePaletteButton = document.getElementById('save-palette');
+const deletePaletteButton = document.getElementById('delete-palette');
+const paletteTileList = document.getElementById('palette-tile-list');
+const spriteAssetList = document.getElementById('sprite-asset-list');
+const spriteForm = document.getElementById('sprite-form');
+const spriteTileIdInput = document.getElementById('sprite-tile-id');
+const spriteFillInput = document.getElementById('sprite-fill');
+const spriteAssetPathInput = document.getElementById('sprite-asset-path');
+const spriteWalkableInput = document.getElementById('sprite-walkable');
+const spritePreview = document.getElementById('sprite-preview');
 
 const addZoneButton = document.getElementById('add-zone');
 const zoneListEl = document.getElementById('zone-list');
@@ -49,6 +63,7 @@ const enemyRotationList = document.getElementById('enemy-rotation-list');
 const enemyEquipmentSlotsContainer = document.getElementById('enemy-equipment-slots');
 const enemyTemplateListEl = document.getElementById('enemy-template-list');
 const enemyResetButton = document.getElementById('enemy-reset');
+const enemyPickerListEl = document.getElementById('enemy-picker-list');
 
 const generateWorldButton = document.getElementById('generate-world');
 const loadWorldButton = document.getElementById('load-world');
@@ -93,6 +108,13 @@ const state = {
   abilities: [],
   equipmentBySlot: new Map(),
   equipmentSlots: [],
+  spriteAssets: [],
+  spritePalettes: [],
+  activePalette: null,
+  selectedPaletteId: null,
+  spriteBuilder: {
+    selectedAsset: null,
+  },
   world: {
     id: '',
     name: '',
@@ -115,6 +137,28 @@ const state = {
   enemyFormRotation: [],
   editingEnemyId: null,
 };
+
+function setActiveTab(tabId) {
+  if (!tabId) {
+    return;
+  }
+  tabButtons.forEach(button => {
+    button.classList.toggle('active', button.dataset.tab === tabId);
+  });
+  tabPanels.forEach(panel => {
+    panel.classList.toggle('active', panel.dataset.tabPanel === tabId);
+  });
+}
+
+tabButtons.forEach(button => {
+  button.addEventListener('click', () => setActiveTab(button.dataset.tab));
+});
+
+tabLinkButtons.forEach(button => {
+  button.addEventListener('click', () => setActiveTab(button.dataset.tabTarget));
+});
+
+setActiveTab('world');
 
 function parseEncounterTilesInput(value) {
   if (typeof value !== 'string') {
@@ -157,12 +201,8 @@ function formatEncounterTilesValue(tiles) {
 }
 
 function initializeDefaults() {
-  DEFAULT_TILES.forEach(tile => {
-    state.palette[tile.id] = tile.fill;
-    state.tileConfig[tile.id] = { sprite: tile.sprite, fill: tile.fill };
-  });
-  state.selectedTileId = DEFAULT_TILES[1]?.id || DEFAULT_TILES[0]?.id || null;
-  renderTilePalette();
+  setActivePalette(createDefaultPalette(), { skipSelect: true, skipZone: true });
+  renderPaletteSelect();
 }
 
 function attachWorldListeners() {
@@ -231,6 +271,7 @@ function renderTilePalette() {
     }
     token.style.background = config.fill || '#ffffff';
     token.innerHTML = `<strong>${id}</strong><span>${config.fill || ''}</span>`;
+    token.title = config.walkable ? 'Walkable' : 'Blocked';
     token.addEventListener('click', () => {
       state.selectedTileId = id;
       renderTilePalette();
@@ -239,26 +280,467 @@ function renderTilePalette() {
   });
 }
 
-function handleTileFormSubmit(event) {
-  event.preventDefault();
-  const id = tileIdInput.value.trim();
-  const fill = tileFillInput.value.trim() || '#ffffff';
-  const sprite = tileSpriteInput.value.trim();
+function createDefaultPalette() {
+  return {
+    _id: null,
+    name: 'Default Palette',
+    description: '',
+    tiles: DEFAULT_TILES.map(tile => ({
+      tileId: String(tile.id),
+      sprite: tile.sprite,
+      fill: tile.fill,
+      walkable: true,
+    })),
+  };
+}
+
+function normalizePalette(palette) {
+  if (!palette || typeof palette !== 'object') {
+    return createDefaultPalette();
+  }
+  const tiles = Array.isArray(palette.tiles)
+    ? palette.tiles
+        .map(tile => {
+          if (!tile || typeof tile !== 'object') {
+            return null;
+          }
+          const tileId = String(tile.tileId || tile.id || '').trim();
+          const sprite = String(tile.sprite || tile.asset || '').trim();
+          if (!tileId) {
+            return null;
+          }
+          const fill =
+            typeof tile.fill === 'string' && tile.fill.trim() ? tile.fill.trim() : '#ffffff';
+          const walkable = Boolean(tile.walkable);
+          return { tileId, sprite, fill, walkable };
+        })
+        .filter(Boolean)
+    : [];
+  return {
+    _id: palette._id || null,
+    name: palette.name || 'Unnamed Palette',
+    description: palette.description || '',
+    tiles,
+  };
+}
+
+function clonePalette(palette) {
+  const normalized = normalizePalette(palette);
+  return {
+    _id: normalized._id,
+    name: normalized.name,
+    description: normalized.description,
+    tiles: normalized.tiles.map(tile => ({ ...tile })),
+  };
+}
+
+function rebuildPaletteState() {
+  state.palette = {};
+  state.tileConfig = {};
+  const tiles = state.activePalette?.tiles || [];
+  tiles.forEach(tile => {
+    state.palette[tile.tileId] = tile.fill;
+    state.tileConfig[tile.tileId] = {
+      sprite: tile.sprite,
+      fill: tile.fill,
+      walkable: Boolean(tile.walkable),
+    };
+  });
+  if (!state.selectedTileId || !state.tileConfig[state.selectedTileId]) {
+    state.selectedTileId = tiles[0]?.tileId || null;
+  }
+}
+
+function setPaletteInputsFromState() {
+  if (paletteNameInput) {
+    paletteNameInput.value = state.activePalette?.name || '';
+  }
+  if (paletteDescriptionInput) {
+    paletteDescriptionInput.value = state.activePalette?.description || '';
+  }
+}
+
+function renderPaletteTiles() {
+  if (!paletteTileList) return;
+  paletteTileList.innerHTML = '';
+  const tiles = state.activePalette?.tiles || [];
+  if (!tiles.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No tiles in this palette yet.';
+    paletteTileList.appendChild(empty);
+    return;
+  }
+  tiles.forEach(tile => {
+    const item = document.createElement('div');
+    item.className = 'palette-tile';
+
+    const info = document.createElement('div');
+    info.className = 'palette-tile-info';
+
+    const swatch = document.createElement('div');
+    swatch.className = 'palette-tile-swatch';
+    if (tile.sprite) {
+      const img = document.createElement('img');
+      img.src = tile.sprite;
+      img.alt = tile.tileId;
+      img.loading = 'lazy';
+      swatch.appendChild(img);
+    } else {
+      swatch.style.background = tile.fill || '#ffffff';
+    }
+
+    const label = document.createElement('span');
+    label.textContent = `${tile.tileId} • ${tile.walkable ? 'Walkable' : 'Blocked'} • ${
+      tile.fill || '#ffffff'
+    }`;
+
+    info.appendChild(swatch);
+    info.appendChild(label);
+
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.textContent = 'Edit';
+    editButton.addEventListener('click', () => loadTileIntoSpriteForm(tile));
+    actions.appendChild(editButton);
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.textContent = 'Remove';
+    removeButton.addEventListener('click', () => removePaletteTile(tile.tileId));
+    actions.appendChild(removeButton);
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    paletteTileList.appendChild(item);
+  });
+}
+
+function renderPaletteSelect() {
+  if (!paletteSelect) return;
+  const activeId = state.selectedPaletteId;
+  paletteSelect.innerHTML = '';
+  let hasSelected = false;
+  state.spritePalettes.forEach(palette => {
+    const option = document.createElement('option');
+    option.value = palette._id || '';
+    option.textContent = palette.name || 'Palette';
+    if (palette._id && palette._id === activeId) {
+      option.selected = true;
+      hasSelected = true;
+    }
+    paletteSelect.appendChild(option);
+  });
+
+  if (!hasSelected) {
+    const option = document.createElement('option');
+    option.value = '__custom__';
+    const name = state.activePalette?.name || 'Custom Palette';
+    const suffix = state.activePalette && state.activePalette._id ? '' : ' (Unsaved)';
+    option.textContent = `${name}${suffix}`;
+    option.selected = true;
+    paletteSelect.appendChild(option);
+  }
+}
+
+function setActivePalette(palette, options = {}) {
+  const target = palette || createDefaultPalette();
+  state.activePalette = clonePalette(target);
+  state.selectedPaletteId = state.activePalette._id || null;
+  setPaletteInputsFromState();
+  rebuildPaletteState();
+  renderTilePalette();
+  if (!options.skipZone) {
+    renderZoneEditor();
+  }
+  renderPaletteTiles();
+  if (!options.skipSelect) {
+    renderPaletteSelect();
+  }
+}
+
+function setActivePaletteById(id) {
   if (!id) {
+    return;
+  }
+  const palette = state.spritePalettes.find(entry => entry._id === id);
+  if (palette) {
+    setActivePalette(palette, { skipSelect: true });
+    state.selectedPaletteId = palette._id;
+    renderPaletteSelect();
+    state.spriteBuilder.selectedAsset = null;
+    updateSpritePreview('');
+    renderSpriteAssets();
+  }
+}
+
+function selectSpriteAsset(assetUrl) {
+  state.spriteBuilder.selectedAsset = assetUrl || null;
+  renderSpriteAssets();
+}
+
+function renderSpriteAssets() {
+  if (!spriteAssetList) return;
+  spriteAssetList.innerHTML = '';
+  if (!state.spriteAssets.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No sprite assets found.';
+    spriteAssetList.appendChild(empty);
+    return;
+  }
+  state.spriteAssets.forEach(asset => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'asset-tile';
+    if (state.spriteBuilder.selectedAsset === asset.url) {
+      button.classList.add('active');
+    }
+    button.title = asset.id;
+    const img = document.createElement('img');
+    img.src = asset.url;
+    img.alt = asset.name;
+    img.loading = 'lazy';
+    button.appendChild(img);
+    button.addEventListener('click', () => {
+      spriteAssetPathInput.value = asset.url;
+      selectSpriteAsset(asset.url);
+      updateSpritePreview(asset.url);
+    });
+    spriteAssetList.appendChild(button);
+  });
+}
+
+function updateSpritePreview(assetUrl) {
+  if (!spritePreview) return;
+  spritePreview.innerHTML = '';
+  if (assetUrl) {
+    const img = document.createElement('img');
+    img.src = assetUrl;
+    img.alt = 'Sprite preview';
+    img.loading = 'lazy';
+    spritePreview.appendChild(img);
+  } else {
+    const message = document.createElement('p');
+    message.textContent = 'Select an asset to preview';
+    spritePreview.appendChild(message);
+  }
+}
+
+function loadTileIntoSpriteForm(tile) {
+  if (!spriteForm) return;
+  spriteTileIdInput.value = tile.tileId;
+  spriteFillInput.value = tile.fill || '#ffffff';
+  spriteAssetPathInput.value = tile.sprite || '';
+  spriteWalkableInput.checked = Boolean(tile.walkable);
+  updateSpritePreview(tile.sprite);
+  selectSpriteAsset(tile.sprite);
+  setActiveTab('sprites');
+}
+
+function removePaletteTile(tileId) {
+  const tiles = state.activePalette?.tiles || [];
+  const index = tiles.findIndex(tile => tile.tileId === tileId);
+  if (index < 0) {
+    return;
+  }
+  tiles.splice(index, 1);
+  state.activePalette.tiles = tiles;
+  if (state.selectedTileId === tileId) {
+    state.selectedTileId = tiles[0]?.tileId || null;
+  }
+  rebuildPaletteState();
+  renderPaletteTiles();
+  renderTilePalette();
+  renderZoneEditor();
+}
+
+function handleSpriteFormSubmit(event) {
+  event.preventDefault();
+  const tileId = spriteTileIdInput.value.trim();
+  const spritePath = spriteAssetPathInput.value.trim();
+  const fill = spriteFillInput.value.trim() || '#ffffff';
+  const walkable = spriteWalkableInput.checked;
+  if (!tileId) {
     alert('Tile ID is required.');
     return;
   }
-  state.palette[id] = fill;
-  state.tileConfig[id] = { sprite, fill };
-  if (!state.selectedTileId) {
-    state.selectedTileId = id;
+  if (!spritePath) {
+    alert('Select a sprite asset for this tile.');
+    return;
   }
+  const tiles = state.activePalette?.tiles || [];
+  const tile = { tileId, sprite: spritePath, fill, walkable };
+  const existingIndex = tiles.findIndex(entry => entry.tileId === tileId);
+  if (existingIndex >= 0) {
+    tiles.splice(existingIndex, 1, tile);
+  } else {
+    tiles.push(tile);
+  }
+  state.activePalette.tiles = tiles;
+  state.selectedTileId = tileId;
+  rebuildPaletteState();
+  renderPaletteTiles();
   renderTilePalette();
   renderZoneEditor();
-  tileForm.reset();
+  spriteForm.reset();
+  spriteAssetPathInput.value = spritePath;
+  spriteWalkableInput.checked = walkable;
+  updateSpritePreview(spritePath);
+  selectSpriteAsset(spritePath);
 }
 
-tileForm.addEventListener('submit', handleTileFormSubmit);
+async function saveActivePalette() {
+  if (!state.activePalette) return;
+  const name = paletteNameInput.value.trim();
+  if (!name) {
+    alert('Palette requires a name.');
+    return;
+  }
+  if (!state.activePalette.tiles.length) {
+    alert('Add at least one tile to the palette before saving.');
+    return;
+  }
+  const payload = {
+    id: state.activePalette._id,
+    name,
+    description: paletteDescriptionInput.value.trim(),
+    tiles: state.activePalette.tiles.map(tile => ({
+      tileId: tile.tileId,
+      sprite: tile.sprite,
+      fill: tile.fill,
+      walkable: Boolean(tile.walkable),
+    })),
+  };
+  try {
+    const response = await fetch('/dev/palettes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error('save failed');
+    }
+    const saved = normalizePalette(await response.json());
+    const existingIndex = state.spritePalettes.findIndex(p => p._id === saved._id);
+    if (existingIndex >= 0) {
+      state.spritePalettes.splice(existingIndex, 1, saved);
+    } else {
+      state.spritePalettes.push(saved);
+    }
+    state.spritePalettes.sort((a, b) => a.name.localeCompare(b.name));
+    setActivePalette(saved, { skipSelect: true });
+    state.selectedPaletteId = saved._id;
+    setPaletteInputsFromState();
+    renderPaletteSelect();
+    renderPaletteTiles();
+    renderTilePalette();
+    renderZoneEditor();
+  } catch (err) {
+    console.error(err);
+    alert('Failed to save palette.');
+  }
+}
+
+async function deleteActivePalette() {
+  if (!state.activePalette) return;
+  const currentId = state.activePalette._id;
+  if (currentId) {
+    const confirmed = confirm(`Delete palette "${state.activePalette.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      const response = await fetch(`/dev/palettes/${encodeURIComponent(currentId)}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('delete failed');
+      }
+      state.spritePalettes = state.spritePalettes.filter(palette => palette._id !== currentId);
+    } catch (err) {
+      console.error(err);
+      alert('Failed to delete palette.');
+      return;
+    }
+  }
+  const fallback = state.spritePalettes[0] || createDefaultPalette();
+  setActivePalette(fallback, { skipSelect: true });
+  state.selectedPaletteId = fallback._id || null;
+  renderPaletteSelect();
+  renderPaletteTiles();
+  renderTilePalette();
+  renderZoneEditor();
+  state.spriteBuilder.selectedAsset = null;
+  updateSpritePreview('');
+  renderSpriteAssets();
+}
+
+function startNewPalette() {
+  const blank = createDefaultPalette();
+  blank._id = null;
+  blank.name = '';
+  blank.description = '';
+  blank.tiles = [];
+  setActivePalette(blank);
+  state.selectedPaletteId = null;
+  renderPaletteSelect();
+  state.spriteBuilder.selectedAsset = null;
+  updateSpritePreview('');
+  renderSpriteAssets();
+}
+
+if (paletteSelect) {
+  paletteSelect.addEventListener('change', () => {
+    const value = paletteSelect.value;
+    if (!value || value === '__custom__') {
+      return;
+    }
+    setActivePaletteById(value);
+  });
+}
+
+if (createPaletteButton) {
+  createPaletteButton.addEventListener('click', () => {
+    startNewPalette();
+    setPaletteInputsFromState();
+  });
+}
+
+if (savePaletteButton) {
+  savePaletteButton.addEventListener('click', saveActivePalette);
+}
+
+if (deletePaletteButton) {
+  deletePaletteButton.addEventListener('click', deleteActivePalette);
+}
+
+if (spriteForm) {
+  spriteForm.addEventListener('submit', handleSpriteFormSubmit);
+}
+
+if (spriteAssetPathInput) {
+  spriteAssetPathInput.addEventListener('input', event => {
+    const value = event.target.value.trim();
+    state.spriteBuilder.selectedAsset = value || null;
+    updateSpritePreview(value);
+  });
+}
+
+if (paletteNameInput) {
+  paletteNameInput.addEventListener('input', event => {
+    if (!state.activePalette) return;
+    state.activePalette.name = event.target.value;
+  });
+}
+
+if (paletteDescriptionInput) {
+  paletteDescriptionInput.addEventListener('input', event => {
+    if (!state.activePalette) return;
+    state.activePalette.description = event.target.value;
+  });
+}
 
 function normalizeZoneId(base, takenIds) {
   const sanitized = base
@@ -549,6 +1031,11 @@ function renderZoneGrid() {
       const tileConfig = state.tileConfig[tileId] || {};
       cell.style.background = tileConfig.fill || '#ffffff';
       cell.textContent = tileId;
+      if (tileConfig.walkable === false) {
+        cell.classList.add('not-walkable');
+      } else {
+        cell.classList.remove('not-walkable');
+      }
       if (zone.spawn && zone.spawn.x === x && zone.spawn.y === y) {
         cell.classList.add('is-spawn');
       }
@@ -819,15 +1306,68 @@ function collectEquipmentFromForm() {
   return equipment;
 }
 
-function handleEnemyFormSubmit(event) {
+function normalizeEnemyTemplate(template) {
+  if (!template || typeof template !== 'object') {
+    return null;
+  }
+  const templateId = String(template.templateId || template.id || '').trim();
+  if (!templateId) {
+    return null;
+  }
+  const attributes = template.attributes || {};
+  const rotation = Array.isArray(template.rotation)
+    ? template.rotation
+        .map(value => {
+          if (value === '' || value == null) {
+            return null;
+          }
+          const numeric = Number(value);
+          if (!Number.isNaN(numeric)) {
+            return numeric;
+          }
+          return String(value);
+        })
+        .filter(value => value !== null)
+    : [];
+  return {
+    id: templateId,
+    dbId: template._id || null,
+    name: template.name || templateId,
+    basicType: template.basicType || 'melee',
+    level: Number(template.level) || 1,
+    attributes: {
+      strength: Number(attributes.strength ?? attributes.STR ?? attributes.str ?? 0) || 0,
+      stamina: Number(attributes.stamina ?? attributes.STA ?? attributes.sta ?? 0) || 0,
+      agility: Number(attributes.agility ?? attributes.AGI ?? attributes.agi ?? 0) || 0,
+      intellect: Number(attributes.intellect ?? attributes.INT ?? attributes.int ?? 0) || 0,
+      wisdom: Number(attributes.wisdom ?? attributes.WIS ?? attributes.wis ?? 0) || 0,
+    },
+    rotation,
+    equipment: { ...(template.equipment || {}) },
+    xpPct: Number(template.xpPct ?? template.xp ?? 0) || 0,
+    gold: Number(template.gold) || 0,
+    spawnChance: Number(template.spawnChance) || 0,
+  };
+}
+
+async function handleEnemyFormSubmit(event) {
   event.preventDefault();
   const id = enemyIdInput.value.trim();
   if (!id) {
     alert('Enemy template requires an ID.');
     return;
   }
-  const template = {
-    id,
+  if (
+    state.editingEnemyId &&
+    state.editingEnemyId !== id &&
+    state.enemyTemplates.some(template => template.id === id)
+  ) {
+    alert('Another template already uses that ID.');
+    return;
+  }
+
+  const payload = {
+    templateId: id,
     name: enemyNameInput.value.trim() || id,
     basicType: enemyBasicTypeInput.value,
     level: parseInt(enemyLevelInput.value, 10) || 1,
@@ -845,20 +1385,34 @@ function handleEnemyFormSubmit(event) {
     spawnChance: Number(enemySpawnChanceInput.value) || 0,
   };
 
-  const existingIndex = state.enemyTemplates.findIndex(t => t.id === id);
-  if (state.editingEnemyId && state.editingEnemyId !== id && existingIndex >= 0) {
-    alert('Another template already uses that ID.');
-    return;
+  try {
+    const response = await fetch('/dev/enemy-templates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error('save failed');
+    }
+    const saved = normalizeEnemyTemplate(await response.json());
+    if (!saved) {
+      throw new Error('invalid template');
+    }
+    const existingIndex = state.enemyTemplates.findIndex(template => template.id === saved.id);
+    if (existingIndex >= 0) {
+      state.enemyTemplates.splice(existingIndex, 1, saved);
+    } else {
+      state.enemyTemplates.push(saved);
+    }
+    state.enemyTemplates.sort((a, b) => a.id.localeCompare(b.id));
+    state.editingEnemyId = null;
+    renderEnemyTemplateList();
+    renderZoneEditor();
+    updateEnemyModeInfo();
+  } catch (err) {
+    console.error(err);
+    alert('Failed to save enemy template.');
   }
-  if (existingIndex >= 0) {
-    state.enemyTemplates.splice(existingIndex, 1, template);
-  } else {
-    state.enemyTemplates.push(template);
-  }
-  state.editingEnemyId = null;
-  renderEnemyTemplateList();
-  renderZoneEditor();
-  updateEnemyModeInfo();
 }
 
 enemyForm.addEventListener('submit', handleEnemyFormSubmit);
@@ -880,6 +1434,7 @@ function loadEnemyTemplateIntoForm(template) {
   updateEquipmentSelection(template.equipment || {});
   renderEnemyRotation();
   state.editingEnemyId = template.id;
+  setActiveTab('enemies');
 }
 
 function setEnemyPlacementTarget(templateId) {
@@ -895,6 +1450,70 @@ function renderEnemyTemplateList() {
     const empty = document.createElement('p');
     empty.textContent = 'No enemy templates yet.';
     enemyTemplateListEl.appendChild(empty);
+    renderEnemyPickerList();
+    return;
+  }
+  state.enemyTemplates.forEach(template => {
+    const item = document.createElement('div');
+    item.className = 'enemy-template';
+    if (template.id === state.selectedEnemyTemplateId) {
+      item.classList.add('active');
+    }
+    const info = document.createElement('div');
+    info.innerHTML = `<strong>${template.name}</strong><br /><span>${template.id}</span>`;
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+
+    const selectButton = document.createElement('button');
+    selectButton.type = 'button';
+    selectButton.textContent = 'Select';
+    selectButton.addEventListener('click', () => {
+      setEnemyPlacementTarget(template.id);
+      setActiveTab('world');
+    });
+    actions.appendChild(selectButton);
+
+    const editButton = document.createElement('button');
+    editButton.type = 'button';
+    editButton.textContent = 'Edit';
+    editButton.addEventListener('click', () => loadEnemyTemplateIntoForm(template));
+    actions.appendChild(editButton);
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.textContent = 'Delete';
+    removeButton.addEventListener('click', async () => {
+      const confirmed = confirm(`Delete template "${template.name}"?`);
+      if (!confirmed) {
+        return;
+      }
+      const removed = await deleteEnemyTemplate(template);
+      if (removed) {
+        state.enemyTemplates = state.enemyTemplates.filter(t => t.id !== template.id);
+        if (state.selectedEnemyTemplateId === template.id) {
+          state.selectedEnemyTemplateId = null;
+          enemyPlacementTargetEl.textContent = 'None Selected';
+        }
+        renderEnemyTemplateList();
+        renderZoneEditor();
+      }
+    });
+    actions.appendChild(removeButton);
+
+    item.appendChild(info);
+    item.appendChild(actions);
+    enemyTemplateListEl.appendChild(item);
+  });
+  renderEnemyPickerList();
+}
+
+function renderEnemyPickerList() {
+  if (!enemyPickerListEl) return;
+  enemyPickerListEl.innerHTML = '';
+  if (!state.enemyTemplates.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No templates available. Create one in the Enemies tab.';
+    enemyPickerListEl.appendChild(empty);
     return;
   }
   state.enemyTemplates.forEach(template => {
@@ -920,26 +1539,26 @@ function renderEnemyTemplateList() {
     editButton.addEventListener('click', () => loadEnemyTemplateIntoForm(template));
     actions.appendChild(editButton);
 
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    removeButton.textContent = 'Delete';
-    removeButton.addEventListener('click', () => {
-      if (confirm(`Delete template "${template.name}"?`)) {
-        state.enemyTemplates = state.enemyTemplates.filter(t => t.id !== template.id);
-        if (state.selectedEnemyTemplateId === template.id) {
-          state.selectedEnemyTemplateId = null;
-          enemyPlacementTargetEl.textContent = 'None Selected';
-        }
-        renderEnemyTemplateList();
-        renderZoneEditor();
-      }
-    });
-    actions.appendChild(removeButton);
-
     item.appendChild(info);
     item.appendChild(actions);
-    enemyTemplateListEl.appendChild(item);
+    enemyPickerListEl.appendChild(item);
   });
+}
+
+async function deleteEnemyTemplate(template) {
+  try {
+    const response = await fetch(`/dev/enemy-templates/${encodeURIComponent(template.id)}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) {
+      throw new Error('delete failed');
+    }
+    return true;
+  } catch (err) {
+    console.error(err);
+    alert('Failed to delete enemy template.');
+    return false;
+  }
 }
 
 function updateEnemyModeInfo() {
@@ -1062,6 +1681,12 @@ function buildWorldData() {
       };
     }),
   };
+  if (state.activePalette?.name) {
+    world.paletteName = state.activePalette.name;
+  }
+  if (state.activePalette?.description) {
+    world.paletteDescription = state.activePalette.description;
+  }
   const primaryZone = world.zones[0];
   if (primaryZone) {
     world.tiles = primaryZone.tiles;
@@ -1163,71 +1788,63 @@ function applyWorldData(rawWorld) {
     state.world.encounterCooldownMs = DEFAULT_ENCOUNTER_COOLDOWN;
   }
 
-  state.palette = {};
-  state.tileConfig = {};
-
-  const palette = worldSource.palette && typeof worldSource.palette === 'object' ? worldSource.palette : {};
-  Object.entries(palette).forEach(([key, value]) => {
-    state.palette[String(key)] = value;
-  });
-
-  const tileConfig =
-    worldSource.tileConfig && typeof worldSource.tileConfig === 'object' ? worldSource.tileConfig : {};
-  Object.entries(tileConfig).forEach(([key, value]) => {
-    if (!value || typeof value !== 'object') return;
-    state.tileConfig[String(key)] = {
-      sprite: value.sprite || '',
-      fill: value.fill || state.palette[String(key)] || '#ffffff',
-    };
-  });
-
-  if (!Object.keys(state.tileConfig).length) {
-    DEFAULT_TILES.forEach(tile => {
-      state.palette[tile.id] = tile.fill;
-      state.tileConfig[tile.id] = { sprite: tile.sprite, fill: tile.fill };
+  const paletteEntries =
+    worldSource.palette && typeof worldSource.palette === 'object' ? worldSource.palette : {};
+  const tileConfigSource =
+    worldSource.tileConfig && typeof worldSource.tileConfig === 'object'
+      ? worldSource.tileConfig
+      : {};
+  const tileIdSet = new Set([
+    ...Object.keys(tileConfigSource),
+    ...Object.keys(paletteEntries),
+  ]);
+  const loadedPalette = {
+    _id: null,
+    name: worldSource.paletteName || state.activePalette?.name || 'Loaded Palette',
+    description: worldSource.paletteDescription || '',
+    tiles: [],
+  };
+  tileIdSet.forEach(tileId => {
+    const config = tileConfigSource[tileId] || {};
+    const sprite = typeof config.sprite === 'string' ? config.sprite : '';
+    const fallbackFill = paletteEntries[tileId];
+    const fill =
+      typeof config.fill === 'string' && config.fill.trim()
+        ? config.fill.trim()
+        : typeof fallbackFill === 'string' && fallbackFill.trim()
+          ? fallbackFill.trim()
+          : '#ffffff';
+    const walkable = Object.prototype.hasOwnProperty.call(config, 'walkable')
+      ? Boolean(config.walkable)
+      : true;
+    loadedPalette.tiles.push({
+      tileId: String(tileId),
+      sprite,
+      fill,
+      walkable,
     });
-  } else {
-    Object.keys(state.tileConfig).forEach(id => {
-      if (!state.palette[id] && state.tileConfig[id].fill) {
-        state.palette[id] = state.tileConfig[id].fill;
-      }
-    });
+  });
+  if (!loadedPalette.tiles.length) {
+    loadedPalette.tiles = createDefaultPalette().tiles;
   }
-
-  const tileIds = Object.keys(state.tileConfig);
-  if (!tileIds.includes(state.selectedTileId)) {
-    state.selectedTileId = tileIds[0] || null;
-  }
+  setActivePalette(loadedPalette, { skipSelect: true, skipZone: true });
+  state.selectedPaletteId = null;
+  renderPaletteSelect();
+  state.spriteBuilder.selectedAsset = null;
+  updateSpritePreview('');
+  renderSpriteAssets();
 
   const templates = Array.isArray(encounterSource?.templates)
-    ? encounterSource.templates
+    ? encounterSource.templates.map(normalizeEnemyTemplate).filter(Boolean)
     : [];
-  state.enemyTemplates = templates.map(template => {
-    const attributes = template.attributes || {};
-    return {
-      id: template.id || '',
-      name: template.name || template.id || '',
-      basicType: template.basicType || 'melee',
-      level: Number(template.level) || 1,
-      attributes: {
-        strength: Number(attributes.strength ?? attributes.STR ?? attributes.str ?? 0) || 0,
-        stamina: Number(attributes.stamina ?? attributes.STA ?? attributes.sta ?? 0) || 0,
-        agility: Number(attributes.agility ?? attributes.AGI ?? attributes.agi ?? 0) || 0,
-        intellect: Number(attributes.intellect ?? attributes.INT ?? attributes.int ?? 0) || 0,
-        wisdom: Number(attributes.wisdom ?? attributes.WIS ?? attributes.wis ?? 0) || 0,
-      },
-      rotation: Array.isArray(template.rotation)
-        ? template.rotation.map(value => {
-            const numeric = Number(value);
-            return Number.isNaN(numeric) ? value : numeric;
-          })
-        : [],
-      equipment: { ...(template.equipment || {}) },
-      xpPct: Number(template.xpPct) || 0,
-      gold: Number(template.gold) || 0,
-      spawnChance: Number(template.spawnChance) || 0,
-    };
-  });
+  if (templates.length) {
+    const byId = new Map(state.enemyTemplates.map(template => [template.id, template]));
+    templates.forEach(template => {
+      byId.set(template.id, template);
+    });
+    state.enemyTemplates = Array.from(byId.values());
+    state.enemyTemplates.sort((a, b) => a.id.localeCompare(b.id));
+  }
   state.selectedEnemyTemplateId = null;
   state.enemyFormRotation = [];
   state.editingEnemyId = null;
@@ -1254,6 +1871,7 @@ function applyWorldData(rawWorld) {
     ];
   }
 
+  const tileIds = Object.keys(state.tileConfig);
   const seenIds = new Set();
   const defaultTile = state.selectedTileId || tileIds[0] || DEFAULT_TILES[0]?.id || '0';
   state.zones = zonesSource.map(zone => {
@@ -1358,17 +1976,65 @@ async function initialize() {
     initializeDefaults();
     attachWorldListeners();
     syncWorldForm();
-    const [abilitiesResponse, equipmentResponse] = await Promise.all([
+    const [
+      abilitiesResponse,
+      equipmentResponse,
+      assetsResponse,
+      palettesResponse,
+      templatesResponse,
+    ] = await Promise.all([
       fetch('/abilities'),
       fetch('/equipment'),
+      fetch('/dev/assets/sprites'),
+      fetch('/dev/palettes'),
+      fetch('/dev/enemy-templates'),
     ]);
-    if (!abilitiesResponse.ok || !equipmentResponse.ok) {
+    if (
+      !abilitiesResponse.ok ||
+      !equipmentResponse.ok ||
+      !assetsResponse.ok ||
+      !palettesResponse.ok ||
+      !templatesResponse.ok
+    ) {
       throw new Error('Failed to load catalogs');
     }
-    const abilities = await abilitiesResponse.json();
-    const equipment = await equipmentResponse.json();
+    const [abilities, equipment, assets, palettes, templates] = await Promise.all([
+      abilitiesResponse.json(),
+      equipmentResponse.json(),
+      assetsResponse.json(),
+      palettesResponse.json(),
+      templatesResponse.json(),
+    ]);
     state.abilities = Array.isArray(abilities) ? abilities : [];
     state.equipmentBySlot = flattenEquipment(equipment || {});
+    state.spriteAssets = Array.isArray(assets) ? assets : [];
+    renderSpriteAssets();
+
+    const normalizedPalettes = Array.isArray(palettes)
+      ? palettes.map(normalizePalette)
+      : [];
+    state.spritePalettes = normalizedPalettes;
+    if (normalizedPalettes.length) {
+      setActivePalette(normalizedPalettes[0], { skipSelect: true, skipZone: true });
+      state.selectedPaletteId = normalizedPalettes[0]._id;
+      renderPaletteSelect();
+    } else {
+      renderPaletteTiles();
+      renderTilePalette();
+      renderPaletteSelect();
+    }
+
+    const normalizedTemplates = Array.isArray(templates)
+      ? templates.map(normalizeEnemyTemplate).filter(Boolean)
+      : [];
+    if (normalizedTemplates.length) {
+      const byId = new Map(state.enemyTemplates.map(template => [template.id, template]));
+      normalizedTemplates.forEach(template => {
+        byId.set(template.id, template);
+      });
+      state.enemyTemplates = Array.from(byId.values());
+      state.enemyTemplates.sort((a, b) => a.id.localeCompare(b.id));
+    }
     populateAbilitySelect();
     renderEquipmentSlots();
     renderEnemyRotation();
@@ -1377,7 +2043,7 @@ async function initialize() {
     renderZoneEditor();
     updateEnemyModeInfo();
     updateTransportOptions();
-    builderEl.classList.remove('hidden');
+    builderWrapper.classList.remove('hidden');
     loadingEl.classList.add('hidden');
   } catch (err) {
     console.error(err);

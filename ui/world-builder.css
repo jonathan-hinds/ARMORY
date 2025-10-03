@@ -5,6 +5,42 @@ body.world-builder {
   padding:24px;
 }
 
+.builder-wrapper {
+  max-width:1100px;
+  margin:0 auto;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+
+.builder-tabs {
+  display:flex;
+  gap:8px;
+}
+
+.tab-button {
+  border:2px solid #000;
+  background:#fff;
+  padding:8px 16px;
+  text-transform:uppercase;
+  font-family:'Courier New', monospace;
+  cursor:pointer;
+  box-shadow:4px 4px 0 #000;
+}
+
+.tab-button.active {
+  background:#000;
+  color:#fff;
+}
+
+.builder-tab {
+  display:none;
+}
+
+.builder-tab.active {
+  display:block;
+}
+
 .builder-header {
   max-width:1100px;
   margin:0 auto 24px auto;
@@ -79,7 +115,8 @@ body.world-builder {
 
 .field-label input,
 .field-inline input,
-.field-label select {
+.field-label select,
+.field-label textarea {
   border:1px solid #000;
   padding:4px;
   font-family:'Courier New', monospace;
@@ -92,6 +129,36 @@ body.world-builder {
   flex-wrap:wrap;
   gap:8px;
   margin-bottom:12px;
+}
+
+.panel-header {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+}
+
+.panel-actions {
+  display:flex;
+  gap:8px;
+  align-items:center;
+}
+
+.panel-link {
+  border:1px solid #000;
+  background:#fff;
+  padding:4px 8px;
+  text-transform:uppercase;
+  font-family:'Courier New', monospace;
+  cursor:pointer;
+  box-shadow:2px 2px 0 #000;
+}
+
+.panel-note {
+  font-size:12px;
+  letter-spacing:1px;
+  text-transform:uppercase;
+  margin:8px 0 0;
 }
 
 .tile-token {
@@ -117,8 +184,9 @@ body.world-builder {
   letter-spacing:1px;
 }
 
-.tile-form button,
 .enemy-actions button,
+.sprite-actions button,
+.palette-tile button,
 .mode-button,
 #add-zone,
 #generate-world,
@@ -141,6 +209,12 @@ body.world-builder {
 }
 
 .enemy-form {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.sprite-form {
   display:flex;
   flex-direction:column;
   gap:12px;
@@ -222,6 +296,16 @@ body.world-builder {
   flex-direction:column;
   gap:8px;
   margin-top:12px;
+}
+
+.enemy-template-list--compact .enemy-template {
+  flex-direction:column;
+  align-items:flex-start;
+}
+
+.enemy-template-list--compact .enemy-template .actions {
+  width:100%;
+  justify-content:flex-start;
 }
 
 .enemy-template {
@@ -404,6 +488,133 @@ body.world-builder {
   left:2px;
   font-weight:bold;
   font-size:11px;
+}
+
+.zone-cell.not-walkable::before {
+  content:"✕";
+  position:absolute;
+  top:2px;
+  left:2px;
+  font-weight:bold;
+  font-size:11px;
+}
+
+.sprite-layout,
+.enemy-layout {
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));
+  gap:16px;
+}
+
+.sprite-actions {
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.palette-tile-list {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+
+.palette-tile {
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border:1px solid #000;
+  padding:8px;
+  background:#fdfdfd;
+  gap:12px;
+}
+
+.palette-tile button {
+  align-self:flex-start;
+}
+
+.palette-tile .actions {
+  display:flex;
+  gap:6px;
+  flex-wrap:wrap;
+}
+
+.palette-tile-info {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:12px;
+  text-transform:uppercase;
+}
+
+.palette-tile-swatch {
+  width:36px;
+  height:36px;
+  border:1px solid #000;
+  background:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  overflow:hidden;
+}
+
+.palette-tile-swatch img {
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  image-rendering:pixelated;
+}
+
+.sprite-asset-list {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(72px, 1fr));
+  gap:8px;
+  max-height:360px;
+  overflow:auto;
+}
+
+.asset-tile {
+  border:1px solid #000;
+  background:#fff;
+  padding:6px;
+  cursor:pointer;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:2px 2px 0 #000;
+}
+
+.asset-tile.active {
+  background:#000;
+}
+
+.asset-tile.active img {
+  filter:invert(1);
+}
+
+.asset-tile img {
+  width:48px;
+  height:48px;
+  image-rendering:pixelated;
+}
+
+.sprite-preview {
+  border:1px solid #000;
+  min-height:120px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#fdfdfd;
+  margin:8px 0;
+  flex-direction:column;
+  gap:8px;
+}
+
+.sprite-preview img {
+  width:96px;
+  height:96px;
+  image-rendering:pixelated;
+  border:1px solid #000;
+  background:#fff;
 }
 
 .output-actions {
