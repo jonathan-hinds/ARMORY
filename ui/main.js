@@ -1529,6 +1529,22 @@ function handleWorldEncounterEnd(data) {
   }
 }
 
+function ensureWorldEncounterDialog(data) {
+  if (worldBattleDialog) return;
+  if (!data) return;
+  const hasParty = Array.isArray(data.party) && data.party.length;
+  const hasBoss = !!data.boss;
+  if (!hasParty && !hasBoss) return;
+  const initialData = {
+    party: hasParty ? data.party : [],
+    boss: hasBoss ? data.boss : null,
+    log: Array.isArray(data.log) ? data.log : [],
+    partyIds: Array.isArray(data.partyIds) ? data.partyIds : [],
+    bossId: data.bossId,
+  };
+  openWorldEncounterDialog(initialData);
+}
+
 function startWorldEncounterStream(token) {
   if (!worldCurrentWorldId || !worldCurrentInstanceId || !currentCharacter || !token) return;
   if (worldEncounterSource) {
@@ -1552,8 +1568,10 @@ function startWorldEncounterStream(token) {
       if (data.type === 'start') {
         openWorldEncounterDialog(data);
       } else if (data.type === 'update') {
+        ensureWorldEncounterDialog(data);
         updateWorldEncounterDialog(data);
       } else if (data.type === 'end') {
+        ensureWorldEncounterDialog(data);
         updateWorldEncounterDialog(data);
         handleWorldEncounterEnd(data);
         es.close();
