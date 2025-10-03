@@ -31,9 +31,7 @@
     "spawn": { "x": 2, "y": 2 },
     "moveCooldownMs": 180,
     "encounters": {
-      "tiles": [2],
-      "chance": 0.22,
-      "cooldownMs": 2000,
+      "enemyCount": 6,
       "templates": [
         {
           "id": "wild_sprig",
@@ -44,7 +42,8 @@
           "rotation": [1, 2, 3],
           "equipment": { "weapon": "weapon_rusted_shortsword" },
           "xpPct": 0.08,
-          "gold": 9
+          "gold": 9,
+          "spawnChance": 0.6
         },
         {
           "id": "feral_bloom",
@@ -55,7 +54,8 @@
           "rotation": [10, 11, 12],
           "equipment": { "weapon": "weapon_apprentice_wand" },
           "xpPct": 0.08,
-          "gold": 11
+          "gold": 11,
+          "spawnChance": 0.4
         }
       ]
     }

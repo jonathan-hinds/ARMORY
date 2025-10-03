@@ -107,6 +107,10 @@ function normalizeTemplates(rawTemplates) {
             .filter(id => Number.isFinite(id))
         : [];
       const equipment = ensureEquipmentShape(template.equipment || {});
+      const spawnChanceRaw = Number.isFinite(template.spawnChance)
+        ? Number(template.spawnChance)
+        : parseFloat(template.spawnChance);
+      const spawnChance = Number.isFinite(spawnChanceRaw) ? Math.max(0, spawnChanceRaw) : 1;
       return {
         id: template.id || uuid(),
         name: typeof template.name === 'string' && template.name ? template.name : 'Wild Foe',
@@ -117,6 +121,7 @@ function normalizeTemplates(rawTemplates) {
         equipment,
         xpPct: Number.isFinite(template.xpPct) ? Math.max(0.01, template.xpPct) : 0.06,
         gold: Number.isFinite(template.gold) ? Math.max(1, Math.round(template.gold)) : 7,
+        spawnChance,
       };
     })
     .filter(Boolean);
@@ -124,17 +129,24 @@ function normalizeTemplates(rawTemplates) {
 
 function normalizeEncounter(raw = {}) {
   const tiles = Array.isArray(raw.tiles)
-    ? raw.tiles.map(v => {
-        const numeric = Number(v);
-        return Number.isFinite(numeric) ? Math.round(numeric) : null;
-      }).filter(Number.isFinite)
-    : [2];
-  const chance = Number.isFinite(raw.chance) ? Math.max(0, Math.min(1, raw.chance)) : 0.15;
-  const cooldownMs = Number.isFinite(raw.cooldownMs) ? Math.max(0, Math.round(raw.cooldownMs)) : 1500;
+    ? raw.tiles
+        .map(v => {
+          const numeric = Number(v);
+          return Number.isFinite(numeric) ? Math.round(numeric) : null;
+        })
+        .filter(Number.isFinite)
+    : [];
+  const chance = Number.isFinite(raw.chance) ? Math.max(0, Math.min(1, raw.chance)) : 0;
+  const cooldownMs = Number.isFinite(raw.cooldownMs) ? Math.max(0, Math.round(raw.cooldownMs)) : 0;
+  const enemyCountRaw = Number.isFinite(raw.enemyCount)
+    ? Number(raw.enemyCount)
+    : parseInt(raw.enemyCount, 10);
+  const enemyCount = Number.isFinite(enemyCountRaw) ? Math.max(0, Math.round(enemyCountRaw)) : 0;
   return {
-    tiles: tiles.length ? tiles : [2],
+    tiles: tiles.length ? tiles : [],
     chance,
     cooldownMs,
+    enemyCount,
     templates: normalizeTemplates(raw.templates),
   };
 }
@@ -150,6 +162,17 @@ function normalizeWorld(entry) {
     x: Number.isFinite(entry.spawn.x) ? Math.max(0, Math.round(entry.spawn.x)) : 0,
     y: Number.isFinite(entry.spawn.y) ? Math.max(0, Math.round(entry.spawn.y)) : 0,
   } : { x: 0, y: 0 };
+  const walkableTiles = [];
+  for (let y = 0; y < tiles.length; y += 1) {
+    const row = tiles[y];
+    if (!Array.isArray(row)) continue;
+    for (let x = 0; x < row.length; x += 1) {
+      const tile = row[x];
+      if (tile === 1 || tile === 2) {
+        walkableTiles.push({ x, y });
+      }
+    }
+  }
   return {
     id: entry.id || uuid(),
     name: typeof entry.name === 'string' && entry.name ? entry.name : 'World',
@@ -162,6 +185,7 @@ function normalizeWorld(entry) {
     spawn,
     moveCooldownMs: Number.isFinite(entry.moveCooldownMs) ? Math.max(60, Math.round(entry.moveCooldownMs)) : 180,
     encounters: normalizeEncounter(entry.encounters),
+    walkableTiles,
   };
 }
 
@@ -235,12 +259,26 @@ function serializePlayersForClient(state) {
   }));
 }
 
+function serializeEnemiesForClient(state) {
+  if (!state || !state.enemies) {
+    return [];
+  }
+  return Array.from(state.enemies.values()).map(enemy => ({
+    id: enemy.id,
+    name: enemy.name,
+    x: enemy.x,
+    y: enemy.y,
+    facing: enemy.facing,
+  }));
+}
+
 function broadcastWorldState(state) {
   if (!state) return;
   const payload = {
     type: 'state',
     phase: state.phase,
     players: serializePlayersForClient(state),
+    enemies: serializeEnemiesForClient(state),
   };
   state.listeners.forEach(listener => {
     try {
@@ -305,14 +343,6 @@ function isWalkableTile(world, x, y) {
   return tile === 1 || tile === 2;
 }
 
-function tileAt(world, x, y) {
-  if (!world || !Array.isArray(world.tiles)) return null;
-  if (y < 0 || y >= world.tiles.length) return null;
-  const row = world.tiles[y];
-  if (!Array.isArray(row) || x < 0 || x >= row.length) return null;
-  return row[x];
-}
-
 function ensurePlayerEntry(state, characterId, name) {
   if (!state || !state.world) {
     throw new Error('world not available');
@@ -328,7 +358,6 @@ function ensurePlayerEntry(state, characterId, name) {
       y: spawn.y,
       facing: 'down',
       updatedAt: Date.now(),
-      lastEncounterAt: 0,
     };
     state.players.set(characterId, entry);
   } else {
@@ -353,13 +382,265 @@ function directionToDelta(direction) {
   }
 }
 
-function chooseEncounterTemplate(world) {
+function getEncounterTemplateById(world, templateId) {
+  if (!world || !templateId) return null;
+  const { encounters } = world;
+  if (!encounters || !Array.isArray(encounters.templates)) {
+    return null;
+  }
+  return encounters.templates.find(template => template && template.id === templateId) || null;
+}
+
+function chooseEncounterTemplate(world, templateId = null) {
   const { encounters } = world || {};
   if (!encounters || !Array.isArray(encounters.templates) || !encounters.templates.length) {
     return null;
   }
-  const idx = Math.floor(Math.random() * encounters.templates.length);
-  return encounters.templates[idx] || null;
+  if (templateId) {
+    const found = getEncounterTemplateById(world, templateId);
+    if (found) {
+      return found;
+    }
+  }
+  const weights = encounters.templates.map(template =>
+    Number.isFinite(template.spawnChance) && template.spawnChance > 0 ? template.spawnChance : 0,
+  );
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  if (totalWeight <= 0) {
+    const idx = Math.floor(Math.random() * encounters.templates.length);
+    return encounters.templates[idx] || null;
+  }
+  let roll = Math.random() * totalWeight;
+  for (let idx = 0; idx < encounters.templates.length; idx += 1) {
+    const template = encounters.templates[idx];
+    const weight = weights[idx];
+    if (weight <= 0) continue;
+    roll -= weight;
+    if (roll <= 0) {
+      return template;
+    }
+  }
+  return encounters.templates[encounters.templates.length - 1] || null;
+}
+
+const ENEMY_MOVE_DELTAS = [
+  { dx: 0, dy: -1, facing: 'up' },
+  { dx: 0, dy: 1, facing: 'down' },
+  { dx: -1, dy: 0, facing: 'left' },
+  { dx: 1, dy: 0, facing: 'right' },
+];
+const ENEMY_IDLE_MOVE = { dx: 0, dy: 0, facing: 'down' };
+
+function shuffleArray(array) {
+  for (let i = array.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = array[i];
+    array[i] = array[j];
+    array[j] = temp;
+  }
+  return array;
+}
+
+function positionKey(x, y) {
+  return `${x}:${y}`;
+}
+
+function distanceSquared(ax, ay, bx, by) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+function desiredEnemyCount(world) {
+  if (!world || !world.encounters) return 0;
+  const { encounters } = world;
+  if (Number.isFinite(encounters.enemyCount) && encounters.enemyCount > 0) {
+    return Math.round(encounters.enemyCount);
+  }
+  if (Array.isArray(encounters.templates)) {
+    return encounters.templates.length;
+  }
+  return 0;
+}
+
+function ensureEnemyMap(state) {
+  if (!state.enemies) {
+    state.enemies = new Map();
+  }
+  return state.enemies;
+}
+
+function spawnMissingEnemies(state) {
+  if (!state || !state.world) return;
+  if (state.phase === 'encounter') return;
+  const world = state.world;
+  const desired = desiredEnemyCount(world);
+  if (!desired) return;
+  const enemyMap = ensureEnemyMap(state);
+  if (enemyMap.size >= desired) return;
+  const walkable = Array.isArray(world.walkableTiles) ? world.walkableTiles.slice() : [];
+  if (!walkable.length) return;
+  shuffleArray(walkable);
+  const occupied = new Set();
+  const enemyPositions = [];
+  const playerPositions = [];
+  state.players.forEach(player => {
+    occupied.add(positionKey(player.x, player.y));
+    playerPositions.push({ x: player.x, y: player.y });
+  });
+  enemyMap.forEach(enemy => {
+    occupied.add(positionKey(enemy.x, enemy.y));
+    enemyPositions.push({ x: enemy.x, y: enemy.y });
+  });
+  if (world.spawn) {
+    occupied.add(positionKey(world.spawn.x, world.spawn.y));
+  }
+  const now = Date.now();
+  const minEnemyDistanceSq = 9; // ~3 tiles
+  const minPlayerDistanceSq = 4; // ~2 tiles
+
+  const trySpawn = enforceDistance => {
+    for (let idx = 0; idx < walkable.length && enemyMap.size < desired; idx += 1) {
+      const pos = walkable[idx];
+      const key = positionKey(pos.x, pos.y);
+      if (occupied.has(key)) continue;
+      if (enforceDistance) {
+        let tooCloseToEnemy = false;
+        for (let i = 0; i < enemyPositions.length; i += 1) {
+          const existing = enemyPositions[i];
+          if (distanceSquared(existing.x, existing.y, pos.x, pos.y) < minEnemyDistanceSq) {
+            tooCloseToEnemy = true;
+            break;
+          }
+        }
+        if (tooCloseToEnemy) continue;
+        let tooCloseToPlayer = false;
+        for (let i = 0; i < playerPositions.length; i += 1) {
+          const playerPos = playerPositions[i];
+          if (distanceSquared(playerPos.x, playerPos.y, pos.x, pos.y) < minPlayerDistanceSq) {
+            tooCloseToPlayer = true;
+            break;
+          }
+        }
+        if (tooCloseToPlayer) continue;
+      }
+      const template = chooseEncounterTemplate(world);
+      if (!template) {
+        return;
+      }
+      const enemy = {
+        id: uuid(),
+        templateId: template.id,
+        name: template.name,
+        x: pos.x,
+        y: pos.y,
+        facing: 'down',
+        updatedAt: now,
+      };
+      enemyMap.set(enemy.id, enemy);
+      enemyPositions.push({ x: enemy.x, y: enemy.y });
+      occupied.add(key);
+    }
+  };
+
+  trySpawn(true);
+  if (enemyMap.size < desired) {
+    trySpawn(false);
+  }
+}
+
+function findEnemyAtPosition(state, x, y) {
+  if (!state || !state.enemies) return null;
+  for (const enemy of state.enemies.values()) {
+    if (enemy.x === x && enemy.y === y) {
+      return enemy;
+    }
+  }
+  return null;
+}
+
+function moveEnemies(state) {
+  if (!state || state.phase === 'encounter') return null;
+  const world = state.world;
+  const enemyMap = ensureEnemyMap(state);
+  if (!world || !enemyMap.size) {
+    return null;
+  }
+  const enemies = Array.from(enemyMap.values());
+  if (!enemies.length) return null;
+  const collisions = [];
+  const occupied = new Map();
+  enemies.forEach(enemy => {
+    occupied.set(positionKey(enemy.x, enemy.y), enemy.id);
+  });
+  const playerPositions = new Map();
+  state.players.forEach(player => {
+    playerPositions.set(positionKey(player.x, player.y), player.characterId);
+  });
+  const now = Date.now();
+  enemies.forEach(enemy => {
+    const moves = shuffleArray(ENEMY_MOVE_DELTAS.slice());
+    moves.push(ENEMY_IDLE_MOVE);
+    const originKey = positionKey(enemy.x, enemy.y);
+    for (let idx = 0; idx < moves.length; idx += 1) {
+      const move = moves[idx];
+      const nextX = enemy.x + move.dx;
+      const nextY = enemy.y + move.dy;
+      if (!isWalkableTile(world, nextX, nextY)) {
+        continue;
+      }
+      const key = positionKey(nextX, nextY);
+      const occupiedBy = occupied.get(key);
+      if (occupiedBy && occupiedBy !== enemy.id) {
+        continue;
+      }
+      enemy.x = nextX;
+      enemy.y = nextY;
+      enemy.facing = move.facing;
+      enemy.updatedAt = now;
+      if (originKey !== key) {
+        occupied.delete(originKey);
+        occupied.set(key, enemy.id);
+      }
+      if (playerPositions.has(key)) {
+        collisions.push({ enemy, characterId: playerPositions.get(key) });
+      }
+      return;
+    }
+    enemy.updatedAt = now;
+  });
+  return collisions.length ? collisions : null;
+}
+
+function beginEnemyEncounter(state, enemy, startedBy) {
+  if (!state || !enemy || state.phase === 'encounter') return null;
+  const world = state.world;
+  const template = chooseEncounterTemplate(world, enemy.templateId);
+  if (!template) return null;
+  ensureEnemyMap(state).delete(enemy.id);
+  const token = uuid();
+  const participants = Array.from(state.players.keys());
+  state.activeEncounter = {
+    token,
+    template: deepClone(template),
+    startedBy,
+    listeners: new Set(),
+    started: false,
+    completed: false,
+    lastEvent: null,
+    resultPayload: null,
+    participants,
+    enemyId: enemy.id,
+  };
+  state.phase = 'encounter';
+  state.listeners.forEach(listener => {
+    try {
+      listener({ type: 'encounter', token, startedBy });
+    } catch (err) {
+      console.error('world encounter notify failed', err);
+    }
+  });
+  return { token };
 }
 
 function instantiateEncounter(template, abilityMap, equipmentMap) {
@@ -446,16 +727,19 @@ async function createWorldInstance(worldId, participantIds = []) {
     throw new Error('world not found');
   }
   const instanceId = uuid();
-  worldInstances.set(instanceId, {
+  const state = {
     id: instanceId,
     worldId,
     world,
     players: new Map(),
+    enemies: new Map(),
     listeners: new Set(),
     expectedParticipants: new Set(participantIds),
     phase: 'lobby',
     activeEncounter: null,
-  });
+  };
+  worldInstances.set(instanceId, state);
+  spawnMissingEnemies(state);
   return { instanceId, world: sanitizeWorld(world) };
 }
 
@@ -490,6 +774,7 @@ async function joinWorld(worldId, instanceId, characterId) {
     instanceId: state.id,
     player: { characterId: entry.characterId, name: entry.name, x: entry.x, y: entry.y, facing: entry.facing },
     players: serializePlayersForClient(state),
+    enemies: serializeEnemiesForClient(state),
     phase: state.phase,
   };
 }
@@ -559,39 +844,21 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
   player.moveCooldown = now + world.moveCooldownMs;
 
   let encounter = null;
-  if (moved) {
-    const tile = tileAt(world, player.x, player.y);
-    const encounters = world.encounters || {};
-    const eligibleTile = encounters.tiles && encounters.tiles.includes(tile);
-    const cooldownReady = now - (player.lastEncounterAt || 0) >= (encounters.cooldownMs || 0);
-    if (eligibleTile && cooldownReady && Math.random() < (encounters.chance || 0)) {
-      const template = chooseEncounterTemplate(world);
-      if (template) {
-        const token = uuid();
-        const participants = Array.from(state.players.keys());
-        state.activeEncounter = {
-          token,
-          template: deepClone(template),
-          startedBy: characterId,
-          listeners: new Set(),
-          started: false,
-          completed: false,
-          lastEvent: null,
-          resultPayload: null,
-          participants,
-        };
-        state.phase = 'encounter';
-        player.lastEncounterAt = now;
-        encounter = { token };
-        state.listeners.forEach(listener => {
-          try {
-            listener({ type: 'encounter', token, startedBy: characterId });
-          } catch (err) {
-            console.error('world encounter notify failed', err);
-          }
-        });
-      }
+  const collidedEnemy = findEnemyAtPosition(state, player.x, player.y);
+  if (collidedEnemy) {
+    encounter = beginEnemyEncounter(state, collidedEnemy, characterId);
+  }
+
+  if (!encounter) {
+    const enemyCollisions = moveEnemies(state);
+    if (enemyCollisions && enemyCollisions.length) {
+      const { enemy, characterId: collidedCharacterId } = enemyCollisions[0];
+      encounter = beginEnemyEncounter(state, enemy, collidedCharacterId || characterId);
     }
+  }
+
+  if (!encounter) {
+    spawnMissingEnemies(state);
   }
 
   broadcastWorldState(state);
@@ -608,7 +875,12 @@ function subscribe(worldId, instanceId, characterId, send) {
     throw new Error('player not in world');
   }
   state.listeners.add(send);
-  send({ type: 'state', phase: state.phase, players: serializePlayersForClient(state) });
+  send({
+    type: 'state',
+    phase: state.phase,
+    players: serializePlayersForClient(state),
+    enemies: serializeEnemiesForClient(state),
+  });
   if (state.phase === 'encounter' && state.activeEncounter) {
     send({
       type: 'encounter',
@@ -742,6 +1014,7 @@ async function startEncounterBattle(state, encounter) {
 
   state.activeEncounter = null;
   state.phase = state.players.size ? 'explore' : 'lobby';
+  spawnMissingEnemies(state);
   broadcastWorldState(state);
 }
 
