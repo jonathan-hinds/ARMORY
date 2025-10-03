@@ -1,5 +1,6 @@
 const express = require("express");
 const path = require("path");
+const fs = require("fs").promises;
 const {
   registerPlayer,
   loginPlayer,
@@ -68,10 +69,117 @@ const {
 } = require("./systems/worldMatchmakingService");
 const app = express();
 const connectDB = require("./db");
+const SpritePalette = require("./models/SpritePalette");
+const EnemyTemplate = require("./models/EnemyTemplate");
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "ui")));
 app.use("/assets", express.static(path.join(__dirname, "assets")));
+
+const SPRITE_EXTENSIONS = new Set([".png", ".gif", ".jpg", ".jpeg", ".webp"]);
+
+async function listSpriteAssets() {
+  const baseDir = path.join(__dirname, "assets");
+  async function walk(dir) {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const results = await Promise.all(
+      entries.map(async entry => {
+        const resolved = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          return walk(resolved);
+        }
+        const ext = path.extname(entry.name).toLowerCase();
+        if (!SPRITE_EXTENSIONS.has(ext)) {
+          return [];
+        }
+        const relativePath = path.relative(baseDir, resolved).split(path.sep).join("/");
+        return [
+          {
+            id: relativePath,
+            name: entry.name,
+            url: `/assets/${relativePath}`,
+          },
+        ];
+      })
+    );
+    return results.flat();
+  }
+
+  try {
+    const assets = await walk(baseDir);
+    assets.sort((a, b) => a.id.localeCompare(b.id));
+    return assets;
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      return [];
+    }
+    throw err;
+  }
+}
+
+function sanitizePaletteTiles(tiles) {
+  if (!Array.isArray(tiles)) {
+    return [];
+  }
+  const byId = new Map();
+  tiles.forEach(tile => {
+    if (!tile || typeof tile !== "object") {
+      return;
+    }
+    const tileId = String(tile.tileId || tile.id || "").trim();
+    const sprite = String(tile.sprite || tile.asset || "").trim();
+    if (!tileId || !sprite) {
+      return;
+    }
+    const fill = typeof tile.fill === "string" && tile.fill.trim() ? tile.fill.trim() : "#ffffff";
+    const walkable = Boolean(tile.walkable);
+    byId.set(tileId, { tileId, sprite, fill, walkable });
+  });
+  return Array.from(byId.values());
+}
+
+function sanitizeEnemyTemplatePayload(payload) {
+  const templateId = payload?.templateId || payload?.id || "";
+  const id = String(templateId).trim();
+  if (!id) {
+    return null;
+  }
+  const name = String(payload.name || id).trim();
+  const basicType = String(payload.basicType || "melee").trim() || "melee";
+  const level = Number.parseInt(payload.level, 10) || 1;
+  const rotation = Array.isArray(payload.rotation)
+    ? payload.rotation
+        .map(value => {
+          if (value == null) return null;
+          const numeric = Number(value);
+          if (Number.isFinite(numeric)) {
+            return numeric;
+          }
+          return String(value);
+        })
+        .filter(value => value !== null && value !== "")
+    : [];
+  const equipment = payload.equipment && typeof payload.equipment === "object" ? payload.equipment : {};
+  const attributes = payload.attributes && typeof payload.attributes === "object" ? payload.attributes : {};
+  return {
+    templateId: id,
+    name,
+    basicType,
+    level,
+    rotation,
+    equipment,
+    attributes: {
+      strength: Number.parseInt(attributes.strength ?? attributes.STR ?? attributes.str ?? 0, 10) || 0,
+      stamina: Number.parseInt(attributes.stamina ?? attributes.STA ?? attributes.sta ?? 0, 10) || 0,
+      agility: Number.parseInt(attributes.agility ?? attributes.AGI ?? attributes.agi ?? 0, 10) || 0,
+      intellect: Number.parseInt(attributes.intellect ?? attributes.INT ?? attributes.int ?? 0, 10) || 0,
+      wisdom: Number.parseInt(attributes.wisdom ?? attributes.WIS ?? attributes.wis ?? 0, 10) || 0,
+    },
+    xpPct: Number(payload.xpPct ?? payload.xp ?? 0) || 0,
+    gold: Number.parseInt(payload.gold ?? 0, 10) || 0,
+    spawnChance: Number(payload.spawnChance ?? 0) || 0,
+  };
+}
 
 // Render provides the port as process.env.PORT
 const PORT = process.env.PORT || 3000;
@@ -82,6 +190,128 @@ app.get("/", (req, res) => {
 
 app.get("/dev/world-builder", (req, res) => {
   res.sendFile(path.join(__dirname, "ui", "world-builder.html"));
+});
+
+app.get("/dev/assets/sprites", async (req, res) => {
+  try {
+    const assets = await listSpriteAssets();
+    res.json(assets);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to list sprite assets" });
+  }
+});
+
+app.get("/dev/palettes", async (req, res) => {
+  try {
+    const palettes = await SpritePalette.find().sort({ name: 1 }).lean();
+    res.json(palettes);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to load palettes" });
+  }
+});
+
+app.post("/dev/palettes", async (req, res) => {
+  const { id, name, description, tiles } = req.body || {};
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: "palette name required" });
+  }
+  const sanitizedTiles = sanitizePaletteTiles(tiles);
+  try {
+    let palette;
+    if (id) {
+      palette = await SpritePalette.findByIdAndUpdate(
+        id,
+        {
+          name: String(name).trim(),
+          description: description || "",
+          tiles: sanitizedTiles,
+        },
+        { new: true, runValidators: true }
+      ).lean();
+    } else {
+      palette = await SpritePalette.findOneAndUpdate(
+        { name: String(name).trim() },
+        {
+          name: String(name).trim(),
+          description: description || "",
+          tiles: sanitizedTiles,
+        },
+        {
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true,
+          runValidators: true,
+        }
+      ).lean();
+    }
+    res.json(palette);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to save palette" });
+  }
+});
+
+app.delete("/dev/palettes/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({ error: "palette id required" });
+  }
+  try {
+    await SpritePalette.findByIdAndDelete(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to delete palette" });
+  }
+});
+
+app.get("/dev/enemy-templates", async (req, res) => {
+  try {
+    const templates = await EnemyTemplate.find().sort({ templateId: 1 }).lean();
+    res.json(templates);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to load enemy templates" });
+  }
+});
+
+app.post("/dev/enemy-templates", async (req, res) => {
+  const payload = sanitizeEnemyTemplatePayload(req.body || {});
+  if (!payload) {
+    return res.status(400).json({ error: "templateId required" });
+  }
+  try {
+    const template = await EnemyTemplate.findOneAndUpdate(
+      { templateId: payload.templateId },
+      payload,
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+        runValidators: true,
+      }
+    ).lean();
+    res.json(template);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to save enemy template" });
+  }
+});
+
+app.delete("/dev/enemy-templates/:templateId", async (req, res) => {
+  const { templateId } = req.params;
+  if (!templateId) {
+    return res.status(400).json({ error: "templateId required" });
+  }
+  try {
+    await EnemyTemplate.findOneAndDelete({ templateId });
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed to delete enemy template" });
+  }
 });
 
 app.post("/register", async (req, res) => {
