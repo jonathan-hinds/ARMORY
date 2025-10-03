@@ -11,15 +11,18 @@
     "tileConfig": {
       "0": {
         "sprite": "/assets/Sprite-0005.png",
-        "fill": "#000000"
+        "fill": "#000000",
+        "walkable": true
       },
       "1": {
         "sprite": "/assets/Sprite-0003.png",
-        "fill": "#ffffff"
+        "fill": "#ffffff",
+        "walkable": true
       },
       "2": {
         "sprite": "/assets/Sprite-0004.png",
-        "fill": "#dcdcdc"
+        "fill": "#dcdcdc",
+        "walkable": true
       }
     },
     "moveCooldownMs": 180,
@@ -31,6 +34,31 @@
       "cooldownMs": 2000,
       "enemyCount": 6,
       "templates": [
+        {
+          "id": "bog_beast",
+          "name": "Bog Beast",
+          "basicType": "melee",
+          "level": 3,
+          "attributes": {
+            "strength": 5,
+            "stamina": 5,
+            "agility": 2,
+            "intellect": 0,
+            "wisdom": 7
+          },
+          "rotation": [
+            2,
+            1,
+            20,
+            11,
+            7
+          ],
+          "equipment": {},
+          "xpPct": 0.09,
+          "gold": 9,
+          "spawnChance": 0.5,
+          "sprite": "/assets/sprites/creatures2.png"
+        },
         {
           "id": "crocodile",
           "name": "Crocodile",
@@ -54,31 +82,8 @@
           "equipment": {},
           "xpPct": 0.05,
           "gold": 5,
-          "spawnChance": 0.5
-        },
-        {
-          "id": "bog_beast",
-          "name": "Bog Beast",
-          "basicType": "melee",
-          "level": 3,
-          "attributes": {
-            "strength": 5,
-            "stamina": 5,
-            "agility": 2,
-            "intellect": 0,
-            "wisdom": 7
-          },
-          "rotation": [
-            2,
-            1,
-            20,
-            11,
-            7
-          ],
-          "equipment": {},
-          "xpPct": 0.09,
-          "gold": 9,
-          "spawnChance": 0.5
+          "spawnChance": 0.5,
+          "sprite": "/assets/sprites/creatures1.png"
         }
       ]
     },
@@ -1183,6 +1188,7 @@
         ]
       }
     ],
+    "paletteName": "Marsh",
     "tiles": [
       [
         0,
