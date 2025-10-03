@@ -1222,21 +1222,38 @@ function renderWorldScene() {
     const screenX = offsetX + renderWidth / 2 + (entry.x + 0.5 - cameraX) * tileSize;
     const screenY = offsetY + renderHeight / 2 + (entry.y + 0.5 - cameraY) * tileSize;
     if (screenX < -tileSize || screenX > width + tileSize || screenY < -tileSize || screenY > height + tileSize) return;
-    const size = Math.max(12, Math.floor(tileSize * 0.65));
-    const drawLeft = Math.round(screenX - size / 2);
-    const drawTop = Math.round(screenY - size / 2);
+    const baseSize = Math.max(12, Math.floor(tileSize * 0.65));
+    let size = baseSize;
+    let drawLeft = Math.round(screenX - size / 2);
+    let drawTop = Math.round(screenY - size / 2);
     worldCtx.save();
     worldCtx.lineWidth = Math.max(1, Math.floor(size / 8));
     if (options.isEnemy) {
-      worldCtx.fillStyle = '#ffffff';
-      worldCtx.fillRect(drawLeft, drawTop, size, size);
-      worldCtx.strokeStyle = '#000000';
-      worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
-      const innerSize = Math.max(4, Math.floor(size / 2));
-      const innerLeft = Math.round(drawLeft + (size - innerSize) / 2);
-      const innerTop = Math.round(drawTop + (size - innerSize) / 2);
-      worldCtx.fillStyle = '#000000';
-      worldCtx.fillRect(innerLeft, innerTop, innerSize, innerSize);
+      const sprite = entry.sprite ? getWorldSprite(entry.sprite) : null;
+      if (
+        sprite &&
+        sprite.complete &&
+        sprite.naturalWidth > 0 &&
+        sprite.naturalHeight > 0
+      ) {
+        size = Math.max(tileSize, baseSize);
+        drawLeft = Math.round(screenX - size / 2);
+        drawTop = Math.round(screenY - size / 2);
+        worldCtx.drawImage(sprite, drawLeft, drawTop, size, size);
+        worldCtx.strokeStyle = '#000000';
+        worldCtx.lineWidth = Math.max(1, Math.floor(size / 12));
+        worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
+      } else {
+        worldCtx.fillStyle = '#ffffff';
+        worldCtx.fillRect(drawLeft, drawTop, size, size);
+        worldCtx.strokeStyle = '#000000';
+        worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
+        const innerSize = Math.max(4, Math.floor(size / 2));
+        const innerLeft = Math.round(drawLeft + (size - innerSize) / 2);
+        const innerTop = Math.round(drawTop + (size - innerSize) / 2);
+        worldCtx.fillStyle = '#000000';
+        worldCtx.fillRect(innerLeft, innerTop, innerSize, innerSize);
+      }
     } else {
       const fill = options.isYou ? '#ffffff' : '#000000';
       const border = options.isYou ? '#000000' : '#ffffff';
@@ -1309,6 +1326,10 @@ function handleWorldStateUpdate(data) {
           y: Number.isFinite(enemy.y) ? enemy.y : 0,
           facing: enemy.facing || 'down',
           zoneId,
+          sprite:
+            typeof enemy.sprite === 'string' && enemy.sprite.trim()
+              ? enemy.sprite.trim()
+              : null,
         });
       });
     }

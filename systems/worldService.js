@@ -117,6 +117,10 @@ function normalizeTemplates(rawTemplates) {
         ? Number(template.spawnChance)
         : parseFloat(template.spawnChance);
       const spawnChance = Number.isFinite(spawnChanceRaw) ? Math.max(0, spawnChanceRaw) : 1;
+      const sprite =
+        typeof template.sprite === 'string' && template.sprite.trim()
+          ? template.sprite.trim()
+          : null;
       return {
         id: template.id || uuid(),
         name: typeof template.name === 'string' && template.name ? template.name : 'Wild Foe',
@@ -128,6 +132,7 @@ function normalizeTemplates(rawTemplates) {
         xpPct: Number.isFinite(template.xpPct) ? Math.max(0.01, template.xpPct) : 0.06,
         gold: Number.isFinite(template.gold) ? Math.max(1, Math.round(template.gold)) : 7,
         spawnChance,
+        sprite,
       };
     })
     .filter(Boolean);
@@ -470,6 +475,7 @@ function serializeEnemiesForClient(state) {
     y: enemy.y,
     facing: enemy.facing,
     zoneId: enemy.zoneId || null,
+    sprite: enemy.sprite || null,
   }));
 }
 
@@ -763,6 +769,7 @@ function spawnMissingEnemies(state) {
           zoneId: zone.id,
           facing: 'down',
           updatedAt: now,
+          sprite: template.sprite || null,
         };
         enemyMap.set(enemy.id, enemy);
         enemyPositions.push({ x: enemy.x, y: enemy.y });

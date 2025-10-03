@@ -15,6 +15,7 @@ const EnemyTemplateSchema = new mongoose.Schema(
   {
     templateId: { type: String, required: true, trim: true, unique: true },
     name: { type: String, required: true, trim: true },
+    sprite: { type: String, trim: true, default: null },
     basicType: { type: String, default: 'melee', trim: true },
     level: { type: Number, default: 1 },
     attributes: { type: AttributeSchema, default: () => ({}) },
