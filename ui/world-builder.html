@@ -157,8 +157,15 @@
         </section>
         <section class="panel output-panel">
           <h2>Generated world.json</h2>
-          <button id="generate-world">Generate</button>
-          <textarea id="world-output" readonly placeholder="Generated JSON will appear here..."></textarea>
+          <div class="output-actions">
+            <button id="generate-world">Generate</button>
+            <button id="load-world">Load From JSON</button>
+          </div>
+          <textarea
+            id="world-output"
+            placeholder="Paste existing JSON here or generate to view output..."
+            spellcheck="false"
+          ></textarea>
         </section>
       </div>
     </main>
