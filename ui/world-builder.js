@@ -48,6 +48,7 @@ const enemyTemplateListEl = document.getElementById('enemy-template-list');
 const enemyResetButton = document.getElementById('enemy-reset');
 
 const generateWorldButton = document.getElementById('generate-world');
+const loadWorldButton = document.getElementById('load-world');
 const worldOutput = document.getElementById('world-output');
 
 const DEFAULT_TILES = [
@@ -187,19 +188,23 @@ function handleTileFormSubmit(event) {
 
 tileForm.addEventListener('submit', handleTileFormSubmit);
 
-function createZoneId(base) {
+function normalizeZoneId(base, takenIds) {
   const sanitized = base
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '') || 'zone';
   let candidate = sanitized;
   let suffix = 1;
-  const existing = new Set(state.zones.map(z => z.id));
-  while (existing.has(candidate)) {
+  while (takenIds.has(candidate)) {
     suffix += 1;
     candidate = `${sanitized}_${suffix}`;
   }
   return candidate;
+}
+
+function createZoneId(base) {
+  const existing = new Set(state.zones.map(z => z.id));
+  return normalizeZoneId(base, existing);
 }
 
 function createZone(name, width, height) {
@@ -869,49 +874,329 @@ function updateEnemyModeInfo() {
   enemyPlacementTargetEl.textContent = state.selectedEnemyTemplateId || 'None Selected';
 }
 
-function generateWorldJson() {
+function convertTileIdForExport(value) {
+  if (typeof value === 'number') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^-?\d+$/.test(trimmed)) {
+      const numeric = Number(trimmed);
+      if (!Number.isNaN(numeric)) {
+        return numeric;
+      }
+    }
+    return trimmed;
+  }
+  return value;
+}
+
+function buildWorldData() {
   if (!state.zones.length) {
-    alert('Create at least one zone before generating.');
-    return;
+    return null;
   }
   const world = {
     id: state.world.id || 'new_world',
     name: state.world.name || 'New World',
-    tileSize: state.world.tileSize,
-    palette: state.palette,
-    tileConfig: state.tileConfig,
-    moveCooldownMs: state.world.moveCooldownMs,
+    tileSize: Number(state.world.tileSize) || 0,
+    palette: { ...state.palette },
+    tileConfig: Object.fromEntries(
+      Object.entries(state.tileConfig).map(([id, config]) => [id, { ...config }])
+    ),
+    moveCooldownMs: Number(state.world.moveCooldownMs) || 0,
     encounters: {
-      enemyCount: state.world.enemyCount,
+      enemyCount: Number.isFinite(Number(state.world.enemyCount))
+        ? Number(state.world.enemyCount)
+        : 0,
       templates: state.enemyTemplates.map(template => ({
-        ...template,
+        id: template.id,
+        name: template.name,
+        basicType: template.basicType,
+        level: Number(template.level) || 1,
+        attributes: {
+          strength: Number(template.attributes?.strength) || 0,
+          stamina: Number(template.attributes?.stamina) || 0,
+          agility: Number(template.attributes?.agility) || 0,
+          intellect: Number(template.attributes?.intellect) || 0,
+          wisdom: Number(template.attributes?.wisdom) || 0,
+        },
         rotation: Array.isArray(template.rotation)
-          ? template.rotation.slice()
+          ? template.rotation.map(abilityId => {
+              const numeric = Number(abilityId);
+              return Number.isNaN(numeric) ? abilityId : numeric;
+            })
           : [],
         equipment: { ...(template.equipment || {}) },
+        xpPct: Number(template.xpPct) || 0,
+        gold: Number(template.gold) || 0,
+        spawnChance: Number(template.spawnChance) || 0,
       })),
     },
-    zones: state.zones.map(zone => ({
-      id: zone.id,
-      name: zone.name,
-      width: zone.width,
-      height: zone.height,
-      tiles: zone.tiles,
-      spawn: zone.spawn,
-      transports: zone.transports,
-      enemyPlacements: zone.enemyPlacements,
-    })),
+    zones: state.zones.map(zone => {
+      const tiles = Array.isArray(zone.tiles)
+        ? zone.tiles.map(row => row.map(convertTileIdForExport))
+        : [];
+      const widthValue = Number(zone.width);
+      const heightValue = Number(zone.height);
+      const width = Number.isFinite(widthValue) && widthValue > 0
+        ? widthValue
+        : (Array.isArray(tiles[0]) ? tiles[0].length : 0);
+      const height = Number.isFinite(heightValue) && heightValue > 0 ? heightValue : tiles.length;
+      const transports = Array.isArray(zone.transports)
+        ? zone.transports.map(transport => ({
+            from: {
+              x: Number(transport?.from?.x) || 0,
+              y: Number(transport?.from?.y) || 0,
+            },
+            toZoneId: transport?.toZoneId || '',
+            to: {
+              x: Number(transport?.to?.x) || 0,
+              y: Number(transport?.to?.y) || 0,
+            },
+          }))
+        : [];
+      const enemyPlacements = Array.isArray(zone.enemyPlacements)
+        ? zone.enemyPlacements.map(placement => ({
+            x: Number(placement.x) || 0,
+            y: Number(placement.y) || 0,
+            templateId: placement.templateId || '',
+          }))
+        : [];
+      return {
+        id: zone.id,
+        name: zone.name,
+        width,
+        height,
+        tiles,
+        spawn: zone.spawn
+          ? {
+              x: Number(zone.spawn.x) || 0,
+              y: Number(zone.spawn.y) || 0,
+            }
+          : null,
+        transports,
+        enemyPlacements,
+      };
+    }),
   };
-  if (state.zones.length === 1) {
-    const zone = state.zones[0];
+  if (world.zones.length === 1) {
+    const zone = world.zones[0];
     world.tiles = zone.tiles;
     world.spawn = zone.spawn;
   }
-  const output = JSON.stringify(world, null, 2);
-  worldOutput.value = output;
+  return world;
+}
+
+function generateWorldJson() {
+  const world = buildWorldData();
+  if (!world) {
+    alert('Create at least one zone before generating.');
+    return;
+  }
+  worldOutput.value = JSON.stringify(world, null, 2);
+}
+
+function syncWorldForm() {
+  worldIdInput.value = state.world.id || '';
+  worldNameInput.value = state.world.name || '';
+  worldTileSizeInput.value = state.world.tileSize;
+  worldMoveCooldownInput.value = state.world.moveCooldownMs;
+  worldEnemyCountInput.value = state.world.enemyCount;
+}
+
+function applyWorldData(rawWorld) {
+  if (!rawWorld || typeof rawWorld !== 'object') {
+    alert('World JSON must be an object.');
+    return;
+  }
+
+  state.world.id = rawWorld.id || '';
+  state.world.name = rawWorld.name || '';
+  state.world.tileSize = Number(rawWorld.tileSize) || state.world.tileSize;
+  state.world.moveCooldownMs = Number(rawWorld.moveCooldownMs) || state.world.moveCooldownMs;
+  const enemyCount = Number(rawWorld?.encounters?.enemyCount);
+  if (Number.isInteger(enemyCount) && enemyCount > 0) {
+    state.world.enemyCount = enemyCount;
+  }
+
+  state.palette = {};
+  state.tileConfig = {};
+
+  const palette = rawWorld.palette && typeof rawWorld.palette === 'object' ? rawWorld.palette : {};
+  Object.entries(palette).forEach(([key, value]) => {
+    state.palette[String(key)] = value;
+  });
+
+  const tileConfig =
+    rawWorld.tileConfig && typeof rawWorld.tileConfig === 'object' ? rawWorld.tileConfig : {};
+  Object.entries(tileConfig).forEach(([key, value]) => {
+    if (!value || typeof value !== 'object') return;
+    state.tileConfig[String(key)] = {
+      sprite: value.sprite || '',
+      fill: value.fill || state.palette[String(key)] || '#ffffff',
+    };
+  });
+
+  if (!Object.keys(state.tileConfig).length) {
+    DEFAULT_TILES.forEach(tile => {
+      state.palette[tile.id] = tile.fill;
+      state.tileConfig[tile.id] = { sprite: tile.sprite, fill: tile.fill };
+    });
+  } else {
+    Object.keys(state.tileConfig).forEach(id => {
+      if (!state.palette[id] && state.tileConfig[id].fill) {
+        state.palette[id] = state.tileConfig[id].fill;
+      }
+    });
+  }
+
+  const tileIds = Object.keys(state.tileConfig);
+  if (!tileIds.includes(state.selectedTileId)) {
+    state.selectedTileId = tileIds[0] || null;
+  }
+
+  const templates = Array.isArray(rawWorld?.encounters?.templates)
+    ? rawWorld.encounters.templates
+    : [];
+  state.enemyTemplates = templates.map(template => {
+    const attributes = template.attributes || {};
+    return {
+      id: template.id || '',
+      name: template.name || template.id || '',
+      basicType: template.basicType || 'melee',
+      level: Number(template.level) || 1,
+      attributes: {
+        strength: Number(attributes.strength ?? attributes.STR ?? attributes.str ?? 0) || 0,
+        stamina: Number(attributes.stamina ?? attributes.STA ?? attributes.sta ?? 0) || 0,
+        agility: Number(attributes.agility ?? attributes.AGI ?? attributes.agi ?? 0) || 0,
+        intellect: Number(attributes.intellect ?? attributes.INT ?? attributes.int ?? 0) || 0,
+        wisdom: Number(attributes.wisdom ?? attributes.WIS ?? attributes.wis ?? 0) || 0,
+      },
+      rotation: Array.isArray(template.rotation)
+        ? template.rotation.map(value => {
+            const numeric = Number(value);
+            return Number.isNaN(numeric) ? value : numeric;
+          })
+        : [],
+      equipment: { ...(template.equipment || {}) },
+      xpPct: Number(template.xpPct) || 0,
+      gold: Number(template.gold) || 0,
+      spawnChance: Number(template.spawnChance) || 0,
+    };
+  });
+  state.selectedEnemyTemplateId = null;
+  state.enemyFormRotation = [];
+  state.editingEnemyId = null;
+  enemyForm.reset();
+  renderEnemyRotation();
+  updateEquipmentSelection({});
+  renderEnemyTemplateList();
+  updateEnemyModeInfo();
+
+  const rawZones = Array.isArray(rawWorld.zones) ? rawWorld.zones.slice() : [];
+  let zonesSource = rawZones;
+  if (!zonesSource.length && Array.isArray(rawWorld.tiles)) {
+    zonesSource = [
+      {
+        id: rawWorld.id || 'zone',
+        name: rawWorld.name || rawWorld.id || 'Zone',
+        width: Array.isArray(rawWorld.tiles[0]) ? rawWorld.tiles[0].length : rawWorld.width,
+        height: rawWorld.tiles.length,
+        tiles: rawWorld.tiles,
+        spawn: rawWorld.spawn || null,
+        transports: rawWorld.transports || [],
+        enemyPlacements: rawWorld.enemyPlacements || [],
+      },
+    ];
+  }
+
+  const seenIds = new Set();
+  const defaultTile = state.selectedTileId || tileIds[0] || DEFAULT_TILES[0]?.id || '0';
+  state.zones = zonesSource.map(zone => {
+    const width = Number(zone.width) || (Array.isArray(zone.tiles?.[0]) ? zone.tiles[0].length : 0);
+    const height = Number(zone.height) || (Array.isArray(zone.tiles) ? zone.tiles.length : 0);
+    const tiles = Array.from({ length: height }, (_, y) => {
+      const row = Array.isArray(zone.tiles) ? zone.tiles[y] || [] : [];
+      return Array.from({ length: width }, (_, x) => {
+        const value = row[x];
+        if (value === undefined || value === null || value === '') {
+          return String(defaultTile);
+        }
+        return String(value);
+      });
+    });
+    let id = zone.id ? String(zone.id) : normalizeZoneId(zone.name || 'zone', seenIds);
+    if (seenIds.has(id)) {
+      id = normalizeZoneId(`${id}_zone`, seenIds);
+    }
+    seenIds.add(id);
+    const transports = Array.isArray(zone.transports)
+      ? zone.transports.map(transport => ({
+          from: {
+            x: Number(transport?.from?.x) || 0,
+            y: Number(transport?.from?.y) || 0,
+          },
+          toZoneId: transport?.toZoneId ? String(transport.toZoneId) : '',
+          to: {
+            x: Number(transport?.to?.x) || 0,
+            y: Number(transport?.to?.y) || 0,
+          },
+        }))
+      : [];
+    const enemyPlacements = Array.isArray(zone.enemyPlacements)
+      ? zone.enemyPlacements.map(placement => ({
+          x: Number(placement.x) || 0,
+          y: Number(placement.y) || 0,
+          templateId: placement.templateId ? String(placement.templateId) : '',
+        }))
+      : [];
+    return {
+      id,
+      name: zone.name || id,
+      width,
+      height,
+      tiles,
+      transports,
+      enemyPlacements,
+      spawn: zone.spawn
+        ? {
+            x: Number(zone.spawn.x) || 0,
+            y: Number(zone.spawn.y) || 0,
+          }
+        : null,
+    };
+  });
+  state.selectedZoneId = state.zones[0]?.id || null;
+  state.transportPlacement = null;
+  renderTilePalette();
+  renderZonesList();
+  renderZoneEditor();
+  updateTransportOptions();
+  syncWorldForm();
+}
+
+function handleLoadWorld() {
+  const raw = worldOutput.value.trim();
+  if (!raw) {
+    alert('Paste a world JSON into the text area before loading.');
+    return;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    alert(`Invalid JSON: ${err.message}`);
+    return;
+  }
+  applyWorldData(parsed);
+  const world = buildWorldData();
+  worldOutput.value = world ? JSON.stringify(world, null, 2) : '';
 }
 
 generateWorldButton.addEventListener('click', generateWorldJson);
+if (loadWorldButton) {
+  loadWorldButton.addEventListener('click', handleLoadWorld);
+}
 
 function showError(message) {
   loadingEl.innerHTML = `
@@ -925,6 +1210,7 @@ async function initialize() {
   try {
     initializeDefaults();
     attachWorldListeners();
+    syncWorldForm();
     const [abilitiesResponse, equipmentResponse] = await Promise.all([
       fetch('/abilities'),
       fetch('/equipment'),
