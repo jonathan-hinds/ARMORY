@@ -172,11 +172,30 @@ body.world-builder {
   cursor:pointer;
   text-transform:uppercase;
   position:relative;
+  background-size:cover;
+  background-position:center;
 }
 
 .tile-token.active {
   outline:2px dashed #000;
   outline-offset:3px;
+}
+
+.tile-token.has-sprite {
+  color:#fff;
+  text-shadow:0 1px 1px #000;
+}
+
+.tile-token.has-sprite span {
+  background:rgba(0, 0, 0, 0.6);
+  padding:2px 4px;
+  border-radius:2px;
+}
+
+.tile-token.has-sprite strong {
+  background:rgba(0, 0, 0, 0.6);
+  padding:2px 4px;
+  border-radius:2px;
 }
 
 .tile-token span {
@@ -461,6 +480,8 @@ body.world-builder {
   justify-content:center;
   position:relative;
   cursor:pointer;
+  background-size:cover;
+  background-position:center;
 }
 
 .zone-cell.has-enemy::after {
