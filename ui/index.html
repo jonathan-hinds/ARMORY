@@ -85,7 +85,16 @@
               </div>
             </div>
             <div class="world-screen">
-              <canvas id="world-canvas" width="640" height="480" aria-label="World view" tabindex="0"></canvas>
+              <div class="world-canvas-stack">
+                <canvas id="world-canvas" width="640" height="480" aria-label="World view" tabindex="0"></canvas>
+                <canvas
+                  id="world-shop-canvas"
+                  class="world-shop-canvas hidden"
+                  width="640"
+                  height="480"
+                  aria-hidden="true"
+                ></canvas>
+              </div>
             </div>
             <div id="world-message" class="world-message message hidden"></div>
             <div class="world-dpad-wrapper">

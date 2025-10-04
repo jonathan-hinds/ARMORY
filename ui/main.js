@@ -196,6 +196,1009 @@ let worldZoneMap = new Map();
 let worldCurrentZoneId = null;
 const worldEntityMotion = new Map();
 let worldInteractButton = null;
+let worldShopCanvas = null;
+let worldShopCtx = null;
+let worldShopMessageEl = null;
+let worldShopTooltipEl = null;
+let worldShopRenderFrame = null;
+const worldShopState = {
+  active: false,
+  service: null,
+  filters: {
+    categories: new Set(),
+    slots: new Set(),
+    weaponTypes: new Set(),
+    scaling: new Set(),
+    effects: new Set(),
+  },
+  sortOrder: 'cost-asc',
+  catalog: [],
+  filtered: [],
+  structure: null,
+  options: {
+    categories: [],
+    slots: [],
+    weaponTypes: [],
+    scaling: [],
+    effects: [],
+  },
+  totalItems: 0,
+  gold: 0,
+  loading: false,
+  error: null,
+  scrollOffset: 0,
+  scrollMax: 0,
+  pointer: { x: 0, y: 0, clientX: 0, clientY: 0, inside: false },
+  hovered: null,
+  hoveredButton: null,
+  hoveredItem: null,
+  hoveredBuy: null,
+  interactive: {
+    filterOptions: [],
+    sortOptions: [],
+    resetButton: null,
+    closeButton: null,
+    itemCards: [],
+  },
+  layout: null,
+  messageText: '',
+  messageIsError: false,
+  messageVisible: false,
+  purchasePending: null,
+};
+resetWorldShopFilters();
+
+function resetWorldShopFilters() {
+  setSetValues(worldShopState.filters.categories, SHOP_CATEGORY_DEFINITIONS.map(option => option.value));
+  worldShopState.filters.slots.clear();
+  worldShopState.filters.weaponTypes.clear();
+  worldShopState.filters.scaling.clear();
+  worldShopState.filters.effects.clear();
+}
+
+function requestWorldShopRender() {
+  if (!worldShopState.active || !worldShopCtx || !worldShopCanvas) {
+    return;
+  }
+  if (worldShopRenderFrame) {
+    cancelAnimationFrame(worldShopRenderFrame);
+  }
+  worldShopRenderFrame = requestAnimationFrame(() => {
+    worldShopRenderFrame = null;
+    renderWorldShop();
+  });
+}
+
+function setWorldShopMessage(text, isError = false) {
+  worldShopState.messageText = text || '';
+  worldShopState.messageIsError = !!isError;
+  worldShopState.messageVisible = Boolean(text);
+  if (worldShopState.active) {
+    requestWorldShopRender();
+  }
+}
+
+function cloneWorldNpcService(raw) {
+  if (!raw) {
+    return null;
+  }
+  if (typeof raw === 'string') {
+    const type = raw.trim().toLowerCase();
+    if (!type) {
+      return null;
+    }
+    if (type === 'shop') {
+      return { type: 'shop', shopId: null };
+    }
+    return null;
+  }
+  if (typeof raw === 'object') {
+    const type = typeof raw.type === 'string' ? raw.type.trim().toLowerCase() : '';
+    if (!type) {
+      return null;
+    }
+    if (type === 'shop') {
+      const shopId =
+        typeof raw.shopId === 'string' && raw.shopId.trim() ? raw.shopId.trim() : null;
+      return { type: 'shop', shopId };
+    }
+  }
+  return null;
+}
+
+function openWorldNpcService(service) {
+  const normalized = cloneWorldNpcService(service);
+  if (!normalized) {
+    return;
+  }
+  if (normalized.type === 'shop') {
+    openWorldShop(normalized).catch(err => {
+      console.error('world shop failed', err);
+      setWorldShopMessage(err && err.message ? err.message : 'Shop unavailable', true);
+    });
+  }
+}
+
+function prepareWorldShopOptions() {
+  const catalog = Array.isArray(worldShopState.catalog) ? worldShopState.catalog : [];
+  const categoriesPresent = new Set(catalog.map(item => getShopCategoryKey(item)));
+  const categoryOptions = SHOP_CATEGORY_DEFINITIONS.filter(option => categoriesPresent.has(option.value));
+  worldShopState.options.categories = categoryOptions;
+  worldShopState.options.slots = buildSlotOptions(catalog);
+  worldShopState.options.weaponTypes = buildWeaponTypeOptions(catalog);
+  worldShopState.options.scaling = buildScalingOptions(catalog);
+  worldShopState.options.effects = buildEffectOptionsForItems(catalog);
+  pruneSetToOptions(worldShopState.filters.categories, categoryOptions);
+  pruneSetToOptions(worldShopState.filters.slots, worldShopState.options.slots);
+  pruneSetToOptions(worldShopState.filters.weaponTypes, worldShopState.options.weaponTypes);
+  pruneSetToOptions(worldShopState.filters.scaling, worldShopState.options.scaling);
+  pruneSetToOptions(worldShopState.filters.effects, worldShopState.options.effects);
+  if (!worldShopState.filters.categories.size && categoryOptions.length) {
+    setSetValues(worldShopState.filters.categories, categoryOptions.map(option => option.value));
+  }
+}
+
+function applyWorldShopFilters(items) {
+  const filters = worldShopState.filters;
+  if (!filters.categories.size) {
+    return [];
+  }
+  return items.filter(item => {
+    const categoryKey = getShopCategoryKey(item);
+    if (!filters.categories.has(categoryKey)) {
+      return false;
+    }
+    if (filters.slots.size && !filters.slots.has(item.slot)) {
+      return false;
+    }
+    if (filters.weaponTypes.size) {
+      const type = normalizeWeaponType(item.type);
+      if (!filters.weaponTypes.has(type)) {
+        return false;
+      }
+    }
+    if (filters.scaling.size) {
+      const statKeys = getItemStatKeys(item);
+      if (!statKeys.some(stat => filters.scaling.has(stat))) {
+        return false;
+      }
+    }
+    if (filters.effects.size) {
+      for (const effect of filters.effects) {
+        if (effect === 'onHit' && !(Array.isArray(item.onHitEffects) && item.onHitEffects.length)) {
+          return false;
+        }
+        if (effect === 'useEffect' && !item.useEffect) {
+          return false;
+        }
+        if (effect === 'attributeBonus' && !formatAttributeBonuses(item.attributeBonuses)) {
+          return false;
+        }
+        if (effect === 'chanceBonus' && !formatChanceBonuses(item.chanceBonuses)) {
+          return false;
+        }
+        if (effect === 'resourceBonus' && !formatResourceBonuses(item.resourceBonuses)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  });
+}
+
+function getWorldShopComparator() {
+  const comparators = {
+    'cost-asc': createMetricComparator(getItemCost, 'asc'),
+    'cost-desc': createMetricComparator(getItemCost, 'desc'),
+    'damage-asc': createMetricComparator(getItemAverageDamage, 'asc'),
+    'damage-desc': createMetricComparator(getItemAverageDamage, 'desc'),
+    'stat-asc': createMetricComparator(getItemStatBonus, 'asc'),
+    'stat-desc': createMetricComparator(getItemStatBonus, 'desc'),
+  };
+  return comparators[worldShopState.sortOrder] || comparators['cost-asc'];
+}
+
+function sortWorldShopItems(items) {
+  const comparator = getWorldShopComparator();
+  return items.slice().sort(comparator);
+}
+
+function refreshWorldShopFilteredItems() {
+  prepareWorldShopOptions();
+  const baseCatalog = Array.isArray(worldShopState.catalog) ? worldShopState.catalog : [];
+  const filtered = applyWorldShopFilters(baseCatalog);
+  worldShopState.filtered = sortWorldShopItems(filtered);
+  worldShopState.structure = buildShopCategoryStructure(worldShopState.filtered);
+  worldShopState.totalItems = baseCatalog.length;
+  worldShopState.gold = currentCharacter ? currentCharacter.gold || 0 : 0;
+  if (worldShopState.scrollOffset > worldShopState.scrollMax) {
+    worldShopState.scrollOffset = Math.max(0, Math.min(worldShopState.scrollOffset, worldShopState.scrollMax));
+  }
+  requestWorldShopRender();
+}
+
+function getWorldShopItemTags(item) {
+  const tags = [];
+  const slotTag = slotLabel(item.slot);
+  if (slotTag) tags.push(slotTag);
+  if (item.slot === 'weapon') {
+    const typeTag = item.type ? titleCase(item.type) : '';
+    if (typeTag) tags.push(typeTag);
+    if (item.damageType) tags.push(`${titleCase(item.damageType)} Damage`);
+  } else if (isUseableItem(item)) {
+    const categoryTag = item.category ? titleCase(item.category) : '';
+    if (categoryTag) tags.push(categoryTag);
+  } else if (isMaterial(item)) {
+    tags.push('Crafting');
+  } else if (item.type) {
+    tags.push(titleCase(item.type));
+  }
+  return tags;
+}
+
+function buildWorldShopSummaryLines(item) {
+  const lines = [];
+  if (isMaterial(item)) {
+    if (item.description) {
+      lines.push(item.description);
+    }
+    return lines;
+  }
+  if (isUseableItem(item)) {
+    const trigger = describeUseTrigger(item.useTrigger);
+    if (trigger) {
+      lines.push(`Trigger: ${trigger}`);
+    }
+    if (item.useEffect) {
+      lines.push(`Effect: ${describeEffect(item.useEffect)}`);
+    }
+    if (item.useDuration) {
+      lines.push(`Duration: ${titleCase(item.useDuration)}`);
+    }
+    lines.push(`Consumed: ${item.useConsumed ? 'Yes' : 'No'}`);
+    return lines;
+  }
+  if (item.baseDamage) {
+    const min = item.baseDamage.min != null ? item.baseDamage.min : 0;
+    const max = item.baseDamage.max != null ? item.baseDamage.max : min;
+    lines.push(`Damage: ${min}-${max}`);
+  }
+  const scalingEntries = Object.entries(item.scaling || {})
+    .filter(([, letter]) => letter)
+    .map(([stat, letter]) => `${statLabel(stat)} ${String(letter).toUpperCase()}`);
+  if (scalingEntries.length) {
+    lines.push(`Scaling: ${scalingEntries.join(', ')}`);
+  }
+  const attr = formatAttributeBonuses(item.attributeBonuses);
+  if (attr) {
+    lines.push(`Attributes: ${attr}`);
+  }
+  const resources = formatResourceBonuses(item.resourceBonuses);
+  if (resources) {
+    lines.push(`Resources: ${resources}`);
+  }
+  const resist = formatResistances(item.resistances);
+  if (resist) {
+    lines.push(`Resistances: ${resist}`);
+  }
+  const chance = formatChanceBonuses(item.chanceBonuses);
+  if (chance) {
+    lines.push(`Chances: ${chance}`);
+  }
+  if (Array.isArray(item.onHitEffects) && item.onHitEffects.length) {
+    lines.push('On Hit: See tooltip');
+  }
+  return lines;
+}
+
+function hideWorldShopTooltip() {
+  if (worldShopTooltipEl) {
+    worldShopTooltipEl.classList.add('hidden');
+    worldShopTooltipEl.innerHTML = '';
+  }
+}
+
+function showWorldShopTooltip(item, clientX, clientY) {
+  if (!worldShopTooltipEl) {
+    return;
+  }
+  const content = itemTooltip(item);
+  worldShopTooltipEl.innerHTML = '';
+  if (content) {
+    worldShopTooltipEl.appendChild(content);
+    if (content.dataset && content.dataset.tooltipTheme) {
+      worldShopTooltipEl.dataset.theme = content.dataset.tooltipTheme;
+    } else {
+      delete worldShopTooltipEl.dataset.theme;
+    }
+  } else {
+    delete worldShopTooltipEl.dataset.theme;
+  }
+  worldShopTooltipEl.classList.remove('hidden');
+  worldShopTooltipEl.style.left = `${Math.round(clientX + 12)}px`;
+  worldShopTooltipEl.style.top = `${Math.round(clientY + 12)}px`;
+}
+
+function updateWorldShopTooltipPosition() {
+  if (!worldShopTooltipEl || worldShopTooltipEl.classList.contains('hidden')) {
+    return;
+  }
+  worldShopTooltipEl.style.left = `${Math.round(worldShopState.pointer.clientX + 12)}px`;
+  worldShopTooltipEl.style.top = `${Math.round(worldShopState.pointer.clientY + 12)}px`;
+}
+
+function pointInRect(point, rect) {
+  if (!rect) {
+    return false;
+  }
+  return (
+    point.x >= rect.x
+    && point.x <= rect.x + rect.width
+    && point.y >= rect.y
+    && point.y <= rect.y + rect.height
+  );
+}
+
+function worldShopCanvasToLocal(event) {
+  if (!worldShopCanvas) {
+    return { x: 0, y: 0 };
+  }
+  const rect = worldShopCanvas.getBoundingClientRect();
+  const scaleX = worldShopCanvas.width / rect.width;
+  const scaleY = worldShopCanvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
+}
+
+function updateWorldShopHover(x, y) {
+  const point = { x, y };
+  const prevHoveredItem = worldShopState.hoveredItem;
+  const prevHoveredButton = worldShopState.hoveredButton;
+  const prevHoveredBuy = worldShopState.hoveredBuy;
+  let hoveredItem = null;
+  let hoveredBuy = null;
+  let hoveredButton = null;
+  let cursor = 'default';
+  const closeRect = worldShopState.interactive.closeButton;
+  if (closeRect && pointInRect(point, closeRect)) {
+    hoveredButton = { type: 'close' };
+    cursor = 'pointer';
+  }
+  if (!hoveredButton) {
+    for (const option of worldShopState.interactive.filterOptions) {
+      if (pointInRect(point, option.rect)) {
+        hoveredButton = { type: 'filter', key: option.key, value: option.value };
+        cursor = 'pointer';
+        break;
+      }
+    }
+  }
+  if (!hoveredButton) {
+    for (const option of worldShopState.interactive.sortOptions) {
+      if (pointInRect(point, option.rect)) {
+        hoveredButton = { type: 'sort', value: option.value };
+        cursor = 'pointer';
+        break;
+      }
+    }
+  }
+  if (!hoveredButton) {
+    const resetRect = worldShopState.interactive.resetButton;
+    if (resetRect && pointInRect(point, resetRect)) {
+      hoveredButton = { type: 'reset' };
+      cursor = 'pointer';
+    }
+  }
+  const buyCursor = worldShopState.purchasePending ? 'wait' : 'pointer';
+  if (!hoveredButton) {
+    for (const card of worldShopState.interactive.itemCards) {
+      if (card.buyRect && pointInRect(point, card.buyRect)) {
+        hoveredButton = { type: 'buy', item: card.item };
+        hoveredItem = card.item;
+        hoveredBuy = card.item;
+        cursor = buyCursor;
+        break;
+      }
+    }
+  }
+  if (!hoveredItem) {
+    for (const card of worldShopState.interactive.itemCards) {
+      if (pointInRect(point, card.rect)) {
+        hoveredItem = card.item;
+        break;
+      }
+    }
+  }
+  worldShopState.hoveredButton = hoveredButton;
+  worldShopState.hoveredItem = hoveredItem;
+  worldShopState.hoveredBuy = hoveredBuy;
+  if (worldShopCanvas) {
+    worldShopCanvas.style.cursor = cursor;
+  }
+  if (hoveredItem) {
+    showWorldShopTooltip(hoveredItem, worldShopState.pointer.clientX, worldShopState.pointer.clientY);
+  } else {
+    hideWorldShopTooltip();
+  }
+  if (
+    hoveredButton !== prevHoveredButton
+    || hoveredItem !== prevHoveredItem
+    || hoveredBuy !== prevHoveredBuy
+  ) {
+    requestWorldShopRender();
+  }
+}
+
+function handleWorldShopPointerMove(event) {
+  if (!worldShopState.active) {
+    return;
+  }
+  const coords = worldShopCanvasToLocal(event);
+  worldShopState.pointer = {
+    x: coords.x,
+    y: coords.y,
+    clientX: event.clientX,
+    clientY: event.clientY,
+    inside: true,
+  };
+  updateWorldShopHover(coords.x, coords.y);
+  updateWorldShopTooltipPosition();
+}
+
+function handleWorldShopPointerLeave() {
+  if (!worldShopState.active) {
+    return;
+  }
+  worldShopState.pointer.inside = false;
+  worldShopState.hoveredButton = null;
+  worldShopState.hoveredItem = null;
+  worldShopState.hoveredBuy = null;
+  if (worldShopCanvas) {
+    worldShopCanvas.style.cursor = 'default';
+  }
+  hideWorldShopTooltip();
+  requestWorldShopRender();
+}
+
+function handleWorldShopPointerDown(event) {
+  if (!worldShopState.active) {
+    return;
+  }
+  const coords = worldShopCanvasToLocal(event);
+  worldShopState.pointer.x = coords.x;
+  worldShopState.pointer.y = coords.y;
+  worldShopState.pointer.clientX = event.clientX;
+  worldShopState.pointer.clientY = event.clientY;
+  worldShopState.pointer.inside = true;
+  updateWorldShopHover(coords.x, coords.y);
+}
+
+async function handleWorldShopClick(event) {
+  if (!worldShopState.active) {
+    return;
+  }
+  const coords = worldShopCanvasToLocal(event);
+  worldShopState.pointer.x = coords.x;
+  worldShopState.pointer.y = coords.y;
+  worldShopState.pointer.clientX = event.clientX;
+  worldShopState.pointer.clientY = event.clientY;
+  worldShopState.pointer.inside = true;
+  updateWorldShopHover(coords.x, coords.y);
+  const action = worldShopState.hoveredButton;
+  if (!action) {
+    return;
+  }
+  event.preventDefault();
+  if (action.type === 'close') {
+    closeWorldShop();
+    return;
+  }
+  if (action.type === 'filter') {
+    const targetSet = worldShopState.filters[action.key];
+    if (targetSet && typeof targetSet.has === 'function') {
+      if (targetSet.has(action.value)) {
+        targetSet.delete(action.value);
+      } else {
+        targetSet.add(action.value);
+      }
+      refreshWorldShopFilteredItems();
+    }
+    return;
+  }
+  if (action.type === 'sort') {
+    worldShopState.sortOrder = action.value;
+    refreshWorldShopFilteredItems();
+    return;
+  }
+  if (action.type === 'reset') {
+    resetWorldShopFilters();
+    worldShopState.sortOrder = 'cost-asc';
+    refreshWorldShopFilteredItems();
+    return;
+  }
+  if (action.type === 'buy' && action.item) {
+    if (worldShopState.purchasePending) {
+      return;
+    }
+    if (worldShopState.gold < getItemCost(action.item)) {
+      return;
+    }
+    worldShopState.purchasePending = action.item.id;
+    requestWorldShopRender();
+    try {
+      await purchaseItem(action.item, worldShopMessageEl);
+      await ensureInventory().catch(() => null);
+      worldShopState.catalog = Array.isArray(shopCatalogCache) && shopCatalogCache.length
+        ? shopCatalogCache.slice()
+        : getCatalogItems();
+      worldShopState.gold = currentCharacter ? currentCharacter.gold || 0 : 0;
+      refreshWorldShopFilteredItems();
+    } catch (err) {
+      console.error('world shop purchase failed', err);
+    } finally {
+      worldShopState.purchasePending = null;
+      requestWorldShopRender();
+    }
+  }
+}
+
+function handleWorldShopWheel(event) {
+  if (!worldShopState.active) {
+    return;
+  }
+  event.preventDefault();
+  const { deltaY, deltaMode } = event;
+  let delta = deltaY;
+  if (deltaMode === 1) {
+    delta *= 20;
+  } else if (deltaMode === 2) {
+    delta *= worldShopCanvas ? worldShopCanvas.height : 100;
+  }
+  const nextOffset = Math.max(0, Math.min(worldShopState.scrollMax, worldShopState.scrollOffset + delta));
+  if (nextOffset !== worldShopState.scrollOffset) {
+    worldShopState.scrollOffset = nextOffset;
+    updateWorldShopTooltipPosition();
+    requestWorldShopRender();
+  }
+}
+
+async function openWorldShop(service = null) {
+  ensureWorldShopCanvas();
+  if (!worldShopCanvas) {
+    return;
+  }
+  worldShopState.service = cloneWorldNpcService(service);
+  resetWorldShopFilters();
+  worldShopState.sortOrder = 'cost-asc';
+  worldShopState.catalog = [];
+  worldShopState.filtered = [];
+  worldShopState.structure = null;
+  worldShopState.interactive.filterOptions = [];
+  worldShopState.interactive.sortOptions = [];
+  worldShopState.interactive.itemCards = [];
+  worldShopState.interactive.resetButton = null;
+  worldShopState.interactive.closeButton = null;
+  worldShopState.scrollOffset = 0;
+  worldShopState.scrollMax = 0;
+  worldShopState.hoveredButton = null;
+  worldShopState.hoveredItem = null;
+  worldShopState.hoveredBuy = null;
+  worldShopState.pointer.inside = false;
+  worldShopState.loading = true;
+  worldShopState.error = null;
+  worldShopState.messageText = '';
+  worldShopState.messageIsError = false;
+  worldShopState.messageVisible = false;
+  worldShopState.purchasePending = null;
+  worldShopState.active = true;
+  worldMovementLocked = true;
+  hideWorldShopTooltip();
+  if (worldShopCanvas) {
+    worldShopCanvas.classList.remove('hidden');
+    worldShopCanvas.style.cursor = 'default';
+  }
+  requestWorldShopRender();
+  try {
+    await ensureCatalog();
+    await ensureInventory().catch(() => null);
+    shopCatalogCache = getCatalogItems();
+    shopTotalItems = shopCatalogCache.length;
+    worldShopState.catalog = shopCatalogCache.slice();
+    worldShopState.gold = currentCharacter ? currentCharacter.gold || 0 : 0;
+    worldShopState.loading = false;
+    refreshWorldShopFilteredItems();
+  } catch (err) {
+    worldShopState.loading = false;
+    worldShopState.error = err && err.message ? err.message : 'Failed to load shop.';
+    setWorldShopMessage(worldShopState.error, true);
+    requestWorldShopRender();
+  }
+}
+
+function closeWorldShop() {
+  if (!worldShopState.active) {
+    return;
+  }
+  worldShopState.active = false;
+  worldShopState.service = null;
+  worldShopState.catalog = [];
+  worldShopState.filtered = [];
+  worldShopState.structure = null;
+  worldShopState.interactive.filterOptions = [];
+  worldShopState.interactive.sortOptions = [];
+  worldShopState.interactive.itemCards = [];
+  worldShopState.interactive.resetButton = null;
+  worldShopState.interactive.closeButton = null;
+  worldShopState.scrollOffset = 0;
+  worldShopState.scrollMax = 0;
+  worldShopState.hoveredButton = null;
+  worldShopState.hoveredItem = null;
+  worldShopState.hoveredBuy = null;
+  worldShopState.pointer.inside = false;
+  worldShopState.messageVisible = false;
+  worldShopState.messageText = '';
+  worldShopState.messageIsError = false;
+  worldShopState.loading = false;
+  worldShopState.error = null;
+  worldShopState.purchasePending = null;
+  hideWorldShopTooltip();
+  if (worldShopCanvas) {
+    worldShopCanvas.classList.add('hidden');
+    worldShopCanvas.style.cursor = 'default';
+  }
+  if (!worldDialogState) {
+    worldMovementLocked = false;
+  }
+  requestWorldShopRender();
+}
+
+function renderWorldShop() {
+  if (!worldShopState.active || !worldShopCtx || !worldShopCanvas) {
+    return;
+  }
+  const ctx = worldShopCtx;
+  const width = worldShopCanvas.width;
+  const height = worldShopCanvas.height;
+  ctx.clearRect(0, 0, width, height);
+  ctx.save();
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+  ctx.fillRect(0, 0, width, height);
+  const margin = Math.round(Math.min(width, height) * 0.05);
+  const panelWidth = width - margin * 2;
+  const panelHeight = height - margin * 2;
+  if (panelWidth <= 0 || panelHeight <= 0) {
+    ctx.restore();
+    return;
+  }
+  const panelX = margin;
+  const panelY = margin;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(panelX, panelY, panelWidth, panelHeight);
+  ctx.strokeStyle = '#000000';
+  const borderWidth = Math.max(2, Math.round(Math.min(panelWidth, panelHeight) / 300));
+  ctx.lineWidth = borderWidth;
+  ctx.strokeRect(panelX + borderWidth / 2, panelY + borderWidth / 2, panelWidth - borderWidth, panelHeight - borderWidth);
+  const padding = Math.round(Math.min(panelWidth, panelHeight) * 0.05);
+  const contentX = panelX + padding;
+  const contentY = panelY + padding;
+  const contentWidth = panelWidth - padding * 2;
+  const contentHeight = panelHeight - padding * 2;
+  const scale = Math.min(contentWidth / 860, contentHeight / 640);
+  const baseFont = Math.max(14, Math.round(16 * scale + 2));
+  const titleFont = Math.round(baseFont * 1.5);
+  const headerFont = Math.round(baseFont * 1.2);
+  const smallFont = Math.max(12, Math.round(baseFont * 0.85));
+  const lineHeight = Math.round(baseFont * 1.3);
+  const sectionSpacing = Math.round(baseFont * 0.75);
+  ctx.fillStyle = '#000';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.font = `bold ${titleFont}px "Courier New", monospace`;
+  ctx.fillText('SHOP', contentX, contentY);
+  const closeWidth = Math.round(titleFont * 1.1);
+  const closeHeight = Math.round(titleFont * 0.9);
+  const closeX = contentX + contentWidth - closeWidth;
+  const closeY = contentY;
+  ctx.strokeRect(closeX + 0.5, closeY + 0.5, closeWidth - 1, closeHeight - 1);
+  ctx.font = `bold ${Math.round(titleFont * 0.9)}px "Courier New", monospace`;
+  ctx.fillText('×', closeX + closeWidth / 2 - titleFont * 0.3, closeY + closeHeight / 2 - titleFont * 0.6);
+  worldShopState.interactive.closeButton = { x: closeX, y: closeY, width: closeWidth, height: closeHeight };
+  ctx.font = `${smallFont}px "Courier New", monospace`;
+  const infoY = contentY + titleFont + Math.round(sectionSpacing * 0.5);
+  ctx.fillText(`Gold: ${worldShopState.gold}`, contentX, infoY);
+  const messageY = infoY + smallFont + Math.round(sectionSpacing * 0.5);
+  const messageHeight = Math.round(smallFont * 1.6);
+  ctx.fillStyle = worldShopState.messageVisible ? (worldShopState.messageIsError ? '#ffd6d6' : '#e7f1ff') : '#f5f5f5';
+  ctx.strokeStyle = '#000';
+  ctx.fillRect(contentX, messageY, contentWidth, messageHeight);
+  ctx.strokeRect(contentX + 0.5, messageY + 0.5, contentWidth - 1, messageHeight - 1);
+  ctx.fillStyle = '#000';
+  ctx.font = `${smallFont}px "Courier New", monospace`;
+  const messageText = worldShopState.messageVisible ? worldShopState.messageText : 'Select filters to focus on gear, materials, or consumables.';
+  ctx.fillText(messageText, contentX + 8, messageY + messageHeight / 2 - smallFont / 2);
+  const bodyTop = messageY + messageHeight + sectionSpacing;
+  const bodyHeight = contentY + contentHeight - bodyTop;
+  let filterWidth = Math.min(320, Math.max(220, contentWidth * 0.35));
+  if (contentWidth - filterWidth < 240) {
+    filterWidth = Math.max(200, contentWidth * 0.4);
+  }
+  const filtersRect = {
+    x: contentX,
+    y: bodyTop,
+    width: filterWidth,
+    height: bodyHeight,
+  };
+  const itemsRect = {
+    x: contentX + filterWidth + sectionSpacing,
+    y: bodyTop,
+    width: contentX + contentWidth - (contentX + filterWidth + sectionSpacing),
+    height: bodyHeight,
+  };
+  if (itemsRect.width < 200) {
+    itemsRect.width = Math.max(200, contentWidth - filterWidth - sectionSpacing);
+  }
+  worldShopState.layout = {
+    panelRect: { x: panelX, y: panelY, width: panelWidth, height: panelHeight },
+    contentRect: { x: contentX, y: contentY, width: contentWidth, height: contentHeight },
+    filtersRect,
+    itemsRect,
+    messageRect: { x: contentX, y: messageY, width: contentWidth, height: messageHeight },
+  };
+  ctx.fillStyle = '#fdfdfd';
+  ctx.fillRect(filtersRect.x, filtersRect.y, filtersRect.width, filtersRect.height);
+  ctx.strokeStyle = '#000';
+  ctx.strokeRect(filtersRect.x + 0.5, filtersRect.y + 0.5, filtersRect.width - 1, filtersRect.height - 1);
+  ctx.fillStyle = '#fdfdfd';
+  ctx.fillRect(itemsRect.x, itemsRect.y, itemsRect.width, itemsRect.height);
+  ctx.strokeStyle = '#000';
+  ctx.strokeRect(itemsRect.x + 0.5, itemsRect.y + 0.5, itemsRect.width - 1, itemsRect.height - 1);
+  worldShopState.interactive.filterOptions = [];
+  worldShopState.interactive.sortOptions = [];
+  worldShopState.interactive.itemCards = [];
+  worldShopState.interactive.resetButton = null;
+  const filterSections = [
+    { title: 'Categories', key: 'categories', options: worldShopState.options.categories || [] },
+    { title: 'Slots', key: 'slots', options: worldShopState.options.slots || [] },
+    { title: 'Weapon Types', key: 'weaponTypes', options: worldShopState.options.weaponTypes || [] },
+    { title: 'Scaling', key: 'scaling', options: worldShopState.options.scaling || [] },
+    { title: 'Effects', key: 'effects', options: worldShopState.options.effects || [] },
+  ];
+  let filterCursor = filtersRect.y + sectionSpacing;
+  ctx.font = `bold ${Math.round(baseFont * 1.05)}px "Courier New", monospace`;
+  filterSections.forEach(section => {
+    const boxWidth = filtersRect.width - sectionSpacing * 0.75;
+    const boxX = filtersRect.x + sectionSpacing * 0.4;
+    const headerHeight = Math.round(lineHeight * 0.9);
+    const optionHeight = lineHeight;
+    const optionCount = Math.max(1, section.options.length);
+    const boxHeight = headerHeight + optionCount * optionHeight + sectionSpacing * 0.5;
+    if (filterCursor + boxHeight > filtersRect.y + filtersRect.height - lineHeight * 2) {
+      return;
+    }
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#000';
+    ctx.fillRect(boxX, filterCursor, boxWidth, boxHeight);
+    ctx.strokeRect(boxX + 0.5, filterCursor + 0.5, boxWidth - 1, boxHeight - 1);
+    ctx.fillStyle = '#000';
+    ctx.fillText(section.title.toUpperCase(), boxX + 8, filterCursor + 6);
+    ctx.font = `${baseFont}px "Courier New", monospace`;
+    let optionY = filterCursor + headerHeight;
+    if (!section.options.length) {
+      ctx.fillText('No options', boxX + 20, optionY);
+      optionY += optionHeight;
+    } else {
+      section.options.forEach(option => {
+        const rect = {
+          x: boxX + 8,
+          y: optionY,
+          width: boxWidth - 16,
+          height: optionHeight,
+        };
+        const boxSize = Math.round(baseFont * 0.9);
+        ctx.strokeRect(rect.x + 0.5, rect.y + 4.5, boxSize - 1, boxSize - 1);
+        if (worldShopState.filters[section.key].has(option.value)) {
+          ctx.fillRect(rect.x + 4, rect.y + 8, boxSize - 8, boxSize - 8);
+        }
+        ctx.fillText(option.label, rect.x + boxSize + 8, rect.y + 4);
+        worldShopState.interactive.filterOptions.push({ key: section.key, value: option.value, rect });
+        optionY += optionHeight;
+      });
+    }
+    filterCursor = optionY + sectionSpacing * 0.5;
+    ctx.font = `bold ${Math.round(baseFont * 1.05)}px "Courier New", monospace`;
+  });
+  // Sort options
+  let sortCursor = filterCursor + sectionSpacing * 0.5;
+  ctx.font = `bold ${Math.round(baseFont * 1.05)}px "Courier New", monospace`;
+  ctx.fillText('SORT ORDER', filtersRect.x + sectionSpacing * 0.4, sortCursor);
+  sortCursor += lineHeight;
+  SHOP_SORT_OPTIONS.forEach(option => {
+    const rect = {
+      x: filtersRect.x + sectionSpacing * 0.4,
+      y: sortCursor,
+      width: filtersRect.width - sectionSpacing * 0.8,
+      height: Math.round(lineHeight * 0.9),
+    };
+    const active = worldShopState.sortOrder === option.value;
+    ctx.fillStyle = active ? '#000' : '#ffffff';
+    ctx.strokeStyle = '#000';
+    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
+    ctx.fillStyle = active ? '#fff' : '#000';
+    ctx.font = `${smallFont}px "Courier New", monospace`;
+    ctx.fillText(option.label, rect.x + 8, rect.y + rect.height / 2 - smallFont / 2);
+    worldShopState.interactive.sortOptions.push({ value: option.value, rect });
+    sortCursor += rect.height + Math.round(sectionSpacing * 0.4);
+  });
+  const resetHeight = Math.round(lineHeight * 0.9);
+  const resetRect = {
+    x: filtersRect.x + sectionSpacing * 0.4,
+    y: filtersRect.y + filtersRect.height - resetHeight - sectionSpacing,
+    width: filtersRect.width - sectionSpacing * 0.8,
+    height: resetHeight,
+  };
+  ctx.fillStyle = '#000';
+  ctx.fillRect(resetRect.x, resetRect.y, resetRect.width, resetRect.height);
+  ctx.strokeStyle = '#000';
+  ctx.strokeRect(resetRect.x + 0.5, resetRect.y + 0.5, resetRect.width - 1, resetRect.height - 1);
+  ctx.fillStyle = '#fff';
+  ctx.font = `bold ${smallFont}px "Courier New", monospace`;
+  ctx.fillText('RESET FILTERS', resetRect.x + 10, resetRect.y + resetRect.height / 2 - smallFont / 2);
+  worldShopState.interactive.resetButton = resetRect;
+  ctx.font = `bold ${smallFont}px "Courier New", monospace`;
+  ctx.fillStyle = '#000';
+  const summaryY = itemsRect.y + 8;
+  const summaryText = worldShopState.loading
+    ? 'Loading shop...'
+    : worldShopState.error
+    ? worldShopState.error
+    : `${worldShopState.filtered.length} of ${worldShopState.totalItems} items`;
+  ctx.fillText(summaryText, itemsRect.x + 12, summaryY);
+  const contentStartY = summaryY + smallFont + sectionSpacing;
+  if (worldShopState.loading) {
+    ctx.font = `bold ${headerFont}px "Courier New", monospace`;
+    ctx.fillText('Loading...', itemsRect.x + 12, contentStartY);
+    ctx.restore();
+    return;
+  }
+  if (worldShopState.error) {
+    ctx.font = `bold ${headerFont}px "Courier New", monospace`;
+    ctx.fillStyle = '#c00';
+    ctx.fillText(worldShopState.error, itemsRect.x + 12, contentStartY);
+    ctx.restore();
+    return;
+  }
+  if (!worldShopState.filtered.length) {
+    ctx.font = `bold ${headerFont}px "Courier New", monospace`;
+    ctx.fillText('No items match the selected filters.', itemsRect.x + 12, contentStartY);
+    ctx.restore();
+    return;
+  }
+  const structure = worldShopState.structure || buildShopCategoryStructure(worldShopState.filtered);
+  const cardGutter = Math.max(12, Math.round(sectionSpacing));
+  const usableWidth = itemsRect.width - cardGutter * 2;
+  let columns = Math.max(1, Math.floor(usableWidth / (240 + cardGutter)));
+  if (columns < 1) columns = 1;
+  const cardWidth = Math.floor((usableWidth - cardGutter * (columns - 1)) / columns);
+  const cardHeight = Math.max(Math.round(cardWidth * 0.6) + lineHeight * 4, 180);
+  const cardPadding = Math.round(cardWidth * 0.08);
+  const viewTop = itemsRect.y;
+  const viewBottom = itemsRect.y + itemsRect.height;
+  let contentCursor = contentStartY + worldShopState.scrollOffset;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(itemsRect.x, itemsRect.y, itemsRect.width, itemsRect.height);
+  ctx.clip();
+  SHOP_CATEGORY_DEFINITIONS.forEach(category => {
+    const groupMap = structure[category.value];
+    if (!groupMap || !groupMap.size) {
+      return;
+    }
+    const totalCount = [...groupMap.values()].reduce((sum, subgroup) => sum + subgroup.items.length, 0);
+    const headerHeight = Math.round(lineHeight * 1.1);
+    const headerScreenY = contentCursor - worldShopState.scrollOffset;
+    if (headerScreenY + headerHeight >= viewTop && headerScreenY <= viewBottom) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(itemsRect.x, headerScreenY, itemsRect.width, headerHeight);
+      ctx.fillStyle = '#fff';
+      ctx.font = `bold ${headerFont}px "Courier New", monospace`;
+      ctx.fillText(`${category.label} (${totalCount})`, itemsRect.x + 12, headerScreenY + headerHeight / 2 - headerFont / 2);
+    }
+    contentCursor += headerHeight + Math.round(sectionSpacing * 0.25);
+    const subgroups = [...groupMap.values()].sort((a, b) => a.label.localeCompare(b.label));
+    const showTitles = subgroups.length > 1;
+    subgroups.forEach(subgroup => {
+      if (showTitles) {
+        const subHeaderHeight = Math.round(lineHeight);
+        const subHeaderScreenY = contentCursor - worldShopState.scrollOffset;
+        if (subHeaderScreenY + subHeaderHeight >= viewTop && subHeaderScreenY <= viewBottom) {
+          ctx.fillStyle = '#222';
+          ctx.fillRect(itemsRect.x, subHeaderScreenY, itemsRect.width, subHeaderHeight);
+          ctx.fillStyle = '#fff';
+          ctx.font = `bold ${baseFont}px "Courier New", monospace`;
+          ctx.fillText(`${subgroup.label} (${subgroup.items.length})`, itemsRect.x + 16, subHeaderScreenY + subHeaderHeight / 2 - baseFont / 2);
+        }
+        contentCursor += subHeaderHeight + Math.round(sectionSpacing * 0.25);
+      }
+      const baseY = contentCursor;
+      subgroup.items.forEach((item, index) => {
+        const row = Math.floor(index / columns);
+        const col = index % columns;
+        const absoluteX = itemsRect.x + cardGutter + col * (cardWidth + cardGutter);
+        const absoluteY = baseY + row * (cardHeight + cardGutter);
+        const screenY = absoluteY - worldShopState.scrollOffset;
+        if (screenY + cardHeight < viewTop || screenY > viewBottom) {
+          return;
+        }
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#000';
+        ctx.fillRect(absoluteX, screenY, cardWidth, cardHeight);
+        ctx.strokeRect(absoluteX + 0.5, screenY + 0.5, cardWidth - 1, cardHeight - 1);
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${Math.round(baseFont * 1.05)}px "Courier New", monospace`;
+        ctx.fillText(item.name, absoluteX + cardPadding, screenY + cardPadding);
+        ctx.font = `${smallFont}px "Courier New", monospace`;
+        ctx.fillText(item.rarity || 'Common', absoluteX + cardPadding, screenY + cardPadding + smallFont + 2);
+        const tags = getWorldShopItemTags(item);
+        let tagY = screenY + cardPadding + smallFont * 2 + 6;
+        tags.forEach(tag => {
+          ctx.fillText(tag, absoluteX + cardPadding, tagY);
+          tagY += smallFont + 2;
+        });
+        const summaryLines = buildWorldShopSummaryLines(item).slice(0, 3);
+        let summaryY = screenY + cardHeight - Math.round(lineHeight * 1.4) - summaryLines.length * (smallFont + 2) - cardPadding;
+        if (summaryY < tagY) {
+          summaryY = tagY;
+        }
+        ctx.font = `${smallFont}px "Courier New", monospace`;
+        summaryLines.forEach(line => {
+          ctx.fillText(line, absoluteX + cardPadding, summaryY);
+          summaryY += smallFont + 2;
+        });
+        const costText = `${getItemCost(item)} Gold`;
+        ctx.font = `bold ${smallFont}px "Courier New", monospace`;
+        ctx.fillText(costText, absoluteX + cardPadding, screenY + cardHeight - cardPadding - Math.round(lineHeight * 0.8));
+        const buyWidth = Math.round(cardWidth * 0.4);
+        const buyHeight = Math.round(lineHeight * 0.9);
+        const buyX = absoluteX + cardWidth - cardPadding - buyWidth;
+        const buyY = screenY + cardHeight - cardPadding - buyHeight;
+        const canAfford = worldShopState.gold >= getItemCost(item);
+        const pending = worldShopState.purchasePending === item.id;
+        ctx.fillStyle = pending ? '#666' : canAfford ? '#000' : '#bbb';
+        ctx.fillRect(buyX, buyY, buyWidth, buyHeight);
+        ctx.strokeStyle = '#000';
+        ctx.strokeRect(buyX + 0.5, buyY + 0.5, buyWidth - 1, buyHeight - 1);
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${smallFont}px "Courier New", monospace`;
+        ctx.fillText('BUY', buyX + buyWidth / 2 - smallFont, buyY + buyHeight / 2 - smallFont / 2);
+        const cardRect = { x: absoluteX, y: screenY, width: cardWidth, height: cardHeight };
+        const buyRect = canAfford && !pending ? { x: buyX, y: buyY, width: buyWidth, height: buyHeight } : null;
+        worldShopState.interactive.itemCards.push({ item, rect: cardRect, buyRect });
+      });
+      const rows = Math.ceil(subgroup.items.length / columns);
+      contentCursor = baseY + rows * (cardHeight + cardGutter) + cardGutter;
+    });
+  });
+  ctx.restore();
+  const totalHeight = contentCursor - contentStartY;
+  const prevScrollMax = worldShopState.scrollMax;
+  worldShopState.scrollMax = Math.max(0, totalHeight - (itemsRect.height - (contentStartY - itemsRect.y)));
+  if (worldShopState.scrollMax < 0) {
+    worldShopState.scrollMax = 0;
+  }
+  if (worldShopState.scrollOffset > worldShopState.scrollMax) {
+    worldShopState.scrollOffset = worldShopState.scrollMax;
+    if (worldShopState.scrollOffset < 0) {
+      worldShopState.scrollOffset = 0;
+    }
+    if (prevScrollMax !== worldShopState.scrollMax) {
+      requestWorldShopRender();
+    }
+  }
+  ctx.restore();
+}
 
 function worldNow() {
   if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') {
@@ -574,6 +1577,7 @@ function resetWorldState() {
   }
   closeWorldEncounterDialog();
   closeWorldDialog();
+  closeWorldShop();
   worldPlayersState = new Map();
   worldEnemiesState = new Map();
   worldNpcsState = new Map();
@@ -638,6 +1642,7 @@ function ensureWorldCanvas() {
   ensureWorldFocusControls();
   ensureWorldTouchControls();
   ensureWorldLobbyControls();
+  ensureWorldShopCanvas();
 }
 
 async function refreshWorldOptions() {
@@ -747,6 +1752,60 @@ function resizeWorldCanvas() {
     if (worldCtx) {
       worldCtx.imageSmoothingEnabled = false;
     }
+  }
+  if (worldShopCanvas) {
+    if (worldShopCanvas.width !== nextWidth || worldShopCanvas.height !== nextHeight) {
+      worldShopCanvas.width = nextWidth;
+      worldShopCanvas.height = nextHeight;
+      if (!worldShopCtx) {
+        worldShopCtx = worldShopCanvas.getContext('2d');
+      }
+      if (worldShopCtx) {
+        worldShopCtx.imageSmoothingEnabled = false;
+      }
+    }
+  }
+  if (worldShopState.active) {
+    requestWorldShopRender();
+  }
+}
+
+function ensureWorldShopCanvas() {
+  if (worldShopCanvas && !document.body.contains(worldShopCanvas)) {
+    worldShopCanvas = null;
+    worldShopCtx = null;
+  }
+  if (!worldShopCanvas) {
+    worldShopCanvas = document.getElementById('world-shop-canvas');
+    if (worldShopCanvas) {
+      worldShopCtx = worldShopCanvas.getContext('2d');
+      if (worldShopCtx) {
+        worldShopCtx.imageSmoothingEnabled = false;
+      }
+    }
+  }
+  if (!worldShopCanvas) {
+    return;
+  }
+  if (!worldShopCanvas.dataset.worldShopBound) {
+    worldShopCanvas.dataset.worldShopBound = 'true';
+    worldShopCanvas.addEventListener('pointermove', handleWorldShopPointerMove);
+    worldShopCanvas.addEventListener('pointerleave', handleWorldShopPointerLeave);
+    worldShopCanvas.addEventListener('pointerdown', handleWorldShopPointerDown);
+    worldShopCanvas.addEventListener('click', handleWorldShopClick);
+    worldShopCanvas.addEventListener('wheel', handleWorldShopWheel, { passive: false });
+  }
+  if (!worldShopMessageEl) {
+    worldShopMessageEl = document.createElement('div');
+    worldShopMessageEl.className = 'hidden';
+    worldShopMessageEl.style.display = 'none';
+    worldShopMessageEl.dataset.worldShopMessage = 'true';
+    document.body.appendChild(worldShopMessageEl);
+  }
+  if (!worldShopTooltipEl) {
+    worldShopTooltipEl = document.createElement('div');
+    worldShopTooltipEl.className = 'tooltip hidden';
+    document.body.appendChild(worldShopTooltipEl);
   }
 }
 
@@ -1527,13 +2586,18 @@ function openWorldNpcDialog(npc) {
   }
   const dialogLines = extractNpcDialogLines(npc);
   const lines = dialogLines.length ? dialogLines : ['...'];
+  const service = cloneWorldNpcService(npc.service);
   worldDialogState = {
     npcId: npc.id || null,
     name: npc.name || 'Resident',
     lines,
     index: 0,
+    service,
   };
   worldMovementLocked = true;
+  if (!dialogLines.length && service) {
+    advanceWorldDialog();
+  }
 }
 
 function handleWorldInteractionPayload(interaction) {
@@ -1634,7 +2698,11 @@ function advanceWorldDialog() {
   }
   const nextIndex = worldDialogState.index + 1;
   if (nextIndex >= worldDialogState.lines.length) {
+    const service = worldDialogState.service || null;
     closeWorldDialog();
+    if (service) {
+      openWorldNpcService(service);
+    }
   } else {
     worldDialogState.index = nextIndex;
   }
@@ -1859,6 +2927,14 @@ function handleWorldKeydown(event) {
   if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
     return;
   }
+  if (worldShopState.active) {
+    const key = (event.key || event.code || '').toLowerCase();
+    if (key === 'escape') {
+      event.preventDefault();
+      closeWorldShop();
+    }
+    return;
+  }
   const key = (event.key || event.code || '').toLowerCase();
   if (key === 'escape') {
     if (worldDialogState) {
@@ -1880,6 +2956,10 @@ function handleWorldKeydown(event) {
 
 async function triggerWorldInteract() {
   if (!currentCharacter || !worldCurrentWorldId || !worldCurrentInstanceId) return;
+  if (worldShopState.active) {
+    closeWorldShop();
+    return;
+  }
   if (worldDialogState) {
     advanceWorldDialog();
     return;
@@ -2214,6 +3294,14 @@ const SHOP_CATEGORY_DEFINITIONS = [
   { value: 'armor', label: 'Armor' },
   { value: 'useables', label: 'Useable Items' },
   { value: 'materials', label: 'Materials' },
+];
+const SHOP_SORT_OPTIONS = [
+  { value: 'cost-asc', label: 'Cost • Low to High' },
+  { value: 'cost-desc', label: 'Cost • High to Low' },
+  { value: 'damage-desc', label: 'Damage • High to Low' },
+  { value: 'damage-asc', label: 'Damage • Low to High' },
+  { value: 'stat-desc', label: 'Stat Bonus • High to Low' },
+  { value: 'stat-asc', label: 'Stat Bonus • Low to High' },
 ];
 const SHOP_EFFECT_OPTIONS = [
   { value: 'onHit', label: 'On Hit Effects' },
@@ -3777,6 +4865,9 @@ function ensureBattlefieldResources() {
 
 function showMessage(el, text, isError = false) {
   if (!el) return;
+  if (el === worldShopMessageEl || (el.dataset && el.dataset.worldShopMessage === 'true')) {
+    setWorldShopMessage(text, isError);
+  }
   if (text) {
     el.textContent = text;
     el.classList.remove('hidden');

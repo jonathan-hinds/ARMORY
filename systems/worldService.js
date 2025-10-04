@@ -211,6 +211,31 @@ function normalizeNpcDialog(rawDialog) {
   };
 }
 
+function normalizeNpcService(rawService) {
+  if (!rawService) {
+    return null;
+  }
+  if (typeof rawService === 'string') {
+    const type = rawService.trim().toLowerCase();
+    if (type === 'shop') {
+      return { type: 'shop', shopId: null };
+    }
+    return null;
+  }
+  if (typeof rawService === 'object') {
+    const type = typeof rawService.type === 'string' ? rawService.type.trim().toLowerCase() : '';
+    if (!type) {
+      return null;
+    }
+    if (type === 'shop') {
+      const shopId =
+        typeof rawService.shopId === 'string' && rawService.shopId.trim() ? rawService.shopId.trim() : null;
+      return { type: 'shop', shopId };
+    }
+  }
+  return null;
+}
+
 function sanitizeNpcId(value) {
   const base = typeof value === 'string' ? value : '';
   const sanitized = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
@@ -372,6 +397,7 @@ function normalizeNpcs(entry, zones, defaultZoneId) {
     const facingRaw = typeof npcEntry.facing === 'string' ? npcEntry.facing.toLowerCase() : '';
     const facing = VALID_FACING.has(facingRaw) ? facingRaw : 'down';
     const dialog = normalizeNpcDialog(npcEntry.dialog);
+    const service = normalizeNpcService(npcEntry.service);
     const npc = {
       id,
       name,
@@ -381,6 +407,7 @@ function normalizeNpcs(entry, zones, defaultZoneId) {
       y,
       facing,
       dialog,
+      service,
     };
     npcs.push(npc);
     npcMap.set(id, npc);
@@ -519,6 +546,7 @@ function normalizeWorld(entry) {
       y: npc.y,
       facing: npc.facing,
       sprite: npc.sprite || null,
+      service: npc.service || null,
     }));
   });
   const tiles = defaultZone ? defaultZone.tiles : [];
@@ -630,6 +658,7 @@ function sanitizeWorld(world) {
         y: npc.y,
         facing: npc.facing,
         sprite: npc.sprite || null,
+        service: npc.service || null,
       }))
     : [];
   return {
@@ -685,6 +714,7 @@ function serializeNpcsForClient(state) {
     facing: npc.facing || 'down',
     zoneId: npc.zoneId || null,
     sprite: npc.sprite || null,
+    service: npc.service || null,
   }));
 }
 
@@ -1334,6 +1364,7 @@ async function createWorldInstance(worldId, participantIds = []) {
       state.npcs.set(npc.id, {
         ...npc,
         dialog: normalizeNpcDialog(npc.dialog),
+        service: normalizeNpcService(npc.service),
         dialogState: { nextIndex: 0 },
       });
     });
@@ -1750,6 +1781,7 @@ async function interactWithWorld(worldId, instanceId, characterId) {
       name: npc.name,
       dialog: dialogLines.slice(),
       sprite: npc.sprite || null,
+      service: npc.service || null,
     },
   };
 }
