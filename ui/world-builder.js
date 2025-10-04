@@ -1657,7 +1657,9 @@ function loadImageAsset(url, onLoad) {
     imageCache.set(url, entry);
   }
   if (entry.loaded) {
-    if (onLoad) onLoad(entry.image);
+    if (onLoad && !entry.error) {
+      Promise.resolve().then(() => onLoad(entry.image));
+    }
   } else if (onLoad && !entry.error) {
     entry.callbacks.push(onLoad);
   }
