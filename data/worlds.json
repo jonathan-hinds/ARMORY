@@ -84,6 +84,61 @@
           "gold": 5,
           "spawnChance": 0.5,
           "sprite": "/assets/sprites/creatures1.png"
+        },
+        {
+          "id": "nameless_soldier",
+          "name": "Nameless Soldier",
+          "basicType": "melee",
+          "level": 2,
+          "attributes": {
+            "strength": 7,
+            "stamina": 5,
+            "agility": 5,
+            "intellect": 0,
+            "wisdom": 0
+          },
+          "rotation": [
+            2,
+            9,
+            15,
+            16,
+            26
+          ],
+          "equipment": {
+            "weapon": "weapon_rusted_shortsword",
+            "useable": "useable_healing_potion"
+          },
+          "xpPct": 0.05,
+          "gold": 7,
+          "spawnChance": 0.5,
+          "sprite": "/assets/sprites/creatures3.png"
+        },
+        {
+          "id": "swamp_stalker",
+          "name": "Swamp Stalker",
+          "basicType": "melee",
+          "level": 3,
+          "attributes": {
+            "strength": 5,
+            "stamina": 4,
+            "agility": 10,
+            "intellect": 0,
+            "wisdom": 0
+          },
+          "rotation": [
+            7,
+            15,
+            16,
+            26,
+            25
+          ],
+          "equipment": {
+            "useable": "useable_toxins"
+          },
+          "xpPct": 0.05,
+          "gold": 7,
+          "spawnChance": 0.5,
+          "sprite": "/assets/sprites/creatures4.png"
         }
       ]
     },
@@ -1186,6 +1241,20 @@
             "templateId": "bog_beast"
           }
         ]
+      }
+    ],
+    "npcs": [
+      {
+        "id": "fisherman",
+        "name": "Fisherman",
+        "sprite": "/assets/sprites/npc.png",
+        "facing": "down",
+        "dialog": [
+          "What're ye' doin round'ese p'rts?"
+        ],
+        "zoneId": "marsh",
+        "x": 8,
+        "y": 4
       }
     ],
     "paletteName": "Marsh",
