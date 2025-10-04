@@ -25,6 +25,7 @@
         <button type="button" class="tab-button active" data-tab="world">World</button>
         <button type="button" class="tab-button" data-tab="sprites">Sprites</button>
         <button type="button" class="tab-button" data-tab="enemies">Enemies</button>
+        <button type="button" class="tab-button" data-tab="npcs">NPCs</button>
       </nav>
 
       <section class="builder-tab active" data-tab-panel="world">
@@ -115,6 +116,7 @@
                   <span class="mode-label">Edit Mode:</span>
                   <button data-mode="tile" class="mode-button active">Tiles</button>
                   <button data-mode="enemy" class="mode-button">Enemies</button>
+                  <button data-mode="npc" class="mode-button">NPCs</button>
                   <button data-mode="transport" class="mode-button">Transports</button>
                   <button data-mode="spawn" class="mode-button">Spawn</button>
                 </div>
@@ -142,6 +144,10 @@
                 <div class="enemy-mode-info hidden" id="enemy-mode-info">
                   <span>Placement Target:</span>
                   <span id="enemy-placement-target">None Selected</span>
+                </div>
+                <div class="npc-mode-info hidden" id="npc-mode-info">
+                  <span>NPC Target:</span>
+                  <span id="npc-placement-target">None Selected</span>
                 </div>
               </div>
               <div id="zone-details" class="zone-details"></div>
@@ -291,6 +297,63 @@
           <section class="panel enemy-library-panel">
             <h2>Saved Enemy Templates</h2>
             <div id="enemy-template-list" class="enemy-template-list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="builder-tab" data-tab-panel="npcs">
+        <div class="npc-layout">
+          <section class="panel npc-list-panel">
+            <div class="panel-header">
+              <h2>NPCs</h2>
+              <button type="button" id="npc-create">New NPC</button>
+            </div>
+            <div id="npc-list" class="npc-list"></div>
+          </section>
+
+          <section class="panel npc-editor-panel">
+            <h2>NPC Details</h2>
+            <form id="npc-form" class="npc-form">
+              <label class="field-label">
+                NPC ID
+                <input id="npc-id" type="text" placeholder="village_elder" />
+              </label>
+              <label class="field-label">
+                Name
+                <input id="npc-name" type="text" placeholder="Village Elder" />
+              </label>
+              <label class="field-label">
+                Facing
+                <select id="npc-facing">
+                  <option value="down">Down</option>
+                  <option value="up">Up</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </label>
+              <label class="field-label">
+                Sprite
+                <select id="npc-sprite-select">
+                  <option value="">None (Default)</option>
+                </select>
+              </label>
+              <div class="npc-sprite-preview" id="npc-sprite-preview">
+                <span>No sprite selected</span>
+              </div>
+              <label class="field-label">
+                Dialogue Lines
+                <textarea
+                  id="npc-dialog"
+                  rows="5"
+                  placeholder="Enter one line per message..."
+                ></textarea>
+              </label>
+              <p class="panel-note">Place NPCs from the World tab using the NPC edit mode.</p>
+              <div class="npc-form-actions">
+                <button type="submit" id="npc-save">Save NPC</button>
+                <button type="button" id="npc-delete" class="danger">Delete NPC</button>
+              </div>
+            </form>
           </section>
         </div>
       </section>

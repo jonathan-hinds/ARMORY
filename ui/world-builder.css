@@ -753,6 +753,108 @@ body.world-builder {
   gap:16px;
 }
 
+.npc-layout {
+  display:grid;
+  grid-template-columns:320px 1fr;
+  gap:16px;
+}
+
+.npc-list {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  max-height:420px;
+  overflow:auto;
+}
+
+.npc-item {
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  border:1px solid #000;
+  padding:8px;
+  background:#fdfdfd;
+  text-transform:uppercase;
+  gap:8px;
+  cursor:pointer;
+}
+
+.npc-item.active {
+  background:#000;
+  color:#fff;
+}
+
+.npc-item .npc-meta {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  font-size:12px;
+}
+
+.npc-item .npc-position {
+  font-size:11px;
+  letter-spacing:1px;
+}
+
+.npc-sprite-preview {
+  border:1px solid #000;
+  min-height:100px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:#fdfdfd;
+  margin:8px 0;
+}
+
+.npc-sprite-preview img {
+  width:96px;
+  height:96px;
+  image-rendering:pixelated;
+}
+
+.npc-form-actions {
+  display:flex;
+  gap:8px;
+  margin-top:12px;
+}
+
+.npc-form-actions .danger {
+  background:#000;
+  color:#fff;
+}
+
+.npc-mode-info {
+  display:flex;
+  gap:6px;
+  align-items:center;
+  font-size:12px;
+  text-transform:uppercase;
+}
+
+.zone-cell.has-npc::after {
+  content:'NPC';
+  position:absolute;
+  bottom:2px;
+  right:2px;
+  font-size:10px;
+  background:#000;
+  color:#fff;
+  padding:1px 3px;
+}
+
+.zone-cell-npc {
+  position:absolute;
+  inset:3px;
+  border:1px solid #000;
+  background:rgba(255, 255, 255, 0.8);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  pointer-events:none;
+  font-size:12px;
+  text-transform:uppercase;
+}
+
 .sprite-actions {
   display:flex;
   gap:8px;

@@ -69,6 +69,19 @@ const enemyTemplateListEl = document.getElementById('enemy-template-list');
 const enemyResetButton = document.getElementById('enemy-reset');
 const enemyPickerListEl = document.getElementById('enemy-picker-list');
 
+const npcModeInfo = document.getElementById('npc-mode-info');
+const npcPlacementTargetEl = document.getElementById('npc-placement-target');
+const npcListEl = document.getElementById('npc-list');
+const npcCreateButton = document.getElementById('npc-create');
+const npcForm = document.getElementById('npc-form');
+const npcIdInput = document.getElementById('npc-id');
+const npcNameInput = document.getElementById('npc-name');
+const npcFacingSelect = document.getElementById('npc-facing');
+const npcSpriteSelect = document.getElementById('npc-sprite-select');
+const npcSpritePreview = document.getElementById('npc-sprite-preview');
+const npcDialogInput = document.getElementById('npc-dialog');
+const npcDeleteButton = document.getElementById('npc-delete');
+
 const generateWorldButton = document.getElementById('generate-world');
 const loadWorldButton = document.getElementById('load-world');
 const worldOutput = document.getElementById('world-output');
@@ -578,6 +591,9 @@ const state = {
   selectedEnemyTemplateId: null,
   enemyFormRotation: [],
   editingEnemyId: null,
+  npcs: [],
+  selectedNpcId: null,
+  editingNpcId: null,
 };
 
 function setActiveTab(tabId) {
@@ -959,6 +975,7 @@ function renderSpriteAssets() {
     empty.textContent = 'No sprite assets found.';
     spriteAssetList.appendChild(empty);
     renderEnemySpriteOptions();
+    renderNpcSpriteOptions();
     return;
   }
   state.spriteAssets.forEach(asset => {
@@ -982,6 +999,7 @@ function renderSpriteAssets() {
     spriteAssetList.appendChild(button);
   });
   renderEnemySpriteOptions();
+  renderNpcSpriteOptions();
 }
 
 function updateSpritePreview(assetUrl) {
@@ -1043,6 +1061,51 @@ function updateEnemySpritePreview(assetUrl) {
     const message = document.createElement('span');
     message.textContent = 'No sprite selected';
     enemySpritePreview.appendChild(message);
+  }
+}
+
+function renderNpcSpriteOptions(selectedValue = null) {
+  if (!npcSpriteSelect) return;
+  const previousValue = selectedValue != null ? selectedValue : npcSpriteSelect.value;
+  npcSpriteSelect.innerHTML = '';
+  const noneOption = document.createElement('option');
+  noneOption.value = '';
+  noneOption.textContent = 'None (Default)';
+  npcSpriteSelect.appendChild(noneOption);
+  let hasMatch = false;
+  state.spriteAssets.forEach(asset => {
+    const option = document.createElement('option');
+    option.value = asset.url;
+    option.textContent = asset.id;
+    npcSpriteSelect.appendChild(option);
+    if (previousValue && asset.url === previousValue) {
+      hasMatch = true;
+    }
+  });
+  if (previousValue && !hasMatch) {
+    const customOption = document.createElement('option');
+    customOption.value = previousValue;
+    customOption.textContent = previousValue;
+    npcSpriteSelect.appendChild(customOption);
+    hasMatch = true;
+  }
+  npcSpriteSelect.value = hasMatch ? previousValue : '';
+  updateNpcSpritePreview(npcSpriteSelect.value);
+}
+
+function updateNpcSpritePreview(assetUrl) {
+  if (!npcSpritePreview) return;
+  npcSpritePreview.innerHTML = '';
+  if (assetUrl) {
+    const img = document.createElement('img');
+    img.src = assetUrl;
+    img.alt = 'NPC sprite preview';
+    img.loading = 'lazy';
+    npcSpritePreview.appendChild(img);
+  } else {
+    const message = document.createElement('span');
+    message.textContent = 'No sprite selected';
+    npcSpritePreview.appendChild(message);
   }
 }
 
@@ -1279,6 +1342,32 @@ function createZoneId(base) {
   return normalizeZoneId(base, existing);
 }
 
+function normalizeNpcIdValue(value) {
+  const base = typeof value === 'string' ? value : '';
+  const sanitized = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return sanitized || 'npc';
+}
+
+function ensureUniqueNpcId(base, used) {
+  const sanitized = normalizeNpcIdValue(base);
+  let candidate = sanitized;
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${sanitized}_${suffix}`;
+    suffix += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
+function createNpcId(base, currentId = null) {
+  const used = new Set(state.npcs.map(npc => npc.id));
+  if (currentId) {
+    used.delete(currentId);
+  }
+  return ensureUniqueNpcId(base, used);
+}
+
 function createZone(name, width, height) {
   const id = createZoneId(name);
   const defaultTile = state.selectedTileId || Object.keys(state.tileConfig)[0] || '0';
@@ -1346,9 +1435,18 @@ function renderZonesList() {
         if (state.selectedZoneId === zone.id) {
           state.selectedZoneId = state.zones[0]?.id || null;
         }
+        state.npcs.forEach(npc => {
+          if (npc.zoneId === zone.id) {
+            npc.zoneId = null;
+            npc.x = null;
+            npc.y = null;
+          }
+        });
         renderZonesList();
         renderZoneEditor();
         updateTransportOptions();
+        renderNpcList();
+        updateNpcPlacementInfo();
       }
     });
     item.addEventListener('click', () => {
@@ -1379,6 +1477,9 @@ function setEditMode(mode) {
   });
   transportControls.classList.toggle('hidden', mode !== 'transport');
   enemyModeInfo.classList.toggle('hidden', mode !== 'enemy');
+  if (npcModeInfo) {
+    npcModeInfo.classList.toggle('hidden', mode !== 'npc');
+  }
   if (tileControls) {
     tileControls.classList.toggle('hidden', mode !== 'tile');
   }
@@ -1453,6 +1554,37 @@ function handleEnemyPlacement(zone, x, y) {
   }
 }
 
+function handleNpcPlacement(zone, x, y) {
+  const npcId = state.selectedNpcId;
+  if (!npcId) {
+    alert('Select an NPC to place.');
+    return;
+  }
+  const npc = state.npcs.find(entry => entry.id === npcId);
+  if (!npc) {
+    alert('Select an NPC to place.');
+    return;
+  }
+  const occupant = state.npcs.find(entry => entry.id !== npcId && entry.zoneId === zone.id && entry.x === x && entry.y === y);
+  if (occupant) {
+    occupant.zoneId = null;
+    occupant.x = null;
+    occupant.y = null;
+  }
+  if (npc.zoneId === zone.id && npc.x === x && npc.y === y) {
+    npc.zoneId = null;
+    npc.x = null;
+    npc.y = null;
+  } else {
+    npc.zoneId = zone.id;
+    npc.x = x;
+    npc.y = y;
+  }
+  renderZoneEditor();
+  renderNpcList();
+  updateNpcPlacementInfo();
+}
+
 function handleTransportPlacement(zone, x, y) {
   if (!ensureTransportPlacement()) {
     return;
@@ -1523,6 +1655,9 @@ function handleZoneCellClick(event) {
     case 'enemy':
       handleEnemyPlacement(zone, x, y);
       break;
+    case 'npc':
+      handleNpcPlacement(zone, x, y);
+      break;
     case 'transport':
       handleTransportPlacement(zone, x, y);
       break;
@@ -1543,6 +1678,15 @@ function handleZoneCellContextMenu(event) {
   const y = Number(event.currentTarget.dataset.y);
   if (state.editMode === 'enemy') {
     zone.enemyPlacements = zone.enemyPlacements.filter(p => !(p.x === x && p.y === y));
+  } else if (state.editMode === 'npc') {
+    const npc = state.npcs.find(entry => entry.zoneId === zone.id && entry.x === x && entry.y === y);
+    if (npc) {
+      npc.zoneId = null;
+      npc.x = null;
+      npc.y = null;
+      renderNpcList();
+      updateNpcPlacementInfo();
+    }
   } else if (state.editMode === 'transport') {
     zone.transports = zone.transports.filter(t => !(t.from.x === x && t.from.y === y));
   } else if (state.editMode === 'spawn') {
@@ -1617,6 +1761,21 @@ function renderZoneGrid() {
           overlay.style.bottom = `${margin}px`;
           cell.appendChild(overlay);
         }
+      }
+      const npcPlacement = state.npcs.find(entry => entry.zoneId === zone.id && entry.x === x && entry.y === y);
+      if (npcPlacement) {
+        cell.classList.add('has-npc');
+        const overlay = document.createElement('div');
+        overlay.className = 'zone-cell-npc';
+        if (npcPlacement.sprite) {
+          overlay.style.backgroundImage = `url(${npcPlacement.sprite})`;
+          overlay.style.backgroundSize = 'cover';
+          overlay.style.backgroundPosition = 'center';
+          overlay.style.backgroundRepeat = 'no-repeat';
+        } else {
+          overlay.textContent = 'NPC';
+        }
+        cell.appendChild(overlay);
       }
       if (zone.transports.some(t => t.from.x === x && t.from.y === y)) {
         cell.classList.add('has-transport');
@@ -1726,6 +1885,32 @@ function renderZoneDetails() {
   }
   enemySection.appendChild(enemyList);
   zoneDetailsEl.appendChild(enemySection);
+
+  const npcSection = document.createElement('div');
+  npcSection.className = 'zone-subsection';
+  const npcTitle = document.createElement('h3');
+  const npcsInZone = state.npcs.filter(entry => entry.zoneId === zone.id);
+  npcTitle.textContent = `NPC Placements (${npcsInZone.length})`;
+  npcSection.appendChild(npcTitle);
+  const npcList = document.createElement('ul');
+  if (npcsInZone.length) {
+    npcsInZone.forEach(npc => {
+      const li = document.createElement('li');
+      li.textContent = `${npc.name || npc.id} (${npc.x}, ${npc.y})`;
+      const removeButton = document.createElement('button');
+      removeButton.type = 'button';
+      removeButton.textContent = 'Remove';
+      removeButton.addEventListener('click', () => removeNpcPlacement(npc.id));
+      li.appendChild(removeButton);
+      npcList.appendChild(li);
+    });
+  } else {
+    const empty = document.createElement('li');
+    empty.textContent = 'None';
+    npcList.appendChild(empty);
+  }
+  npcSection.appendChild(npcList);
+  zoneDetailsEl.appendChild(npcSection);
 
   const transportSection = document.createElement('div');
   transportSection.className = 'zone-subsection';
@@ -1931,6 +2116,125 @@ function renderEnemyRotation() {
   });
 }
 
+function updateNpcPlacementInfo() {
+  if (!npcPlacementTargetEl) return;
+  const npcId = state.selectedNpcId;
+  if (!npcId) {
+    npcPlacementTargetEl.textContent = 'None Selected';
+    return;
+  }
+  const npc = state.npcs.find(entry => entry.id === npcId);
+  if (!npc) {
+    npcPlacementTargetEl.textContent = 'None Selected';
+    return;
+  }
+  const zone = npc.zoneId ? state.zones.find(z => z.id === npc.zoneId) : null;
+  const zoneLabel = zone ? zone.name || zone.id : 'Unplaced';
+  const coords = Number.isFinite(npc.x) && Number.isFinite(npc.y) ? `(${npc.x}, ${npc.y})` : '';
+  const label = npc.name ? `${npc.name} (${npc.id})` : npc.id;
+  npcPlacementTargetEl.textContent = zoneLabel === 'Unplaced' ? `${label} – Unplaced` : `${label} – ${zoneLabel} ${coords}`;
+}
+
+function clearNpcForm() {
+  if (npcForm) {
+    npcForm.reset();
+  }
+  if (npcFacingSelect) {
+    npcFacingSelect.value = 'down';
+  }
+  renderNpcSpriteOptions('');
+  updateNpcSpritePreview('');
+  if (npcDialogInput) {
+    npcDialogInput.value = '';
+  }
+}
+
+function loadNpcIntoForm(npc) {
+  if (!npc) {
+    clearNpcForm();
+    return;
+  }
+  if (npcIdInput) {
+    npcIdInput.value = npc.id;
+  }
+  if (npcNameInput) {
+    npcNameInput.value = npc.name || '';
+  }
+  if (npcFacingSelect) {
+    npcFacingSelect.value = npc.facing || 'down';
+  }
+  renderNpcSpriteOptions(npc.sprite || '');
+  if (npcDialogInput) {
+    npcDialogInput.value = Array.isArray(npc.dialog) ? npc.dialog.join('\n') : '';
+  }
+}
+
+function selectNpc(npcId) {
+  state.editingNpcId = npcId;
+  state.selectedNpcId = npcId;
+  const npc = state.npcs.find(entry => entry.id === npcId) || null;
+  loadNpcIntoForm(npc);
+  renderNpcList();
+  updateNpcPlacementInfo();
+}
+
+function renderNpcList() {
+  if (!npcListEl) return;
+  npcListEl.innerHTML = '';
+  if (!state.npcs.length) {
+    const empty = document.createElement('p');
+    empty.className = 'panel-note';
+    empty.textContent = 'No NPCs defined yet.';
+    npcListEl.appendChild(empty);
+    updateNpcPlacementInfo();
+    return;
+  }
+  const zoneLookup = new Map(state.zones.map(zone => [zone.id, zone.name || zone.id]));
+  state.npcs
+    .slice()
+    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
+    .forEach(npc => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'npc-item';
+      if (state.editingNpcId === npc.id) {
+        item.classList.add('active');
+      }
+      const meta = document.createElement('div');
+      meta.className = 'npc-meta';
+      const title = document.createElement('strong');
+      title.textContent = npc.name || npc.id;
+      meta.appendChild(title);
+      const idLine = document.createElement('span');
+      idLine.textContent = npc.id;
+      meta.appendChild(idLine);
+      item.appendChild(meta);
+      const position = document.createElement('span');
+      position.className = 'npc-position';
+      if (npc.zoneId && Number.isFinite(npc.x) && Number.isFinite(npc.y)) {
+        const zoneName = zoneLookup.get(npc.zoneId) || npc.zoneId;
+        position.textContent = `${zoneName} (${npc.x}, ${npc.y})`;
+      } else {
+        position.textContent = 'Unplaced';
+      }
+      item.appendChild(position);
+      item.addEventListener('click', () => selectNpc(npc.id));
+      npcListEl.appendChild(item);
+    });
+  updateNpcPlacementInfo();
+}
+
+function removeNpcPlacement(npcId) {
+  const npc = state.npcs.find(entry => entry.id === npcId);
+  if (!npc) return;
+  npc.zoneId = null;
+  npc.x = null;
+  npc.y = null;
+  renderZoneEditor();
+  renderNpcList();
+  updateNpcPlacementInfo();
+}
+
 enemyAddAbilityButton.addEventListener('click', () => {
   const abilityId = enemyAbilitySelect.value;
   if (!abilityId) return;
@@ -1953,6 +2257,108 @@ enemyResetButton.addEventListener('click', () => {
 if (enemySpriteSelect) {
   enemySpriteSelect.addEventListener('change', event => {
     updateEnemySpritePreview(event.target.value);
+  });
+}
+
+if (npcSpriteSelect) {
+  npcSpriteSelect.addEventListener('change', event => {
+    updateNpcSpritePreview(event.target.value);
+  });
+}
+
+if (npcCreateButton) {
+  npcCreateButton.addEventListener('click', () => {
+    state.editingNpcId = null;
+    state.selectedNpcId = null;
+    clearNpcForm();
+    renderNpcList();
+    updateNpcPlacementInfo();
+    if (npcIdInput) {
+      npcIdInput.focus();
+    }
+  });
+}
+
+if (npcForm) {
+  npcForm.addEventListener('submit', event => {
+    event.preventDefault();
+    let idValue = npcIdInput ? npcIdInput.value.trim() : '';
+    const nameValue = npcNameInput ? npcNameInput.value.trim() : '';
+    if (!idValue) {
+      idValue = nameValue || 'npc';
+    }
+    const normalizedId = createNpcId(idValue, state.editingNpcId);
+    const facingValue = npcFacingSelect ? npcFacingSelect.value : 'down';
+    const normalizedFacing = ['up', 'down', 'left', 'right'].includes(facingValue) ? facingValue : 'down';
+    const spriteValue = npcSpriteSelect && npcSpriteSelect.value ? npcSpriteSelect.value : '';
+    const dialogLines = npcDialogInput
+      ? npcDialogInput.value
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(line => line.length)
+      : [];
+
+    let npc = state.npcs.find(entry => entry.id === state.editingNpcId) || null;
+    if (!npc) {
+      npc = {
+        id: normalizedId,
+        name: nameValue || normalizedId,
+        facing: normalizedFacing,
+        sprite: spriteValue || null,
+        dialog: dialogLines,
+        zoneId: null,
+        x: null,
+        y: null,
+      };
+      state.npcs.push(npc);
+    } else {
+      const previousId = npc.id;
+      npc.id = normalizedId;
+      npc.name = nameValue || normalizedId;
+      npc.facing = normalizedFacing;
+      npc.sprite = spriteValue || null;
+      npc.dialog = dialogLines;
+      if (state.selectedNpcId === previousId) {
+        state.selectedNpcId = normalizedId;
+      }
+      state.npcs = state.npcs.map(entry => (entry === npc ? npc : entry));
+    }
+    state.editingNpcId = normalizedId;
+    if (!state.selectedNpcId) {
+      state.selectedNpcId = normalizedId;
+    }
+    if (npcIdInput) {
+      npcIdInput.value = normalizedId;
+    }
+    loadNpcIntoForm(npc);
+    renderNpcList();
+    updateNpcPlacementInfo();
+    renderZoneEditor();
+  });
+}
+
+if (npcDeleteButton) {
+  npcDeleteButton.addEventListener('click', () => {
+    if (!state.editingNpcId) {
+      return;
+    }
+    const index = state.npcs.findIndex(entry => entry.id === state.editingNpcId);
+    if (index < 0) {
+      return;
+    }
+    const npc = state.npcs[index];
+    if (!window.confirm(`Delete NPC "${npc.name || npc.id}"?`)) {
+      return;
+    }
+    state.npcs.splice(index, 1);
+    if (state.selectedNpcId === npc.id) {
+      state.selectedNpcId = null;
+    }
+    state.editingNpcId = null;
+    clearNpcForm();
+    renderNpcList();
+    renderZoneEditor();
+    updateNpcPlacementInfo();
   });
 }
 
@@ -2385,6 +2791,19 @@ function buildWorldData() {
       };
     }),
   };
+  const exportedNpcs = state.npcs.map(npc => ({
+    id: npc.id,
+    name: npc.name || npc.id,
+    sprite: npc.sprite || undefined,
+    facing: npc.facing || 'down',
+    dialog: Array.isArray(npc.dialog) ? npc.dialog.slice() : [],
+    zoneId: npc.zoneId || null,
+    x: Number.isFinite(npc.x) ? npc.x : null,
+    y: Number.isFinite(npc.y) ? npc.y : null,
+  }));
+  if (exportedNpcs.length) {
+    world.npcs = exportedNpcs;
+  }
   if (state.activePalette?.name) {
     world.paletteName = state.activePalette.name;
   }
@@ -2638,10 +3057,51 @@ function applyWorldData(rawWorld) {
   });
   state.selectedZoneId = state.zones[0]?.id || null;
   state.transportPlacement = null;
+  const npcSource = Array.isArray(worldSource.npcs) ? worldSource.npcs : [];
+  const usedNpcIds = new Set();
+  state.npcs = npcSource.map((entry, index) => {
+    const baseId = entry && entry.id ? String(entry.id) : entry && entry.name ? String(entry.name) : `npc_${index + 1}`;
+    const id = ensureUniqueNpcId(baseId, usedNpcIds);
+    const name = typeof entry?.name === 'string' ? entry.name : id;
+    const sprite = typeof entry?.sprite === 'string' && entry.sprite.trim() ? entry.sprite.trim() : null;
+    const facingRaw = typeof entry?.facing === 'string' ? entry.facing.toLowerCase() : '';
+    const facing = ['up', 'down', 'left', 'right'].includes(facingRaw) ? facingRaw : 'down';
+    const dialog = Array.isArray(entry?.dialog)
+      ? entry.dialog
+          .map(line => (typeof line === 'string' ? line.trim() : ''))
+          .filter(line => line.length)
+      : [];
+    const zoneIdRaw = typeof entry?.zoneId === 'string' && entry.zoneId.trim() ? entry.zoneId.trim() : null;
+    const zone = zoneIdRaw ? state.zones.find(z => z.id === zoneIdRaw) : null;
+    const clampCoord = (value, max) => {
+      if (!Number.isFinite(value) || max == null || max <= 0) {
+        return null;
+      }
+      return Math.max(0, Math.min(max - 1, Math.round(value)));
+    };
+    const numericX = Number(entry?.x);
+    const numericY = Number(entry?.y);
+    const x = zone ? clampCoord(numericX, zone.width) : null;
+    const y = zone ? clampCoord(numericY, zone.height) : null;
+    return {
+      id,
+      name,
+      sprite,
+      facing,
+      dialog,
+      zoneId: zone ? zone.id : null,
+      x,
+      y,
+    };
+  });
+  state.selectedNpcId = null;
+  state.editingNpcId = null;
   renderTilePalette();
   renderZonesList();
   renderZoneEditor();
   updateTransportOptions();
+  renderNpcList();
+  updateNpcPlacementInfo();
   syncWorldForm();
   return true;
 }
@@ -2749,6 +3209,8 @@ async function initialize() {
     renderEnemyTemplateList();
     renderZonesList();
     renderZoneEditor();
+    renderNpcList();
+    updateNpcPlacementInfo();
     updateEnemyModeInfo();
     updateTransportOptions();
     builderWrapper.classList.remove('hidden');
