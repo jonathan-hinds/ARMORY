@@ -195,6 +195,7 @@ let worldFocusControlsInitialized = false;
 let worldZoneMap = new Map();
 let worldCurrentZoneId = null;
 const worldEntityMotion = new Map();
+let worldInteractButton = null;
 
 function worldNow() {
   if (typeof performance !== 'undefined' && performance && typeof performance.now === 'function') {
@@ -773,6 +774,16 @@ function ensureWorldTouchControls() {
     button.addEventListener('pointercancel', handleWorldDpadPointerUp);
     button.addEventListener('click', handleWorldDpadClick);
   });
+  if (worldInteractButton && !document.body.contains(worldInteractButton)) {
+    worldInteractButton = null;
+  }
+  if (!worldInteractButton) {
+    worldInteractButton = document.getElementById('world-action-btn');
+    if (worldInteractButton && !worldInteractButton.dataset.worldInteractBound) {
+      worldInteractButton.addEventListener('click', handleWorldInteractButtonClick);
+      worldInteractButton.dataset.worldInteractBound = 'true';
+    }
+  }
 }
 
 function startWorldDpadHold(direction) {
@@ -861,6 +872,18 @@ function handleWorldDpadClick(event) {
   }
   event.preventDefault();
   queueWorldMove(direction);
+}
+
+function handleWorldInteractButtonClick(event) {
+  if (event) {
+    event.preventDefault();
+    const target = event.currentTarget;
+    if (target && typeof target.blur === 'function') {
+      target.blur();
+    }
+  }
+  if (!isTabActive('world')) return;
+  triggerWorldInteract();
 }
 
 function setWorldQueueUIState(mode = 'idle') {
@@ -1470,6 +1493,34 @@ function wrapDialogText(ctx, text, maxWidth) {
   return lines.length ? lines : [''];
 }
 
+function openWorldNpcDialog(npc) {
+  if (!npc) {
+    return;
+  }
+  const dialogLines = Array.isArray(npc.dialog)
+    ? npc.dialog
+        .map(line => (typeof line === 'string' ? line.trim() : ''))
+        .filter(line => line.length > 0)
+    : [];
+  const lines = dialogLines.length ? dialogLines : ['...'];
+  worldDialogState = {
+    npcId: npc.id || null,
+    name: npc.name || 'Resident',
+    lines,
+    index: 0,
+  };
+  worldMovementLocked = true;
+}
+
+function handleWorldInteractionPayload(interaction) {
+  if (!interaction) {
+    return;
+  }
+  if (interaction.result === 'npc' && interaction.npc) {
+    openWorldNpcDialog(interaction.npc);
+  }
+}
+
 function drawWorldDialog() {
   if (!worldCanvas || !worldCtx) return;
   if (!worldDialogState || !Array.isArray(worldDialogState.lines) || !worldDialogState.lines.length) {
@@ -1816,23 +1867,10 @@ async function triggerWorldInteract() {
       characterId: currentCharacter.id,
       instanceId: worldCurrentInstanceId,
     });
-    if (payload && payload.result === 'npc' && payload.npc) {
-      const npc = payload.npc;
-      const dialogLines = Array.isArray(npc.dialog)
-        ? npc.dialog
-            .map(line => (typeof line === 'string' ? line.trim() : ''))
-            .filter(line => line.length > 0)
-        : [];
-      const lines = dialogLines.length ? dialogLines : ['...'];
-      worldDialogState = {
-        npcId: npc.id || null,
-        name: npc.name || 'Resident',
-        lines,
-        index: 0,
-      };
-      worldMovementLocked = true;
-    } else if (payload && payload.result === 'none') {
+    if (payload && payload.result === 'none') {
       // No interaction available; do nothing.
+    } else {
+      handleWorldInteractionPayload(payload);
     }
   } catch (err) {
     if (worldMessageEl) {
@@ -1872,6 +1910,9 @@ async function queueWorldMove(direction) {
     }
     if (payload && payload.encounter && payload.encounter.token) {
       beginWorldEncounter(payload.encounter.token);
+    }
+    if (payload && payload.interaction) {
+      handleWorldInteractionPayload(payload.interaction);
     }
   } catch (err) {
     if (worldMessageEl) {

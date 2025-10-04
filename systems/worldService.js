@@ -1340,6 +1340,7 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
   }
   let moved = false;
   let encounterEnemy = null;
+  let triggeredNpcInteraction = null;
   const zoneBeforeMove = player.zoneId || world.defaultZoneId || null;
   const nextX = player.x + delta.dx;
   const nextY = player.y + delta.dy;
@@ -1353,6 +1354,8 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
       moved = true;
     } else if (blocking.type === 'enemy') {
       encounterEnemy = blocking.entity;
+    } else if (blocking.type === 'npc') {
+      triggeredNpcInteraction = blocking.entity;
     }
   }
   player.facing = delta.facing;
@@ -1448,6 +1451,19 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
     },
     moved: moved || transportTriggered,
     encounter,
+    interaction: triggeredNpcInteraction
+      ? {
+          result: 'npc',
+          npc: {
+            id: triggeredNpcInteraction.id,
+            name: triggeredNpcInteraction.name,
+            dialog: Array.isArray(triggeredNpcInteraction.dialog)
+              ? triggeredNpcInteraction.dialog.slice()
+              : [],
+            sprite: triggeredNpcInteraction.sprite || null,
+          },
+        }
+      : null,
   };
 }
 
