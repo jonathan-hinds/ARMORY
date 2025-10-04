@@ -1267,6 +1267,9 @@
             }
           ],
           "loopFrom": 1
+        },
+        "service": {
+          "type": "shop"
         }
       }
     ],
