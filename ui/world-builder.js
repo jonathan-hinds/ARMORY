@@ -596,10 +596,6 @@ const zoneCanvasState = {
   previewRect: null,
 };
 
-let mouseTrackingActive = false;
-let touchTrackingActive = false;
-const NON_PASSIVE_LISTENER_OPTIONS = { passive: false };
-
 function setActiveTab(tabId) {
   if (!tabId) {
     return;
@@ -1829,107 +1825,6 @@ function resetZoneCanvasPointerState() {
   zoneCanvasState.dragging = false;
   zoneCanvasState.startCell = null;
   zoneCanvasState.lastCell = null;
-  detachGlobalMouseListeners();
-  detachGlobalTouchListeners();
-}
-
-function attachGlobalMouseListeners() {
-  if (mouseTrackingActive || typeof window === 'undefined') {
-    return;
-  }
-  mouseTrackingActive = true;
-  window.addEventListener('mousemove', handleZoneMouseMove);
-  window.addEventListener('mouseup', handleZoneMouseUp);
-  window.addEventListener('blur', handleZoneMouseLeave);
-  window.addEventListener('mouseleave', handleZoneMouseLeave);
-}
-
-function detachGlobalMouseListeners() {
-  if (!mouseTrackingActive || typeof window === 'undefined') {
-    return;
-  }
-  mouseTrackingActive = false;
-  window.removeEventListener('mousemove', handleZoneMouseMove);
-  window.removeEventListener('mouseup', handleZoneMouseUp);
-  window.removeEventListener('blur', handleZoneMouseLeave);
-  window.removeEventListener('mouseleave', handleZoneMouseLeave);
-}
-
-function attachGlobalTouchListeners() {
-  if (touchTrackingActive || typeof window === 'undefined') {
-    return;
-  }
-  touchTrackingActive = true;
-  window.addEventListener('touchmove', handleZoneTouchMove, NON_PASSIVE_LISTENER_OPTIONS);
-  window.addEventListener('touchend', handleZoneTouchEnd);
-  window.addEventListener('touchcancel', handleZoneTouchCancel);
-}
-
-function detachGlobalTouchListeners() {
-  if (!touchTrackingActive || typeof window === 'undefined') {
-    return;
-  }
-  touchTrackingActive = false;
-  window.removeEventListener('touchmove', handleZoneTouchMove, NON_PASSIVE_LISTENER_OPTIONS);
-  window.removeEventListener('touchend', handleZoneTouchEnd);
-  window.removeEventListener('touchcancel', handleZoneTouchCancel);
-}
-
-function createSyntheticPointerEvent(baseEvent, overrides = {}) {
-  const buttonValue =
-    typeof overrides.button === 'number'
-      ? overrides.button
-      : typeof baseEvent.button === 'number'
-        ? baseEvent.button
-        : 0;
-  const synthetic = {
-    type: overrides.type || baseEvent.type,
-    target: baseEvent.target || baseEvent.srcElement || null,
-    currentTarget: baseEvent.currentTarget || null,
-    pointerId: overrides.pointerId,
-    pointerType: overrides.pointerType || 'mouse',
-    button: buttonValue,
-    clientX: typeof overrides.clientX === 'number' ? overrides.clientX : baseEvent.clientX,
-    clientY: typeof overrides.clientY === 'number' ? overrides.clientY : baseEvent.clientY,
-    altKey: baseEvent.altKey || false,
-    ctrlKey: baseEvent.ctrlKey || false,
-    metaKey: baseEvent.metaKey || false,
-    shiftKey: baseEvent.shiftKey || false,
-    preventDefault() {
-      if (typeof baseEvent.preventDefault === 'function') {
-        baseEvent.preventDefault();
-      }
-    },
-  };
-  return synthetic;
-}
-
-function findTouchById(list, id) {
-  if (!list || id == null) {
-    return null;
-  }
-  for (let index = 0; index < list.length; index += 1) {
-    const touch = list[index];
-    if (touch && touch.identifier === id) {
-      return touch;
-    }
-  }
-  return null;
-}
-
-function getActiveTouch(event, { includeCurrent = false } = {}) {
-  const activeId = zoneCanvasState.pointerId;
-  if (activeId == null) {
-    return null;
-  }
-  const changed = findTouchById(event.changedTouches, activeId);
-  if (changed) {
-    return changed;
-  }
-  if (includeCurrent) {
-    return findTouchById(event.touches, activeId);
-  }
-  return null;
 }
 
 function getTileCoordsFromEvent(event) {
@@ -1937,9 +1832,6 @@ function getTileCoordsFromEvent(event) {
   if (!zone || !zoneCanvasState.overlayCanvas) return null;
   const rect = zoneCanvasState.overlayCanvas.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
-  if (typeof event.clientX !== 'number' || typeof event.clientY !== 'number') {
-    return null;
-  }
   const width = zone.width * zoneCanvasState.cellSize;
   const height = zone.height * zoneCanvasState.cellSize;
   const scaleX = width / rect.width;
@@ -1980,20 +1872,13 @@ function handleZonePointerDown(event) {
     return;
   }
 
-  const pointerId =
-    typeof event.pointerId !== 'undefined' ? event.pointerId : zoneCanvasState.pointerId ?? 'mouse';
-  zoneCanvasState.pointerId = pointerId;
+  zoneCanvasState.pointerId = event.pointerId;
   zoneCanvasState.startCell = coords;
   zoneCanvasState.lastCell = coords;
 
   if (state.editMode === 'tile') {
     if (state.tileTool === 'brush') {
-      if (
-        typeof event.pointerId === 'number' &&
-        zoneCanvasState.overlayCanvas?.setPointerCapture
-      ) {
-        zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
-      }
+      zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
       zoneCanvasState.dragging = true;
       if (applyTileBrush(zone, coords.x, coords.y, state.selectedTileId)) {
         refreshZoneTiles();
@@ -2004,12 +1889,7 @@ function handleZonePointerDown(event) {
       }
       resetZoneCanvasPointerState();
     } else if (state.tileTool === 'rectangle') {
-      if (
-        typeof event.pointerId === 'number' &&
-        zoneCanvasState.overlayCanvas?.setPointerCapture
-      ) {
-        zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
-      }
+      zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
       zoneCanvasState.dragging = true;
       zoneCanvasState.previewRect = { start: coords, end: coords };
       refreshZoneOverlay();
@@ -2027,9 +1907,7 @@ function handleZonePointerDown(event) {
 }
 
 function handleZonePointerMove(event) {
-  const eventPointerId =
-    typeof event.pointerId !== 'undefined' ? event.pointerId : zoneCanvasState.pointerId;
-  if (!zoneCanvasState.dragging || zoneCanvasState.pointerId !== eventPointerId) {
+  if (!zoneCanvasState.dragging || zoneCanvasState.pointerId !== event.pointerId) {
     return;
   }
   const zone = getSelectedZone();
@@ -2056,16 +1934,10 @@ function handleZonePointerMove(event) {
 }
 
 function handleZonePointerUp(event) {
-  const eventPointerId =
-    typeof event.pointerId !== 'undefined' ? event.pointerId : zoneCanvasState.pointerId;
-  if (zoneCanvasState.pointerId !== eventPointerId) {
+  if (zoneCanvasState.pointerId !== event.pointerId) {
     return;
   }
-  if (
-    typeof event.pointerId === 'number' &&
-    zoneCanvasState.overlayCanvas?.hasPointerCapture &&
-    zoneCanvasState.overlayCanvas.hasPointerCapture(event.pointerId)
-  ) {
+  if (zoneCanvasState.overlayCanvas?.hasPointerCapture(event.pointerId)) {
     zoneCanvasState.overlayCanvas.releasePointerCapture(event.pointerId);
   }
   const zone = getSelectedZone();
@@ -2081,167 +1953,15 @@ function handleZonePointerUp(event) {
 }
 
 function handleZonePointerCancel(event) {
-  const eventPointerId =
-    typeof event.pointerId !== 'undefined' ? event.pointerId : zoneCanvasState.pointerId;
-  if (zoneCanvasState.pointerId !== eventPointerId) {
+  if (zoneCanvasState.pointerId !== event.pointerId) {
     return;
   }
-  if (
-    typeof event.pointerId === 'number' &&
-    zoneCanvasState.overlayCanvas?.hasPointerCapture &&
-    zoneCanvasState.overlayCanvas.hasPointerCapture(event.pointerId)
-  ) {
+  if (zoneCanvasState.overlayCanvas?.hasPointerCapture(event.pointerId)) {
     zoneCanvasState.overlayCanvas.releasePointerCapture(event.pointerId);
   }
   zoneCanvasState.previewRect = null;
   refreshZoneOverlay();
   resetZoneCanvasPointerState();
-}
-
-function handleZoneMouseDown(event) {
-  handleZonePointerDown(
-    createSyntheticPointerEvent(event, {
-      type: 'pointerdown',
-      pointerId: 'mouse',
-      pointerType: 'mouse',
-      button: event.button ?? 0,
-    })
-  );
-  if (zoneCanvasState.pointerId === 'mouse' && zoneCanvasState.dragging) {
-    attachGlobalMouseListeners();
-  }
-}
-
-function handleZoneMouseMove(event) {
-  if (zoneCanvasState.pointerId !== 'mouse') {
-    return;
-  }
-  handleZonePointerMove(
-    createSyntheticPointerEvent(event, {
-      type: 'pointermove',
-      pointerId: 'mouse',
-      pointerType: 'mouse',
-      button: event.button ?? 0,
-    })
-  );
-}
-
-function handleZoneMouseUp(event) {
-  if (zoneCanvasState.pointerId !== 'mouse') {
-    return;
-  }
-  handleZonePointerUp(
-    createSyntheticPointerEvent(event, {
-      type: 'pointerup',
-      pointerId: 'mouse',
-      pointerType: 'mouse',
-      button: event.button ?? 0,
-    })
-  );
-  detachGlobalMouseListeners();
-}
-
-function handleZoneMouseLeave(event) {
-  if (zoneCanvasState.pointerId !== 'mouse') {
-    return;
-  }
-  handleZonePointerCancel(
-    createSyntheticPointerEvent(event, {
-      type: 'pointercancel',
-      pointerId: 'mouse',
-      pointerType: 'mouse',
-      button: event.button ?? 0,
-    })
-  );
-  detachGlobalMouseListeners();
-}
-
-function handleZoneTouchStart(event) {
-  if (zoneCanvasState.pointerId != null && zoneCanvasState.dragging) {
-    return;
-  }
-  if (!event.changedTouches || !event.changedTouches.length) {
-    return;
-  }
-  if (typeof event.preventDefault === 'function') {
-    event.preventDefault();
-  }
-  const touch = event.changedTouches[0];
-  handleZonePointerDown(
-    createSyntheticPointerEvent(event, {
-      type: 'pointerdown',
-      pointerId: touch.identifier,
-      pointerType: 'touch',
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      button: 0,
-    })
-  );
-  if (zoneCanvasState.pointerId != null) {
-    attachGlobalTouchListeners();
-  }
-}
-
-function handleZoneTouchMove(event) {
-  const touch = getActiveTouch(event, { includeCurrent: true });
-  if (!touch) {
-    return;
-  }
-  if (typeof event.preventDefault === 'function') {
-    event.preventDefault();
-  }
-  handleZonePointerMove(
-    createSyntheticPointerEvent(event, {
-      type: 'pointermove',
-      pointerId: touch.identifier,
-      pointerType: 'touch',
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      button: 0,
-    })
-  );
-}
-
-function handleZoneTouchEnd(event) {
-  const touch = getActiveTouch(event);
-  if (!touch) {
-    return;
-  }
-  if (typeof event.preventDefault === 'function') {
-    event.preventDefault();
-  }
-  handleZonePointerUp(
-    createSyntheticPointerEvent(event, {
-      type: 'pointerup',
-      pointerId: touch.identifier,
-      pointerType: 'touch',
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      button: 0,
-    })
-  );
-  detachGlobalTouchListeners();
-}
-
-function handleZoneTouchCancel(event) {
-  const touch = getActiveTouch(event);
-  if (!touch) {
-    return;
-  }
-  if (typeof event.preventDefault === 'function') {
-    event.preventDefault();
-  }
-  handleZonePointerCancel(
-    createSyntheticPointerEvent(event, {
-      type: 'pointercancel',
-      pointerId: touch.identifier,
-      pointerType: 'touch',
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      button: 0,
-    })
-  );
-  detachGlobalTouchListeners();
 }
 
 function renderZoneGrid() {
@@ -2295,23 +2015,11 @@ function renderZoneGrid() {
   zoneCanvasState.previewRect = null;
   resetZoneCanvasPointerState();
 
-  const supportsPointerEvents = typeof window !== 'undefined' && 'PointerEvent' in window;
-  if (supportsPointerEvents) {
-    overlayCanvas.addEventListener('pointerdown', handleZonePointerDown);
-    overlayCanvas.addEventListener('pointermove', handleZonePointerMove);
-    overlayCanvas.addEventListener('pointerup', handleZonePointerUp);
-    overlayCanvas.addEventListener('pointercancel', handleZonePointerCancel);
-    overlayCanvas.addEventListener('pointerleave', handleZonePointerCancel);
-  } else {
-    overlayCanvas.addEventListener('mousedown', handleZoneMouseDown);
-    overlayCanvas.addEventListener('mousemove', handleZoneMouseMove);
-    overlayCanvas.addEventListener('mouseup', handleZoneMouseUp);
-    overlayCanvas.addEventListener('mouseleave', handleZoneMouseLeave);
-    overlayCanvas.addEventListener('touchstart', handleZoneTouchStart, NON_PASSIVE_LISTENER_OPTIONS);
-    overlayCanvas.addEventListener('touchmove', handleZoneTouchMove, NON_PASSIVE_LISTENER_OPTIONS);
-    overlayCanvas.addEventListener('touchend', handleZoneTouchEnd);
-    overlayCanvas.addEventListener('touchcancel', handleZoneTouchCancel);
-  }
+  overlayCanvas.addEventListener('pointerdown', handleZonePointerDown);
+  overlayCanvas.addEventListener('pointermove', handleZonePointerMove);
+  overlayCanvas.addEventListener('pointerup', handleZonePointerUp);
+  overlayCanvas.addEventListener('pointercancel', handleZonePointerCancel);
+  overlayCanvas.addEventListener('pointerleave', handleZonePointerCancel);
   overlayCanvas.addEventListener('contextmenu', event => event.preventDefault());
 
   drawZoneTiles(zone);
