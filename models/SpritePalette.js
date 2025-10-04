@@ -4,7 +4,6 @@ const PaletteTileSchema = new mongoose.Schema(
   {
     tileId: { type: String, required: true },
     sprite: { type: String, required: true },
-    fill: { type: String, default: '#ffffff' },
     walkable: { type: Boolean, default: true },
   },
   { _id: false }
