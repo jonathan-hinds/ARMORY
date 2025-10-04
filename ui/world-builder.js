@@ -72,6 +72,7 @@ const enemyPickerListEl = document.getElementById('enemy-picker-list');
 const npcModeInfo = document.getElementById('npc-mode-info');
 const npcPlacementTargetEl = document.getElementById('npc-placement-target');
 const npcListEl = document.getElementById('npc-list');
+const npcPickerListEl = document.getElementById('npc-picker-list');
 const npcCreateButton = document.getElementById('npc-create');
 const npcForm = document.getElementById('npc-form');
 const npcIdInput = document.getElementById('npc-id');
@@ -2187,6 +2188,7 @@ function renderNpcList() {
     empty.textContent = 'No NPCs defined yet.';
     npcListEl.appendChild(empty);
     updateNpcPlacementInfo();
+    renderNpcPickerList();
     return;
   }
   const zoneLookup = new Map(state.zones.map(zone => [zone.id, zone.name || zone.id]));
@@ -2222,6 +2224,7 @@ function renderNpcList() {
       npcListEl.appendChild(item);
     });
   updateNpcPlacementInfo();
+  renderNpcPickerList();
 }
 
 function removeNpcPlacement(npcId) {
@@ -2523,6 +2526,12 @@ function setEnemyPlacementTarget(templateId) {
   renderZoneEditor();
 }
 
+function setNpcPlacementTarget(npcId) {
+  state.selectedNpcId = npcId || null;
+  updateNpcPlacementInfo();
+  renderNpcPickerList();
+}
+
 function renderEnemyTemplateList() {
   enemyTemplateListEl.innerHTML = '';
   if (!state.enemyTemplates.length) {
@@ -2652,6 +2661,87 @@ function renderEnemyPickerList() {
     item.appendChild(actions);
     enemyPickerListEl.appendChild(item);
   });
+}
+
+function renderNpcPickerList() {
+  if (!npcPickerListEl) return;
+  npcPickerListEl.innerHTML = '';
+  if (!state.npcs.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'No NPCs available. Create one in the NPCs tab.';
+    npcPickerListEl.appendChild(empty);
+    return;
+  }
+  const zoneLookup = new Map(state.zones.map(zone => [zone.id, zone.name || zone.id]));
+  state.npcs
+    .slice()
+    .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id))
+    .forEach(npc => {
+      const item = document.createElement('div');
+      item.className = 'npc-picker';
+      if (npc.id === state.selectedNpcId) {
+        item.classList.add('active');
+      }
+
+      const preview = document.createElement('div');
+      preview.className = 'npc-picker-preview';
+      if (npc.sprite) {
+        const img = document.createElement('img');
+        img.src = npc.sprite;
+        img.alt = `${npc.name || npc.id} sprite`;
+        img.loading = 'lazy';
+        preview.appendChild(img);
+      } else {
+        const placeholder = document.createElement('span');
+        placeholder.textContent = 'NPC';
+        preview.appendChild(placeholder);
+      }
+      item.appendChild(preview);
+
+      const details = document.createElement('div');
+      details.className = 'npc-picker-details';
+      const title = document.createElement('strong');
+      title.textContent = npc.name || npc.id;
+      details.appendChild(title);
+      const idLine = document.createElement('span');
+      idLine.textContent = npc.id;
+      details.appendChild(idLine);
+      const position = document.createElement('span');
+      position.className = 'npc-picker-position';
+      if (npc.zoneId && Number.isFinite(npc.x) && Number.isFinite(npc.y)) {
+        const zoneName = zoneLookup.get(npc.zoneId) || npc.zoneId;
+        position.textContent = `${zoneName} (${npc.x}, ${npc.y})`;
+      } else {
+        position.textContent = 'Unplaced';
+      }
+      details.appendChild(position);
+      item.appendChild(details);
+
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+
+      const selectButton = document.createElement('button');
+      selectButton.type = 'button';
+      selectButton.textContent = 'Select';
+      selectButton.addEventListener('click', () => {
+        setNpcPlacementTarget(npc.id);
+        setActiveTab('world');
+        setEditMode('npc');
+      });
+      actions.appendChild(selectButton);
+
+      const editButton = document.createElement('button');
+      editButton.type = 'button';
+      editButton.textContent = 'Edit';
+      editButton.addEventListener('click', () => {
+        selectNpc(npc.id);
+        setActiveTab('npcs');
+      });
+      actions.appendChild(editButton);
+
+      item.appendChild(actions);
+      npcPickerListEl.appendChild(item);
+    });
 }
 
 async function deleteEnemyTemplate(template) {

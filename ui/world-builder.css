@@ -488,6 +488,80 @@ body.world-builder {
   gap:6px;
 }
 
+.npc-picker-list {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-top:12px;
+}
+
+.npc-picker {
+  border:1px solid #000;
+  background:#fdfdfd;
+  padding:8px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.npc-picker.active {
+  background:#000;
+  color:#fff;
+}
+
+.npc-picker-preview {
+  width:48px;
+  height:48px;
+  border:1px solid #000;
+  background:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  image-rendering:pixelated;
+}
+
+.npc-picker-preview img {
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  image-rendering:pixelated;
+}
+
+.npc-picker-preview span {
+  font-size:12px;
+  color:#000;
+}
+
+.npc-picker.active .npc-picker-preview {
+  border-color:#fff;
+}
+
+.npc-picker-details {
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  flex:1;
+  font-size:12px;
+}
+
+.npc-picker-details strong {
+  font-size:14px;
+}
+
+.npc-picker-position {
+  font-style:italic;
+}
+
+.npc-picker .actions {
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+
+.npc-picker .actions button {
+  width:100%;
+}
+
 .zone-panel-header {
   display:flex;
   justify-content:space-between;
