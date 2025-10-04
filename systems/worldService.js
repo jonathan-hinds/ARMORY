@@ -685,6 +685,20 @@ function firstWalkableInZone(zone) {
   return { x: first.x, y: first.y };
 }
 
+function findFirstUnoccupiedTile(state, zone, ignoreCharacterId = null) {
+  if (!state || !zone || !Array.isArray(zone.walkableTiles)) {
+    return null;
+  }
+  for (let idx = 0; idx < zone.walkableTiles.length; idx += 1) {
+    const tile = zone.walkableTiles[idx];
+    const blocking = findBlockingEntity(state, zone.id, tile.x, tile.y, { ignoreCharacterId });
+    if (!blocking) {
+      return { x: tile.x, y: tile.y };
+    }
+  }
+  return null;
+}
+
 function isWalkableTile(world, zoneId, x, y) {
   const zone = getZone(world, zoneId);
   if (!zone || !Array.isArray(zone.tiles)) return false;
@@ -704,11 +718,20 @@ function ensurePlayerEntry(state, characterId, name) {
   if (!entry) {
     const world = state.world;
     const zone = getZone(world, world.defaultZoneId);
-    const spawn = zone && isWalkableTile(world, zone.id, zone.spawn.x, zone.spawn.y)
+    let spawn = zone && isWalkableTile(world, zone.id, zone.spawn.x, zone.spawn.y)
       ? zone.spawn
       : zone
         ? firstWalkableInZone(zone)
         : { x: 0, y: 0 };
+    if (zone) {
+      const blocking = findBlockingEntity(state, zone.id, spawn.x, spawn.y, { ignoreCharacterId: characterId });
+      if (blocking) {
+        const alternative = findFirstUnoccupiedTile(state, zone, characterId);
+        if (alternative) {
+          spawn = alternative;
+        }
+      }
+    }
     entry = {
       characterId,
       name,
@@ -970,6 +993,41 @@ function findNpcAtPosition(state, zoneId, x, y) {
   return null;
 }
 
+function findPlayerAtPosition(state, zoneId, x, y, ignoreCharacterId = null) {
+  if (!state || !state.players) return null;
+  const world = state.world;
+  const defaultZoneId = world ? world.defaultZoneId || null : null;
+  for (const player of state.players.values()) {
+    if (!player) continue;
+    if (ignoreCharacterId && player.characterId === ignoreCharacterId) {
+      continue;
+    }
+    const playerZoneId = player.zoneId || defaultZoneId;
+    if (playerZoneId === zoneId && player.x === x && player.y === y) {
+      return player;
+    }
+  }
+  return null;
+}
+
+function findBlockingEntity(state, zoneId, x, y, options = {}) {
+  if (!state) return null;
+  const { ignoreCharacterId = null } = options;
+  const enemy = findEnemyAtPosition(state, zoneId, x, y);
+  if (enemy) {
+    return { type: 'enemy', entity: enemy };
+  }
+  const npc = findNpcAtPosition(state, zoneId, x, y);
+  if (npc) {
+    return { type: 'npc', entity: npc };
+  }
+  const player = findPlayerAtPosition(state, zoneId, x, y, ignoreCharacterId);
+  if (player) {
+    return { type: 'player', entity: player };
+  }
+  return null;
+}
+
 function getFacingDelta(facing) {
   const normalized = typeof facing === 'string' ? facing.toLowerCase() : '';
   return PLAYER_FACING_DELTAS[normalized] || PLAYER_FACING_DELTAS.down;
@@ -994,6 +1052,14 @@ function moveEnemies(state) {
     const zoneId = player.zoneId || world.defaultZoneId || null;
     playerPositions.set(positionKey(zoneId, player.x, player.y), player.characterId);
   });
+  const npcPositions = new Set();
+  if (state.npcs) {
+    state.npcs.forEach(npc => {
+      if (!npc) return;
+      const npcZoneId = npc.zoneId || world.defaultZoneId || null;
+      npcPositions.add(positionKey(npcZoneId, npc.x, npc.y));
+    });
+  }
   const now = Date.now();
   enemies.forEach(enemy => {
     const moves = shuffleArray(ENEMY_MOVE_DELTAS.slice());
@@ -1007,6 +1073,15 @@ function moveEnemies(state) {
         continue;
       }
       const key = positionKey(enemy.zoneId, nextX, nextY);
+      if (playerPositions.has(key)) {
+        collisions.push({ enemy, characterId: playerPositions.get(key) });
+        enemy.facing = move.facing;
+        enemy.updatedAt = now;
+        return;
+      }
+      if (npcPositions.has(key)) {
+        continue;
+      }
       const occupiedBy = occupied.get(key);
       if (occupiedBy && occupiedBy !== enemy.id) {
         continue;
@@ -1264,19 +1339,29 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
     return { position: { x: player.x, y: player.y, facing: player.facing }, moved: false };
   }
   let moved = false;
+  let encounterEnemy = null;
   const zoneBeforeMove = player.zoneId || world.defaultZoneId || null;
   const nextX = player.x + delta.dx;
   const nextY = player.y + delta.dy;
   if (isWalkableTile(world, zoneBeforeMove, nextX, nextY)) {
-    player.x = nextX;
-    player.y = nextY;
-    moved = true;
+    const blocking = findBlockingEntity(state, zoneBeforeMove, nextX, nextY, {
+      ignoreCharacterId: characterId,
+    });
+    if (!blocking) {
+      player.x = nextX;
+      player.y = nextY;
+      moved = true;
+    } else if (blocking.type === 'enemy') {
+      encounterEnemy = blocking.entity;
+    }
   }
   player.facing = delta.facing;
   player.updatedAt = now;
   player.moveCooldown = now + world.moveCooldownMs;
 
-  let encounter = null;
+  const previousStoredZoneId = player.zoneId;
+  const previousX = player.x;
+  const previousY = player.y;
   const currentZoneId = player.zoneId || world.defaultZoneId || null;
   const currentTransport = getTransportAt(world, currentZoneId, player.x, player.y);
   let transportTriggered = false;
@@ -1290,10 +1375,33 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
         destX = fallback.x;
         destY = fallback.y;
       }
-      player.zoneId = targetZone.id;
-      player.x = destX;
-      player.y = destY;
-      transportTriggered = true;
+      const blocking = findBlockingEntity(state, targetZone.id, destX, destY, {
+        ignoreCharacterId: characterId,
+      });
+      if (blocking) {
+        if (blocking.type === 'enemy') {
+          encounterEnemy = encounterEnemy || blocking.entity;
+        } else {
+          const alternative = findFirstUnoccupiedTile(state, targetZone, characterId);
+          if (alternative) {
+            destX = alternative.x;
+            destY = alternative.y;
+          } else {
+            player.zoneId = previousStoredZoneId;
+            player.x = previousX;
+            player.y = previousY;
+            transportTriggered = false;
+            destX = null;
+            destY = null;
+          }
+        }
+      }
+      if (destX != null && destY != null) {
+        player.zoneId = targetZone.id;
+        player.x = destX;
+        player.y = destY;
+        transportTriggered = true;
+      }
     }
   }
 
@@ -1301,9 +1409,21 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
     player.zoneId = world.defaultZoneId || null;
   }
 
-  const collidedEnemy = findEnemyAtPosition(state, player.zoneId || world.defaultZoneId || null, player.x, player.y);
-  if (collidedEnemy) {
-    encounter = beginEnemyEncounter(state, collidedEnemy, characterId);
+  let encounter = null;
+  if (encounterEnemy) {
+    encounter = beginEnemyEncounter(state, encounterEnemy, characterId);
+  }
+
+  if (!encounter) {
+    const collidedEnemy = findEnemyAtPosition(
+      state,
+      player.zoneId || world.defaultZoneId || null,
+      player.x,
+      player.y,
+    );
+    if (collidedEnemy) {
+      encounter = beginEnemyEncounter(state, collidedEnemy, characterId);
+    }
   }
 
   if (!encounter) {
