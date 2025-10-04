@@ -3,18 +3,25 @@
     "id": "masai_marsh",
     "name": "Masai Marsh",
     "tileSize": 32,
-    "palette": {},
+    "palette": {
+      "0": "#000000",
+      "1": "#ffffff",
+      "2": "#dcdcdc"
+    },
     "tileConfig": {
       "0": {
         "sprite": "/assets/Sprite-0005.png",
+        "fill": "#000000",
         "walkable": true
       },
       "1": {
         "sprite": "/assets/Sprite-0003.png",
+        "fill": "#ffffff",
         "walkable": true
       },
       "2": {
         "sprite": "/assets/Sprite-0004.png",
+        "fill": "#dcdcdc",
         "walkable": true
       }
     },

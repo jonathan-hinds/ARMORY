@@ -25,6 +25,7 @@ const paletteTileList = document.getElementById('palette-tile-list');
 const spriteAssetList = document.getElementById('sprite-asset-list');
 const spriteForm = document.getElementById('sprite-form');
 const spriteTileIdInput = document.getElementById('sprite-tile-id');
+const spriteFillInput = document.getElementById('sprite-fill');
 const spriteAssetPathInput = document.getElementById('sprite-asset-path');
 const spriteWalkableInput = document.getElementById('sprite-walkable');
 const spritePreview = document.getElementById('sprite-preview');
@@ -73,9 +74,9 @@ const loadWorldButton = document.getElementById('load-world');
 const worldOutput = document.getElementById('world-output');
 
 const DEFAULT_TILES = [
-  { id: '0', sprite: '/assets/Sprite-0003.png' },
-  { id: '1', sprite: '/assets/Sprite-0001.png' },
-  { id: '2', sprite: '/assets/Sprite-0002.png' },
+  { id: '0', fill: '#000000', sprite: '/assets/Sprite-0003.png' },
+  { id: '1', fill: '#ffffff', sprite: '/assets/Sprite-0001.png' },
+  { id: '2', fill: '#dcdcdc', sprite: '/assets/Sprite-0002.png' },
 ];
 
 const DEFAULT_ENCOUNTER_TILES = [2];
@@ -564,6 +565,7 @@ const state = {
     encounterChance: DEFAULT_ENCOUNTER_CHANCE,
     encounterCooldownMs: DEFAULT_ENCOUNTER_COOLDOWN,
   },
+  palette: {},
   tileConfig: {},
   zones: [],
   selectedZoneId: null,
@@ -728,15 +730,15 @@ function renderTilePalette() {
       token.style.backgroundImage = `url(${config.sprite})`;
       token.style.backgroundSize = 'cover';
       token.style.backgroundPosition = 'center';
+      token.style.backgroundColor = config.fill || '#ffffff';
     } else {
+      token.style.background = config.fill || '#ffffff';
       token.style.backgroundImage = '';
-      token.style.backgroundColor = '#111';
-      token.style.color = '#fff';
     }
     if (state.selectedTileId === id) {
       token.classList.add('active');
     }
-    token.innerHTML = `<strong>${id}</strong><span>${config.walkable ? 'Walkable' : 'Blocked'}</span>`;
+    token.innerHTML = `<strong>${id}</strong><span>${config.fill || ''}</span>`;
     token.title = config.walkable ? 'Walkable' : 'Blocked';
     token.addEventListener('click', () => {
       state.selectedTileId = id;
@@ -754,6 +756,7 @@ function createDefaultPalette() {
     tiles: DEFAULT_TILES.map(tile => ({
       tileId: String(tile.id),
       sprite: tile.sprite,
+      fill: tile.fill,
       walkable: true,
     })),
   };
@@ -771,11 +774,13 @@ function normalizePalette(palette) {
           }
           const tileId = String(tile.tileId || tile.id || '').trim();
           const sprite = String(tile.sprite || tile.asset || '').trim();
-          if (!tileId || !sprite) {
+          if (!tileId) {
             return null;
           }
-          const walkable = tile.walkable !== false;
-          return { tileId, sprite, walkable };
+          const fill =
+            typeof tile.fill === 'string' && tile.fill.trim() ? tile.fill.trim() : '#ffffff';
+          const walkable = Boolean(tile.walkable);
+          return { tileId, sprite, fill, walkable };
         })
         .filter(Boolean)
     : [];
@@ -798,12 +803,15 @@ function clonePalette(palette) {
 }
 
 function rebuildPaletteState() {
+  state.palette = {};
   state.tileConfig = {};
   const tiles = state.activePalette?.tiles || [];
   tiles.forEach(tile => {
+    state.palette[tile.tileId] = tile.fill;
     state.tileConfig[tile.tileId] = {
       sprite: tile.sprite,
-      walkable: tile.walkable !== false,
+      fill: tile.fill,
+      walkable: Boolean(tile.walkable),
     };
   });
   if (!state.selectedTileId || !state.tileConfig[state.selectedTileId]) {
@@ -846,11 +854,13 @@ function renderPaletteTiles() {
       img.loading = 'lazy';
       swatch.appendChild(img);
     } else {
-      swatch.textContent = 'No Sprite';
+      swatch.style.background = tile.fill || '#ffffff';
     }
 
     const label = document.createElement('span');
-    label.textContent = `${tile.tileId} • ${tile.walkable ? 'Walkable' : 'Blocked'}`;
+    label.textContent = `${tile.tileId} • ${tile.walkable ? 'Walkable' : 'Blocked'} • ${
+      tile.fill || '#ffffff'
+    }`;
 
     info.appendChild(swatch);
     info.appendChild(label);
@@ -1037,6 +1047,7 @@ function updateEnemySpritePreview(assetUrl) {
 function loadTileIntoSpriteForm(tile) {
   if (!spriteForm) return;
   spriteTileIdInput.value = tile.tileId;
+  spriteFillInput.value = tile.fill || '#ffffff';
   spriteAssetPathInput.value = tile.sprite || '';
   spriteWalkableInput.checked = Boolean(tile.walkable);
   updateSpritePreview(tile.sprite);
@@ -1065,6 +1076,7 @@ function handleSpriteFormSubmit(event) {
   event.preventDefault();
   const tileId = spriteTileIdInput.value.trim();
   const spritePath = spriteAssetPathInput.value.trim();
+  const fill = spriteFillInput.value.trim() || '#ffffff';
   const walkable = spriteWalkableInput.checked;
   if (!tileId) {
     alert('Tile ID is required.');
@@ -1075,7 +1087,7 @@ function handleSpriteFormSubmit(event) {
     return;
   }
   const tiles = state.activePalette?.tiles || [];
-  const tile = { tileId, sprite: spritePath, walkable };
+  const tile = { tileId, sprite: spritePath, fill, walkable };
   const existingIndex = tiles.findIndex(entry => entry.tileId === tileId);
   if (existingIndex >= 0) {
     tiles.splice(existingIndex, 1, tile);
@@ -1113,7 +1125,8 @@ async function saveActivePalette() {
     tiles: state.activePalette.tiles.map(tile => ({
       tileId: tile.tileId,
       sprite: tile.sprite,
-      walkable: tile.walkable !== false,
+      fill: tile.fill,
+      walkable: Boolean(tile.walkable),
     })),
   };
   try {
@@ -1653,6 +1666,8 @@ function drawZoneTiles(zone) {
       const tileConfig = state.tileConfig[tileId] || {};
       const px = x * cellSize;
       const py = y * cellSize;
+      ctx.fillStyle = tileConfig.fill || '#ffffff';
+      ctx.fillRect(px, py, cellSize, cellSize);
       if (tileConfig.sprite) {
         const image = loadImageAsset(tileConfig.sprite, () => {
           if (zoneCanvasState.zoneId === zone.id) {
@@ -2672,15 +2687,6 @@ function convertTileIdForExport(value) {
 
 function buildWorldData() {
   if (!state.zones.length) {
-    alert('Create at least one zone before generating.');
-    return null;
-  }
-  const invalidTiles = Object.entries(state.tileConfig).filter(
-    ([, config]) => !config || !config.sprite
-  );
-  if (invalidTiles.length) {
-    const missingList = invalidTiles.map(([id]) => id).join(', ');
-    alert(`Assign a sprite to every tile before exporting. Missing: ${missingList}`);
     return null;
   }
   const encounterTiles = normalizeEncounterTiles(state.world.encounterTiles);
@@ -2693,19 +2699,14 @@ function buildWorldData() {
   const enemyCount = Number.isFinite(Number(state.world.enemyCount))
     ? Math.max(1, Math.round(Number(state.world.enemyCount)))
     : DEFAULT_ENEMY_COUNT;
-  const tileConfigEntries = Object.entries(state.tileConfig).map(([id, config]) => [
-    id,
-    {
-      sprite: config.sprite,
-      walkable: config.walkable !== false,
-    },
-  ]);
   const world = {
     id: state.world.id || 'new_world',
     name: state.world.name || 'New World',
     tileSize: Number(state.world.tileSize) || 0,
-    palette: {},
-    tileConfig: Object.fromEntries(tileConfigEntries),
+    palette: { ...state.palette },
+    tileConfig: Object.fromEntries(
+      Object.entries(state.tileConfig).map(([id, config]) => [id, { ...config }])
+    ),
     moveCooldownMs: Number(state.world.moveCooldownMs) || 0,
     encounters: {
       tiles: encounterTiles,
@@ -2801,6 +2802,7 @@ function buildWorldData() {
 function generateWorldJson() {
   const world = buildWorldData();
   if (!world) {
+    alert('Create at least one zone before generating.');
     return;
   }
   worldOutput.value = JSON.stringify([world], null, 2);
@@ -2908,21 +2910,21 @@ function applyWorldData(rawWorld) {
   };
   tileIdSet.forEach(tileId => {
     const config = tileConfigSource[tileId] || {};
-    let sprite = typeof config.sprite === 'string' ? config.sprite.trim() : '';
-    if (!sprite) {
-      const fallbackTile = DEFAULT_TILES.find(
-        entry => String(entry.id) === String(tileId) && entry.sprite
-      );
-      if (fallbackTile) {
-        sprite = fallbackTile.sprite;
-      }
-    }
+    const sprite = typeof config.sprite === 'string' ? config.sprite : '';
+    const fallbackFill = paletteEntries[tileId];
+    const fill =
+      typeof config.fill === 'string' && config.fill.trim()
+        ? config.fill.trim()
+        : typeof fallbackFill === 'string' && fallbackFill.trim()
+          ? fallbackFill.trim()
+          : '#ffffff';
     const walkable = Object.prototype.hasOwnProperty.call(config, 'walkable')
       ? Boolean(config.walkable)
       : true;
     loadedPalette.tiles.push({
       tileId: String(tileId),
       sprite,
+      fill,
       walkable,
     });
   });
@@ -3061,9 +3063,7 @@ function handleLoadWorld() {
     return;
   }
   const world = buildWorldData();
-  if (world) {
-    worldOutput.value = JSON.stringify([world], null, 2);
-  }
+  worldOutput.value = world ? JSON.stringify([world], null, 2) : '';
 }
 
 generateWorldButton.addEventListener('click', generateWorldJson);

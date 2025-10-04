@@ -75,15 +75,24 @@ function normalizeTileConfig(raw) {
     if (!value || typeof value !== 'object') {
       return;
     }
-    const sprite =
-      typeof value.sprite === 'string' && value.sprite.trim() ? value.sprite.trim() : null;
-    if (!sprite) {
+    const sprite = typeof value.sprite === 'string' && value.sprite.trim() ? value.sprite.trim() : null;
+    let fill = null;
+    if (typeof value.fill === 'string') {
+      const rawFill = value.fill.trim().toLowerCase();
+      if (/^#(?:0{3}|f{3}|0{6}|f{6})$/.test(rawFill)) {
+        fill = rawFill.length === 4 ? (rawFill === '#000' ? '#000000' : '#ffffff') : rawFill;
+      }
+    }
+    if (!sprite && !fill) {
       return;
     }
-    tileConfig[String(key)] = {
-      sprite,
-      walkable: value.walkable !== false,
-    };
+    tileConfig[String(key)] = {};
+    if (sprite) {
+      tileConfig[String(key)].sprite = sprite;
+    }
+    if (fill) {
+      tileConfig[String(key)].fill = fill;
+    }
   });
   return tileConfig;
 }
