@@ -251,6 +251,7 @@ const worldShopState = {
   error: null,
   scrollOffset: 0,
   scrollMax: 0,
+  sortDropdownOpen: false,
   pointer: { x: 0, y: 0, clientX: 0, clientY: 0, inside: false },
   hovered: null,
   hoveredButton: null,
@@ -258,7 +259,9 @@ const worldShopState = {
   hoveredBuy: null,
   interactive: {
     filterOptions: [],
+    sortToggle: null,
     sortOptions: [],
+    sortDropdownBounds: null,
     resetButton: null,
     closeButton: null,
     itemCards: [],
@@ -599,9 +602,16 @@ function updateWorldShopHover(x, y) {
     }
   }
   if (!hoveredButton) {
+    const toggleRect = worldShopState.interactive.sortToggle;
+    if (toggleRect && pointInRect(point, toggleRect)) {
+      hoveredButton = { type: 'sort-toggle' };
+      cursor = 'pointer';
+    }
+  }
+  if (!hoveredButton) {
     for (const option of worldShopState.interactive.sortOptions) {
       if (pointInRect(point, option.rect)) {
-        hoveredButton = { type: 'sort', value: option.value };
+        hoveredButton = { type: 'sort-option', value: option.value };
         cursor = 'pointer';
         break;
       }
@@ -682,6 +692,9 @@ function handleWorldShopPointerLeave() {
     worldShopCanvas.style.cursor = 'default';
   }
   hideWorldShopTooltip();
+  if (worldShopState.sortDropdownOpen) {
+    worldShopState.sortDropdownOpen = false;
+  }
   requestWorldShopRender();
 }
 
@@ -711,9 +724,28 @@ async function handleWorldShopClick(event) {
   updateWorldShopHover(coords.x, coords.y);
   const action = worldShopState.hoveredButton;
   if (!action) {
+    if (worldShopState.sortDropdownOpen) {
+      worldShopState.sortDropdownOpen = false;
+      requestWorldShopRender();
+    }
     return;
   }
   event.preventDefault();
+  if (action.type === 'sort-toggle') {
+    worldShopState.sortDropdownOpen = !worldShopState.sortDropdownOpen;
+    requestWorldShopRender();
+    return;
+  }
+  if (action.type === 'sort-option') {
+    worldShopState.sortOrder = action.value;
+    worldShopState.sortDropdownOpen = false;
+    refreshWorldShopFilteredItems();
+    return;
+  }
+  if (worldShopState.sortDropdownOpen) {
+    worldShopState.sortDropdownOpen = false;
+    requestWorldShopRender();
+  }
   if (action.type === 'close') {
     closeWorldShop();
     return;
@@ -728,11 +760,6 @@ async function handleWorldShopClick(event) {
       }
       refreshWorldShopFilteredItems();
     }
-    return;
-  }
-  if (action.type === 'sort') {
-    worldShopState.sortOrder = action.value;
-    refreshWorldShopFilteredItems();
     return;
   }
   if (action.type === 'reset') {
@@ -772,6 +799,10 @@ function handleWorldShopWheel(event) {
     return;
   }
   event.preventDefault();
+  const closedDropdown = worldShopState.sortDropdownOpen;
+  if (closedDropdown) {
+    worldShopState.sortDropdownOpen = false;
+  }
   const { deltaY, deltaMode } = event;
   let delta = deltaY;
   if (deltaMode === 1) {
@@ -783,6 +814,8 @@ function handleWorldShopWheel(event) {
   if (nextOffset !== worldShopState.scrollOffset) {
     worldShopState.scrollOffset = nextOffset;
     updateWorldShopTooltipPosition();
+    requestWorldShopRender();
+  } else if (closedDropdown) {
     requestWorldShopRender();
   }
 }
@@ -799,12 +832,15 @@ async function openWorldShop(service = null) {
   worldShopState.filtered = [];
   worldShopState.structure = null;
   worldShopState.interactive.filterOptions = [];
+  worldShopState.interactive.sortToggle = null;
   worldShopState.interactive.sortOptions = [];
+  worldShopState.interactive.sortDropdownBounds = null;
   worldShopState.interactive.itemCards = [];
   worldShopState.interactive.resetButton = null;
   worldShopState.interactive.closeButton = null;
   worldShopState.scrollOffset = 0;
   worldShopState.scrollMax = 0;
+  worldShopState.sortDropdownOpen = false;
   worldShopState.hoveredButton = null;
   worldShopState.hoveredItem = null;
   worldShopState.hoveredBuy = null;
@@ -850,12 +886,15 @@ function closeWorldShop() {
   worldShopState.filtered = [];
   worldShopState.structure = null;
   worldShopState.interactive.filterOptions = [];
+  worldShopState.interactive.sortToggle = null;
   worldShopState.interactive.sortOptions = [];
+  worldShopState.interactive.sortDropdownBounds = null;
   worldShopState.interactive.itemCards = [];
   worldShopState.interactive.resetButton = null;
   worldShopState.interactive.closeButton = null;
   worldShopState.scrollOffset = 0;
   worldShopState.scrollMax = 0;
+  worldShopState.sortDropdownOpen = false;
   worldShopState.hoveredButton = null;
   worldShopState.hoveredItem = null;
   worldShopState.hoveredBuy = null;
@@ -978,7 +1017,9 @@ function renderWorldShop() {
   ctx.strokeStyle = '#000';
   ctx.strokeRect(itemsRect.x + 0.5, itemsRect.y + 0.5, itemsRect.width - 1, itemsRect.height - 1);
   worldShopState.interactive.filterOptions = [];
+  worldShopState.interactive.sortToggle = null;
   worldShopState.interactive.sortOptions = [];
+  worldShopState.interactive.sortDropdownBounds = null;
   worldShopState.interactive.itemCards = [];
   worldShopState.interactive.resetButton = null;
   const filterSections = [
@@ -1032,29 +1073,88 @@ function renderWorldShop() {
     filterCursor = optionY + sectionSpacing * 0.5;
     ctx.font = `bold ${Math.round(baseFont * 1.05)}px "Courier New", monospace`;
   });
-  // Sort options
+  // Sort dropdown
+  const sortLabelX = filtersRect.x + sectionSpacing * 0.4;
   let sortCursor = filterCursor + sectionSpacing * 0.5;
   ctx.font = `bold ${Math.round(baseFont * 1.05)}px "Courier New", monospace`;
-  ctx.fillText('SORT ORDER', filtersRect.x + sectionSpacing * 0.4, sortCursor);
-  sortCursor += lineHeight;
-  SHOP_SORT_OPTIONS.forEach(option => {
-    const rect = {
-      x: filtersRect.x + sectionSpacing * 0.4,
-      y: sortCursor,
-      width: filtersRect.width - sectionSpacing * 0.8,
-      height: Math.round(lineHeight * 0.9),
+  ctx.fillStyle = '#000';
+  ctx.fillText('SORT ORDER', sortLabelX, sortCursor);
+  sortCursor += Math.round(lineHeight * 0.9);
+  const toggleRect = {
+    x: sortLabelX,
+    y: sortCursor,
+    width: filtersRect.width - sectionSpacing * 0.8,
+    height: Math.round(lineHeight * 0.9),
+  };
+  const selectedSort = SHOP_SORT_OPTIONS.find(option => option.value === worldShopState.sortOrder)
+    || SHOP_SORT_OPTIONS[0];
+  const toggleActive = worldShopState.sortDropdownOpen;
+  ctx.fillStyle = toggleActive ? '#000' : '#ffffff';
+  ctx.strokeStyle = '#000';
+  ctx.fillRect(toggleRect.x, toggleRect.y, toggleRect.width, toggleRect.height);
+  ctx.strokeRect(toggleRect.x + 0.5, toggleRect.y + 0.5, toggleRect.width - 1, toggleRect.height - 1);
+  ctx.font = `${smallFont}px "Courier New", monospace`;
+  ctx.fillStyle = toggleActive ? '#fff' : '#000';
+  const toggleLabel = selectedSort ? selectedSort.label : 'Select order';
+  const labelY = toggleRect.y + toggleRect.height / 2 - smallFont / 2;
+  ctx.fillText(toggleLabel, toggleRect.x + 10, labelY);
+  const arrow = worldShopState.sortDropdownOpen ? '▲' : '▼';
+  const arrowWidth = ctx.measureText(arrow).width;
+  ctx.fillText(arrow, toggleRect.x + toggleRect.width - arrowWidth - 10, labelY);
+  worldShopState.interactive.sortToggle = toggleRect;
+  sortCursor = toggleRect.y + toggleRect.height + Math.round(sectionSpacing * 0.6);
+  if (worldShopState.sortDropdownOpen) {
+    const optionHeight = Math.max(Math.round(lineHeight * 0.9), smallFont + 10);
+    const dropdownPadding = Math.round(sectionSpacing * 0.3);
+    const dropdownWidth = toggleRect.width;
+    const dropdownTotalHeight = optionHeight * SHOP_SORT_OPTIONS.length + dropdownPadding * 2;
+    const dropdownLimit = filtersRect.y + filtersRect.height - sectionSpacing;
+    let dropdownY = toggleRect.y + toggleRect.height + Math.round(sectionSpacing * 0.2);
+    if (dropdownY + dropdownTotalHeight > dropdownLimit) {
+      dropdownY = Math.max(
+        filtersRect.y + sectionSpacing * 0.4,
+        toggleRect.y - Math.round(sectionSpacing * 0.2) - dropdownTotalHeight,
+      );
+    }
+    const dropdownRect = {
+      x: toggleRect.x,
+      y: dropdownY,
+      width: dropdownWidth,
+      height: dropdownTotalHeight,
     };
-    const active = worldShopState.sortOrder === option.value;
-    ctx.fillStyle = active ? '#000' : '#ffffff';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(dropdownRect.x, dropdownRect.y, dropdownRect.width, dropdownRect.height);
     ctx.strokeStyle = '#000';
-    ctx.fillRect(rect.x, rect.y, rect.width, rect.height);
-    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.width - 1, rect.height - 1);
-    ctx.fillStyle = active ? '#fff' : '#000';
+    ctx.strokeRect(dropdownRect.x + 0.5, dropdownRect.y + 0.5, dropdownRect.width - 1, dropdownRect.height - 1);
+    let optionY = dropdownRect.y + dropdownPadding;
     ctx.font = `${smallFont}px "Courier New", monospace`;
-    ctx.fillText(option.label, rect.x + 8, rect.y + rect.height / 2 - smallFont / 2);
-    worldShopState.interactive.sortOptions.push({ value: option.value, rect });
-    sortCursor += rect.height + Math.round(sectionSpacing * 0.4);
-  });
+    worldShopState.interactive.sortOptions = [];
+    SHOP_SORT_OPTIONS.forEach(option => {
+      const optionRect = {
+        x: dropdownRect.x + 8,
+        y: optionY,
+        width: dropdownRect.width - 16,
+        height: optionHeight,
+      };
+      const active = worldShopState.sortOrder === option.value;
+      const hoveredOption =
+        worldShopState.hoveredButton
+        && worldShopState.hoveredButton.type === 'sort-option'
+        && worldShopState.hoveredButton.value === option.value;
+      ctx.fillStyle = active ? '#000' : hoveredOption ? '#e0e0e0' : '#f7f7f7';
+      ctx.fillRect(optionRect.x, optionRect.y, optionRect.width, optionRect.height);
+      ctx.strokeStyle = '#000';
+      ctx.strokeRect(optionRect.x + 0.5, optionRect.y + 0.5, optionRect.width - 1, optionRect.height - 1);
+      ctx.fillStyle = active ? '#fff' : '#000';
+      ctx.fillText(option.label, optionRect.x + 6, optionRect.y + optionRect.height / 2 - smallFont / 2);
+      worldShopState.interactive.sortOptions.push({ value: option.value, rect: optionRect });
+      optionY += optionHeight + Math.round(sectionSpacing * 0.25);
+    });
+    worldShopState.interactive.sortDropdownBounds = dropdownRect;
+  } else {
+    worldShopState.interactive.sortOptions = [];
+    worldShopState.interactive.sortDropdownBounds = null;
+  }
   const resetHeight = Math.round(lineHeight * 0.9);
   const resetRect = {
     x: filtersRect.x + sectionSpacing * 0.4,
@@ -1079,6 +1179,12 @@ function renderWorldShop() {
     ? worldShopState.error
     : `${worldShopState.filtered.length} of ${worldShopState.totalItems} items`;
   ctx.fillText(summaryText, itemsRect.x + 12, summaryY);
+  if (selectedSort) {
+    ctx.save();
+    ctx.textAlign = 'right';
+    ctx.fillText(`Sort: ${selectedSort.label}`, itemsRect.x + itemsRect.width - 12, summaryY);
+    ctx.restore();
+  }
   const contentStartY = summaryY + smallFont + sectionSpacing;
   if (worldShopState.loading) {
     ctx.font = `bold ${headerFont}px "Courier New", monospace`;
@@ -1101,15 +1207,23 @@ function renderWorldShop() {
   }
   const structure = worldShopState.structure || buildShopCategoryStructure(worldShopState.filtered);
   const cardGutter = Math.max(12, Math.round(sectionSpacing));
-  const usableWidth = itemsRect.width - cardGutter * 2;
-  let columns = Math.max(1, Math.floor(usableWidth / (240 + cardGutter)));
-  if (columns < 1) columns = 1;
-  const cardWidth = Math.floor((usableWidth - cardGutter * (columns - 1)) / columns);
-  const cardHeight = Math.max(Math.round(cardWidth * 0.6) + lineHeight * 4, 180);
-  const cardPadding = Math.round(cardWidth * 0.08);
+  const usableWidth = Math.max(160, itemsRect.width - cardGutter * 2);
+  const desiredCardWidth = 240;
+  let columns = Math.max(1, Math.floor((usableWidth + cardGutter) / (desiredCardWidth + cardGutter)));
+  if (!Number.isFinite(columns) || columns < 1) {
+    columns = 1;
+  }
+  let cardWidth = Math.floor((usableWidth - cardGutter * (columns - 1)) / columns);
+  while (columns > 1 && cardWidth < 180) {
+    columns -= 1;
+    cardWidth = Math.floor((usableWidth - cardGutter * (columns - 1)) / columns);
+  }
+  cardWidth = Math.max(160, Math.min(cardWidth, usableWidth));
+  const cardHeight = Math.max(Math.round(lineHeight * 4.2), Math.round(cardWidth * 0.55));
+  const cardPadding = Math.round(Math.min(cardWidth * 0.12, baseFont * 1.4));
   const viewTop = itemsRect.y;
   const viewBottom = itemsRect.y + itemsRect.height;
-  let contentCursor = contentStartY + worldShopState.scrollOffset;
+  let contentCursor = contentStartY;
   ctx.save();
   ctx.beginPath();
   ctx.rect(itemsRect.x, itemsRect.y, itemsRect.width, itemsRect.height);
@@ -1121,7 +1235,8 @@ function renderWorldShop() {
     }
     const totalCount = [...groupMap.values()].reduce((sum, subgroup) => sum + subgroup.items.length, 0);
     const headerHeight = Math.round(lineHeight * 1.1);
-    const headerScreenY = contentCursor - worldShopState.scrollOffset;
+    const headerY = contentCursor;
+    const headerScreenY = headerY - worldShopState.scrollOffset;
     if (headerScreenY + headerHeight >= viewTop && headerScreenY <= viewBottom) {
       ctx.fillStyle = '#000';
       ctx.fillRect(itemsRect.x, headerScreenY, itemsRect.width, headerHeight);
@@ -1135,7 +1250,8 @@ function renderWorldShop() {
     subgroups.forEach(subgroup => {
       if (showTitles) {
         const subHeaderHeight = Math.round(lineHeight);
-        const subHeaderScreenY = contentCursor - worldShopState.scrollOffset;
+        const subHeaderY = contentCursor;
+        const subHeaderScreenY = subHeaderY - worldShopState.scrollOffset;
         if (subHeaderScreenY + subHeaderHeight >= viewTop && subHeaderScreenY <= viewBottom) {
           ctx.fillStyle = '#222';
           ctx.fillRect(itemsRect.x, subHeaderScreenY, itemsRect.width, subHeaderHeight);
@@ -1155,47 +1271,59 @@ function renderWorldShop() {
         if (screenY + cardHeight < viewTop || screenY > viewBottom) {
           return;
         }
-        ctx.fillStyle = '#ffffff';
+        const textWidth = cardWidth - cardPadding * 2;
+        const hoveredCard = worldShopState.hoveredItem === item;
+        const hoveredBuy = worldShopState.hoveredBuy === item;
+        const itemCost = getItemCost(item);
+        const canAfford = worldShopState.gold >= itemCost;
+        const pending = worldShopState.purchasePending === item.id;
+        ctx.fillStyle = hoveredCard ? '#f4f6ff' : '#ffffff';
         ctx.strokeStyle = '#000';
         ctx.fillRect(absoluteX, screenY, cardWidth, cardHeight);
         ctx.strokeRect(absoluteX + 0.5, screenY + 0.5, cardWidth - 1, cardHeight - 1);
         ctx.fillStyle = '#000';
         ctx.font = `bold ${Math.round(baseFont * 1.05)}px "Courier New", monospace`;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(absoluteX + cardPadding, screenY + cardPadding, textWidth, lineHeight + 4);
+        ctx.clip();
         ctx.fillText(item.name, absoluteX + cardPadding, screenY + cardPadding);
+        ctx.restore();
         ctx.font = `${smallFont}px "Courier New", monospace`;
-        ctx.fillText(item.rarity || 'Common', absoluteX + cardPadding, screenY + cardPadding + smallFont + 2);
-        const tags = getWorldShopItemTags(item);
-        let tagY = screenY + cardPadding + smallFont * 2 + 6;
-        tags.forEach(tag => {
-          ctx.fillText(tag, absoluteX + cardPadding, tagY);
-          tagY += smallFont + 2;
-        });
-        const summaryLines = buildWorldShopSummaryLines(item).slice(0, 3);
-        let summaryY = screenY + cardHeight - Math.round(lineHeight * 1.4) - summaryLines.length * (smallFont + 2) - cardPadding;
-        if (summaryY < tagY) {
-          summaryY = tagY;
-        }
-        ctx.font = `${smallFont}px "Courier New", monospace`;
-        summaryLines.forEach(line => {
-          ctx.fillText(line, absoluteX + cardPadding, summaryY);
-          summaryY += smallFont + 2;
-        });
-        const costText = `${getItemCost(item)} Gold`;
-        ctx.font = `bold ${smallFont}px "Courier New", monospace`;
-        ctx.fillText(costText, absoluteX + cardPadding, screenY + cardHeight - cardPadding - Math.round(lineHeight * 0.8));
-        const buyWidth = Math.round(cardWidth * 0.4);
+        const rarityY = screenY + cardPadding + Math.round(lineHeight * 0.85);
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(absoluteX + cardPadding, rarityY, textWidth, smallFont + 4);
+        ctx.clip();
+        ctx.fillText(item.rarity || 'Common', absoluteX + cardPadding, rarityY);
+        ctx.restore();
         const buyHeight = Math.round(lineHeight * 0.9);
+        const buyWidth = Math.min(Math.round(cardWidth * 0.55), cardWidth - cardPadding * 2);
         const buyX = absoluteX + cardWidth - cardPadding - buyWidth;
         const buyY = screenY + cardHeight - cardPadding - buyHeight;
-        const canAfford = worldShopState.gold >= getItemCost(item);
-        const pending = worldShopState.purchasePending === item.id;
-        ctx.fillStyle = pending ? '#666' : canAfford ? '#000' : '#bbb';
+        let costY = buyY - smallFont - 6;
+        const minCostY = rarityY + smallFont + 6;
+        if (costY < minCostY) {
+          costY = minCostY;
+        }
+        const costText = `${itemCost} Gold`;
+        ctx.font = `${smallFont}px "Courier New", monospace`;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(absoluteX + cardPadding, costY, textWidth, smallFont + 6);
+        ctx.clip();
+        ctx.fillText(costText, absoluteX + cardPadding, costY);
+        ctx.restore();
+        ctx.fillStyle = pending ? '#666' : canAfford ? (hoveredBuy ? '#111' : '#000') : '#bbb';
         ctx.fillRect(buyX, buyY, buyWidth, buyHeight);
         ctx.strokeStyle = '#000';
         ctx.strokeRect(buyX + 0.5, buyY + 0.5, buyWidth - 1, buyHeight - 1);
         ctx.fillStyle = '#fff';
-        ctx.font = `bold ${smallFont}px "Courier New", monospace`;
-        ctx.fillText('BUY', buyX + buyWidth / 2 - smallFont, buyY + buyHeight / 2 - smallFont / 2);
+        const buyFont = Math.max(10, smallFont - 1);
+        ctx.font = `bold ${buyFont}px "Courier New", monospace`;
+        const buyLabel = pending ? 'WORKING' : 'BUY';
+        const buyLabelWidth = ctx.measureText(buyLabel).width;
+        ctx.fillText(buyLabel, buyX + (buyWidth - buyLabelWidth) / 2, buyY + buyHeight / 2 - buyFont / 2);
         const cardRect = { x: absoluteX, y: screenY, width: cardWidth, height: cardHeight };
         const buyRect = canAfford && !pending ? { x: buyX, y: buyY, width: buyWidth, height: buyHeight } : null;
         worldShopState.interactive.itemCards.push({ item, rect: cardRect, buyRect });
