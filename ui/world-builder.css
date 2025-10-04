@@ -531,6 +531,30 @@ body.world-builder {
   align-items:center;
 }
 
+.tile-controls {
+  display:flex;
+  align-items:center;
+  gap:12px;
+  font-size:12px;
+  text-transform:uppercase;
+}
+
+.brush-control {
+  display:flex;
+  align-items:center;
+  gap:8px;
+  text-transform:uppercase;
+}
+
+.brush-control input {
+  width:64px;
+  border:1px solid #000;
+  padding:4px;
+  font-family:'Courier New', monospace;
+  background:#fff;
+  color:#000;
+}
+
 .transport-controls label {
   display:flex;
   flex-direction:column;
