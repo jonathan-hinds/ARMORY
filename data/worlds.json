@@ -1249,12 +1249,25 @@
         "name": "Fisherman",
         "sprite": "/assets/sprites/npc.png",
         "facing": "down",
-        "dialog": [
-          "What're ye' doin round'ese p'rts?"
-        ],
         "zoneId": "marsh",
         "x": 8,
-        "y": 4
+        "y": 4,
+        "dialog": {
+          "entries": [
+            {
+              "lines": [
+                "What're ye' doin round'ese p'rts?"
+              ]
+            },
+            {
+              "lines": [
+                "scram, make ye' self lost!",
+                "It's dangerous out'ere!"
+              ]
+            }
+          ],
+          "loopFrom": 1
+        }
       }
     ],
     "paletteName": "Marsh",
