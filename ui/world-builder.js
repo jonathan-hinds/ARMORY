@@ -819,6 +819,54 @@ function rebuildPaletteState() {
   }
 }
 
+function sanitizeZonesForPalette() {
+  const validIds = Object.keys(state.tileConfig);
+  if (!validIds.length || !state.zones.length) {
+    return false;
+  }
+
+  const validSet = new Set(validIds);
+  const fallback = validSet.has(state.selectedTileId)
+    ? state.selectedTileId
+    : validIds[0];
+  let updated = false;
+
+  state.zones.forEach(zone => {
+    let width = Number(zone.width);
+    if (!Number.isInteger(width) || width <= 0) {
+      width = Array.isArray(zone.tiles?.[0]) ? zone.tiles[0].length : 0;
+    }
+    let height = Number(zone.height);
+    if (!Number.isInteger(height) || height <= 0) {
+      height = Array.isArray(zone.tiles) ? zone.tiles.length : 0;
+    }
+    if (!width || !height) {
+      return;
+    }
+    if (!Array.isArray(zone.tiles)) {
+      zone.tiles = Array.from({ length: height }, () => Array.from({ length: width }, () => fallback));
+      updated = true;
+      return;
+    }
+    for (let y = 0; y < height; y += 1) {
+      if (!Array.isArray(zone.tiles[y])) {
+        zone.tiles[y] = Array.from({ length: width }, () => fallback);
+        updated = true;
+        continue;
+      }
+      for (let x = 0; x < width; x += 1) {
+        const current = zone.tiles[y][x];
+        if (!validSet.has(current)) {
+          zone.tiles[y][x] = fallback;
+          updated = true;
+        }
+      }
+    }
+  });
+
+  return updated;
+}
+
 function setPaletteInputsFromState() {
   if (paletteNameInput) {
     paletteNameInput.value = state.activePalette?.name || '';
@@ -919,9 +967,12 @@ function setActivePalette(palette, options = {}) {
   state.selectedPaletteId = state.activePalette._id || null;
   setPaletteInputsFromState();
   rebuildPaletteState();
+  const zonesUpdated = sanitizeZonesForPalette();
   renderTilePalette();
   if (!options.skipZone) {
     renderZoneEditor();
+  } else if (zonesUpdated) {
+    refreshZoneTiles();
   }
   renderPaletteTiles();
   if (!options.skipSelect) {
@@ -1067,6 +1118,7 @@ function removePaletteTile(tileId) {
     state.selectedTileId = tiles[0]?.tileId || null;
   }
   rebuildPaletteState();
+  sanitizeZonesForPalette();
   renderPaletteTiles();
   renderTilePalette();
   renderZoneEditor();
@@ -1097,6 +1149,7 @@ function handleSpriteFormSubmit(event) {
   state.activePalette.tiles = tiles;
   state.selectedTileId = tileId;
   rebuildPaletteState();
+  sanitizeZonesForPalette();
   renderPaletteTiles();
   renderTilePalette();
   renderZoneEditor();
