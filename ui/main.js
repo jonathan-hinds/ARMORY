@@ -69,6 +69,29 @@ const HIT_BASE = 75;
 const HIT_RANGE = CHANCE_CAPS.hitChance - HIT_BASE;
 const HIT_SCALE = 45;
 
+const SHOP_CATEGORY_DEFINITIONS = [
+  { value: 'weapons', label: 'Weapons' },
+  { value: 'armor', label: 'Armor' },
+  { value: 'useables', label: 'Useable Items' },
+  { value: 'materials', label: 'Materials' },
+];
+const SHOP_SORT_OPTIONS = [
+  { value: 'cost-asc', label: 'Cost • Low to High' },
+  { value: 'cost-desc', label: 'Cost • High to Low' },
+  { value: 'damage-desc', label: 'Damage • High to Low' },
+  { value: 'damage-asc', label: 'Damage • Low to High' },
+  { value: 'stat-desc', label: 'Stat Bonus • High to Low' },
+  { value: 'stat-asc', label: 'Stat Bonus • Low to High' },
+];
+const SHOP_EFFECT_OPTIONS = [
+  { value: 'onHit', label: 'On Hit Effects' },
+  { value: 'useEffect', label: 'Use Effect' },
+  { value: 'attributeBonus', label: 'Attribute Bonuses' },
+  { value: 'chanceBonus', label: 'Chance Bonuses' },
+  { value: 'resourceBonus', label: 'Resource Bonuses' },
+];
+const SHOP_SLOT_ORDER = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands', 'useable', 'material'];
+
 function saturatingChance(value, cap, scale) {
   if (!Number.isFinite(value) || value <= 0) return 0;
   return cap * (1 - Math.exp(-value / scale));
@@ -3288,29 +3311,6 @@ function initWorldTab() {
     updateWorldLobbyMessage('Queue up to enter a world instance.', false);
   }
 }
-
-const SHOP_CATEGORY_DEFINITIONS = [
-  { value: 'weapons', label: 'Weapons' },
-  { value: 'armor', label: 'Armor' },
-  { value: 'useables', label: 'Useable Items' },
-  { value: 'materials', label: 'Materials' },
-];
-const SHOP_SORT_OPTIONS = [
-  { value: 'cost-asc', label: 'Cost • Low to High' },
-  { value: 'cost-desc', label: 'Cost • High to Low' },
-  { value: 'damage-desc', label: 'Damage • High to Low' },
-  { value: 'damage-asc', label: 'Damage • Low to High' },
-  { value: 'stat-desc', label: 'Stat Bonus • High to Low' },
-  { value: 'stat-asc', label: 'Stat Bonus • Low to High' },
-];
-const SHOP_EFFECT_OPTIONS = [
-  { value: 'onHit', label: 'On Hit Effects' },
-  { value: 'useEffect', label: 'Use Effect' },
-  { value: 'attributeBonus', label: 'Attribute Bonuses' },
-  { value: 'chanceBonus', label: 'Chance Bonuses' },
-  { value: 'resourceBonus', label: 'Resource Bonuses' },
-];
-const SHOP_SLOT_ORDER = ['weapon', 'helmet', 'chest', 'legs', 'feet', 'hands', 'useable', 'material'];
 
 const shopFilters = {
   categories: new Set(),
