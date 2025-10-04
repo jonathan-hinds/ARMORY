@@ -605,6 +605,7 @@ const zoneCanvasState = {
   startCell: null,
   lastCell: null,
   previewRect: null,
+  pendingRedraw: false,
 };
 
 function setActiveTab(tabId) {
@@ -1639,6 +1640,19 @@ function handleNonTilePrimaryAction(zone, x, y) {
   }
 }
 
+function scheduleZoneRedraw(zone) {
+  if (!zone || zoneCanvasState.pendingRedraw) {
+    return;
+  }
+  zoneCanvasState.pendingRedraw = true;
+  Promise.resolve().then(() => {
+    zoneCanvasState.pendingRedraw = false;
+    if (zoneCanvasState.zoneId === zone.id) {
+      drawZoneTiles(zone);
+    }
+  });
+}
+
 function loadImageAsset(url, onLoad) {
   if (!url) return null;
   let entry = imageCache.get(url);
@@ -1656,12 +1670,10 @@ function loadImageAsset(url, onLoad) {
     image.src = url;
     imageCache.set(url, entry);
   }
-  if (entry.loaded) {
-    if (onLoad && !entry.error) {
-      Promise.resolve().then(() => onLoad(entry.image));
+  if (!entry.loaded && onLoad && !entry.error) {
+    if (!entry.callbacks.includes(onLoad)) {
+      entry.callbacks.push(onLoad);
     }
-  } else if (onLoad && !entry.error) {
-    entry.callbacks.push(onLoad);
   }
   return entry.image;
 }
@@ -1673,6 +1685,11 @@ function drawZoneTiles(zone) {
   const width = zone.width * cellSize;
   const height = zone.height * cellSize;
   const ratio = zoneCanvasState.pixelRatio || 1;
+  const handleSpriteLoad = () => {
+    if (zoneCanvasState.zoneId === zone.id) {
+      scheduleZoneRedraw(zone);
+    }
+  };
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.clearRect(0, 0, width, height);
   ctx.imageSmoothingEnabled = false;
@@ -1690,11 +1707,7 @@ function drawZoneTiles(zone) {
         ctx.fillRect(px, py, cellSize, cellSize);
       }
       if (hasSprite) {
-        const image = loadImageAsset(tileConfig.sprite, () => {
-          if (zoneCanvasState.zoneId === zone.id) {
-            drawZoneTiles(zone);
-          }
-        });
+        const image = loadImageAsset(tileConfig.sprite, handleSpriteLoad);
         if (image && image.complete && image.naturalWidth) {
           ctx.drawImage(image, px, py, cellSize, cellSize);
         }
@@ -1995,6 +2008,7 @@ function renderZoneGrid() {
     zoneCanvasState.overlayCtx = null;
     zoneCanvasState.zoneId = null;
     zoneCanvasState.previewRect = null;
+    zoneCanvasState.pendingRedraw = false;
     const empty = document.createElement('p');
     empty.textContent = 'Select a zone to edit.';
     zoneGridContainer.appendChild(empty);
@@ -2034,6 +2048,7 @@ function renderZoneGrid() {
   zoneCanvasState.cellSize = cellSize;
   zoneCanvasState.pixelRatio = ratio;
   zoneCanvasState.previewRect = null;
+  zoneCanvasState.pendingRedraw = false;
   resetZoneCanvasPointerState();
 
   overlayCanvas.addEventListener('pointerdown', handleZonePointerDown);
