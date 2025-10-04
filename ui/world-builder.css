@@ -872,6 +872,16 @@ body.world-builder {
   font-size:12px;
 }
 
+.npc-item .npc-service-label {
+  font-size:11px;
+  letter-spacing:1px;
+  color:#555;
+}
+
+.npc-item.active .npc-service-label {
+  color:#ddd;
+}
+
 .npc-item .npc-position {
   font-size:11px;
   letter-spacing:1px;

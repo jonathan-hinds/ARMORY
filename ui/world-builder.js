@@ -80,6 +80,7 @@ const npcNameInput = document.getElementById('npc-name');
 const npcFacingSelect = document.getElementById('npc-facing');
 const npcSpriteSelect = document.getElementById('npc-sprite-select');
 const npcSpritePreview = document.getElementById('npc-sprite-preview');
+const npcServiceSelect = document.getElementById('npc-service');
 const npcDialogList = document.getElementById('npc-dialog-entry-list');
 const npcDialogAddButton = document.getElementById('npc-dialog-add');
 const npcDialogLoopSelect = document.getElementById('npc-dialog-loop');
@@ -2242,6 +2243,68 @@ function exportNpcDialog(dialog) {
   return payload;
 }
 
+function normalizeNpcServiceConfig(rawService) {
+  if (!rawService) {
+    return null;
+  }
+  if (typeof rawService === 'string') {
+    const type = rawService.trim().toLowerCase();
+    if (!type) {
+      return null;
+    }
+    if (type === 'shop') {
+      return { type: 'shop', shopId: null };
+    }
+    return null;
+  }
+  if (typeof rawService === 'object') {
+    const type = typeof rawService.type === 'string' ? rawService.type.trim().toLowerCase() : '';
+    if (!type) {
+      return null;
+    }
+    if (type === 'shop') {
+      const shopId =
+        typeof rawService.shopId === 'string' && rawService.shopId.trim() ? rawService.shopId.trim() : null;
+      return { type: 'shop', shopId };
+    }
+  }
+  return null;
+}
+
+function cloneNpcService(rawService) {
+  const normalized = normalizeNpcServiceConfig(rawService);
+  if (!normalized) {
+    return null;
+  }
+  return {
+    type: normalized.type,
+    shopId: normalized.shopId || null,
+  };
+}
+
+function exportNpcService(service) {
+  const normalized = cloneNpcService(service);
+  if (!normalized) {
+    return undefined;
+  }
+  const payload = { type: normalized.type };
+  if (normalized.shopId) {
+    payload.shopId = normalized.shopId;
+  }
+  return payload;
+}
+
+function getNpcServiceLabel(service) {
+  const normalized = cloneNpcService(service);
+  if (!normalized) {
+    return '';
+  }
+  if (normalized.type === 'shop') {
+    return 'Shop';
+  }
+  return titleCase(normalized.type);
+}
+
 function updateNpcDialogLoopOptions(entryCount, loopFrom) {
   if (!npcDialogLoopSelect) {
     return;
@@ -2360,6 +2423,9 @@ function clearNpcForm() {
   if (npcFacingSelect) {
     npcFacingSelect.value = 'down';
   }
+  if (npcServiceSelect) {
+    npcServiceSelect.value = '';
+  }
   renderNpcSpriteOptions('');
   updateNpcSpritePreview('');
   renderNpcDialogEditor({ entries: [], loopFrom: null });
@@ -2378,6 +2444,10 @@ function loadNpcIntoForm(npc) {
   }
   if (npcFacingSelect) {
     npcFacingSelect.value = npc.facing || 'down';
+  }
+  if (npcServiceSelect) {
+    const service = cloneNpcService(npc.service);
+    npcServiceSelect.value = service ? service.type : '';
   }
   renderNpcSpriteOptions(npc.sprite || '');
   renderNpcDialogEditor(npc.dialog);
@@ -2423,6 +2493,13 @@ function renderNpcList() {
       const idLine = document.createElement('span');
       idLine.textContent = npc.id;
       meta.appendChild(idLine);
+      const serviceLabel = getNpcServiceLabel(npc.service);
+      if (serviceLabel) {
+        const serviceTag = document.createElement('span');
+        serviceTag.className = 'npc-service-label';
+        serviceTag.textContent = serviceLabel;
+        meta.appendChild(serviceTag);
+      }
       item.appendChild(meta);
       const position = document.createElement('span');
       position.className = 'npc-position';
@@ -2527,6 +2604,8 @@ if (npcForm) {
     const normalizedFacing = ['up', 'down', 'left', 'right'].includes(facingValue) ? facingValue : 'down';
     const spriteValue = npcSpriteSelect && npcSpriteSelect.value ? npcSpriteSelect.value : '';
     const dialogConfig = cloneNpcDialog(readNpcDialogForm({ includeEmpty: false }));
+    const serviceValue = npcServiceSelect ? npcServiceSelect.value : '';
+    const serviceConfig = cloneNpcService(serviceValue || null);
 
     let npc = state.npcs.find(entry => entry.id === state.editingNpcId) || null;
     if (!npc) {
@@ -2539,6 +2618,7 @@ if (npcForm) {
         zoneId: null,
         x: null,
         y: null,
+        service: serviceConfig,
       };
       state.npcs.push(npc);
     } else {
@@ -2548,6 +2628,7 @@ if (npcForm) {
       npc.facing = normalizedFacing;
       npc.sprite = spriteValue || null;
       npc.dialog = dialogConfig;
+      npc.service = serviceConfig;
       if (state.selectedNpcId === previousId) {
         state.selectedNpcId = normalizedId;
       }
@@ -3122,6 +3203,10 @@ function buildWorldData() {
     if (dialog) {
       payload.dialog = dialog;
     }
+    const service = exportNpcService(npc.service);
+    if (service) {
+      payload.service = service;
+    }
     return payload;
   });
   if (exportedNpcs.length) {
@@ -3411,6 +3496,7 @@ function applyWorldData(rawWorld) {
       zoneId: zone ? zone.id : null,
       x,
       y,
+      service: cloneNpcService(entry?.service),
     };
   });
   state.selectedNpcId = null;
