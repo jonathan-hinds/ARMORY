@@ -162,6 +162,7 @@ let worldPlayerListEl = null;
 let worldTitleEl = null;
 const WORLD_VISIBLE_TILES = 16;
 let worldDpadEl = null;
+let worldActionsEl = null;
 let worldLobbyStatusEl = null;
 let worldWorldSelectEl = null;
 let worldPartySizeSelectEl = null;
@@ -176,6 +177,7 @@ let worldDpadActiveDirection = null;
 let worldDpadRepeatTimer = null;
 let worldDpadPointerId = null;
 let worldDpadLastPointerTs = 0;
+let worldActionLastPointerTs = 0;
 let worldResizeListenerAttached = false;
 let worldDpadBlurListenerAttached = false;
 const worldSpriteCache = new Map();
@@ -589,6 +591,7 @@ function resetWorldState() {
   worldMovementLocked = false;
   worldDialogState = null;
   worldInteractPending = false;
+  worldActionLastPointerTs = 0;
   worldLastMoveAt = 0;
   clearWorldDpadHold();
   updateWorldStatus(currentCharacter ? 'Disconnected' : 'Select a character');
@@ -762,17 +765,33 @@ function ensureWorldTouchControls() {
       worldDpadEl.dataset.worldDpadBound = 'true';
     }
   }
-  if (!worldDpadEl) return;
-  const buttons = worldDpadEl.querySelectorAll('button[data-direction]');
-  buttons.forEach(button => {
-    if (button.dataset.worldDpadBound === 'true') return;
-    button.dataset.worldDpadBound = 'true';
-    button.addEventListener('pointerdown', handleWorldDpadPointerDown);
-    button.addEventListener('pointerup', handleWorldDpadPointerUp);
-    button.addEventListener('pointerleave', handleWorldDpadPointerUp);
-    button.addEventListener('pointercancel', handleWorldDpadPointerUp);
-    button.addEventListener('click', handleWorldDpadClick);
-  });
+  if (worldDpadEl) {
+    const buttons = worldDpadEl.querySelectorAll('button[data-direction]');
+    buttons.forEach(button => {
+      if (button.dataset.worldDpadBound === 'true') return;
+      button.dataset.worldDpadBound = 'true';
+      button.addEventListener('pointerdown', handleWorldDpadPointerDown);
+      button.addEventListener('pointerup', handleWorldDpadPointerUp);
+      button.addEventListener('pointerleave', handleWorldDpadPointerUp);
+      button.addEventListener('pointercancel', handleWorldDpadPointerUp);
+      button.addEventListener('click', handleWorldDpadClick);
+    });
+  }
+  if (worldActionsEl && !document.body.contains(worldActionsEl)) {
+    worldActionsEl = null;
+  }
+  if (!worldActionsEl) {
+    worldActionsEl = document.getElementById('world-actions');
+  }
+  if (worldActionsEl) {
+    const actionButtons = worldActionsEl.querySelectorAll('button[data-action]');
+    actionButtons.forEach(button => {
+      if (button.dataset.worldActionBound === 'true') return;
+      button.dataset.worldActionBound = 'true';
+      button.addEventListener('pointerdown', handleWorldActionPointerDown);
+      button.addEventListener('click', handleWorldActionClick);
+    });
+  }
 }
 
 function startWorldDpadHold(direction) {
@@ -861,6 +880,38 @@ function handleWorldDpadClick(event) {
   }
   event.preventDefault();
   queueWorldMove(direction);
+}
+
+function handleWorldActionPointerDown(event) {
+  if (!isTabActive('world')) return;
+  const button = event.currentTarget;
+  const action = button && button.getAttribute('data-action');
+  if (!action) return;
+  worldActionLastPointerTs = Date.now();
+  event.preventDefault();
+  activateWorldAction(action);
+}
+
+function handleWorldActionClick(event) {
+  const button = event.currentTarget;
+  const action = button && button.getAttribute('data-action');
+  if (!action) return;
+  const now = Date.now();
+  if (now - worldActionLastPointerTs < 250) {
+    event.preventDefault();
+    return;
+  }
+  event.preventDefault();
+  activateWorldAction(action);
+}
+
+function activateWorldAction(action) {
+  if (!action) return;
+  if (action === 'interact') {
+    triggerWorldInteract();
+  } else if (action === 'cancel') {
+    handleWorldCancelAction();
+  }
 }
 
 function setWorldQueueUIState(mode = 'idle') {
@@ -1549,8 +1600,12 @@ function drawWorldDialog() {
 }
 
 function closeWorldDialog() {
+  const hadDialog = !!worldDialogState;
   worldDialogState = null;
   worldMovementLocked = false;
+  if (hadDialog) {
+    renderWorldScene();
+  }
 }
 
 function advanceWorldDialog() {
@@ -1562,7 +1617,16 @@ function advanceWorldDialog() {
     closeWorldDialog();
   } else {
     worldDialogState.index = nextIndex;
+    renderWorldScene();
   }
+}
+
+function handleWorldCancelAction() {
+  if (worldDialogState) {
+    closeWorldDialog();
+    return true;
+  }
+  return false;
 }
 
 function startWorldRenderLoop() {
@@ -1785,10 +1849,9 @@ function handleWorldKeydown(event) {
     return;
   }
   const key = (event.key || event.code || '').toLowerCase();
-  if (key === 'escape') {
-    if (worldDialogState) {
+  if (key === 'escape' || key === 'x' || key === 'b') {
+    if (handleWorldCancelAction()) {
       event.preventDefault();
-      closeWorldDialog();
     }
     return;
   }
@@ -1831,6 +1894,7 @@ async function triggerWorldInteract() {
         index: 0,
       };
       worldMovementLocked = true;
+      renderWorldScene();
     } else if (payload && payload.result === 'none') {
       // No interaction available; do nothing.
     }

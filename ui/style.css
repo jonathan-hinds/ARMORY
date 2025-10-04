@@ -3246,9 +3246,19 @@ body.world-canvas-focused .world-focus-exit {
   letter-spacing: 1px;
 }
 
+.world-mobile-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin: 12px auto 0;
+  width: 100%;
+}
+
 .world-dpad-wrapper {
   display: flex;
   justify-content: center;
+  width: 100%;
 }
 
 .world-dpad {
@@ -3261,7 +3271,7 @@ body.world-canvas-focused .world-focus-exit {
     '. down .';
   gap: 8px;
   width: min(280px, 100%);
-  margin: 12px auto;
+  margin: 0 auto;
   touch-action: none;
 }
 
@@ -3312,6 +3322,45 @@ body.world-canvas-focused .world-focus-exit {
   border-radius: 12px;
   background: #000;
   box-shadow: inset 0 0 0 4px #fff;
+}
+
+.world-action-wrapper {
+  display: flex;
+  justify-content: center;
+  gap: clamp(12px, 4vw, 28px);
+  width: min(360px, 100%);
+}
+
+.world-action-btn {
+  width: clamp(64px, 18vw, 88px);
+  height: clamp(64px, 18vw, 88px);
+  border-radius: 50%;
+  border: 3px solid #000;
+  background: #fff;
+  color: #000;
+  font-size: clamp(1.35rem, 4.5vw, 2rem);
+  font-weight: 700;
+  box-shadow: 4px 4px 0 #000;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.1s ease;
+}
+
+.world-action-btn:focus-visible {
+  outline: 3px solid #000;
+  outline-offset: 3px;
+}
+
+.world-action-btn:active {
+  transform: translate(1px, 1px);
+}
+
+.world-action-a {
+  background: #42ff8b;
+}
+
+.world-action-b {
+  background: #ff6aa6;
 }
 
 @media (max-width: 960px) {
@@ -3392,7 +3441,7 @@ body.world-canvas-focused .world-focus-exit {
     max-width: none;
   }
 
-  body.world-tab-active .world-dpad-wrapper {
+  body.world-tab-active .world-mobile-controls {
     margin-top: auto;
   }
 
@@ -3460,7 +3509,7 @@ body.world-canvas-focused .world-focus-exit {
     aspect-ratio: unset;
   }
 
-  body.world-tab-active.world-canvas-focused .world-dpad-wrapper {
+  body.world-tab-active.world-canvas-focused .world-mobile-controls {
     position: sticky;
     bottom: 0;
     background: #fff;
@@ -3468,6 +3517,7 @@ body.world-canvas-focused .world-focus-exit {
     border-top: 2px solid #000;
     box-shadow: 0 -6px 0 #000;
     margin-top: auto;
+    gap: 20px;
   }
 
   body.world-tab-active.world-canvas-focused .world-dpad {
