@@ -349,14 +349,22 @@
               <div class="npc-sprite-preview" id="npc-sprite-preview">
                 <span>No sprite selected</span>
               </div>
-              <label class="field-label">
-                Dialogue Lines
-                <textarea
-                  id="npc-dialog"
-                  rows="5"
-                  placeholder="Enter one line per message..."
-                ></textarea>
-              </label>
+              <div class="npc-dialog-section">
+                <div class="npc-dialog-header">
+                  <span>Dialogue Entries</span>
+                  <button type="button" id="npc-dialog-add">Add Entry</button>
+                </div>
+                <div id="npc-dialog-entry-list" class="npc-dialog-entry-list"></div>
+                <label class="field-label">
+                  Loop After Final Entry
+                  <select id="npc-dialog-loop">
+                    <option value="">Stay on final entry</option>
+                  </select>
+                  <span class="field-hint">
+                    Choose which entry repeats after the last new dialogue has been shown.
+                  </span>
+                </label>
+              </div>
               <p class="panel-note">Place NPCs from the World tab using the NPC edit mode.</p>
               <div class="npc-form-actions">
                 <button type="submit" id="npc-save">Save NPC</button>
