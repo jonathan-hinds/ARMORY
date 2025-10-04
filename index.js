@@ -131,8 +131,7 @@ function sanitizePaletteTiles(tiles) {
     if (!tileId || !sprite) {
       return;
     }
-    const rawFill = typeof tile.fill === "string" ? tile.fill.trim() : "";
-    const fill = rawFill || (sprite ? "" : "#ffffff");
+    const fill = typeof tile.fill === "string" && tile.fill.trim() ? tile.fill.trim() : "#ffffff";
     const walkable = Boolean(tile.walkable);
     byId.set(tileId, { tileId, sprite, fill, walkable });
   });

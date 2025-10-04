@@ -84,17 +84,6 @@ const DEFAULT_ENCOUNTER_CHANCE = 0.22;
 const DEFAULT_ENCOUNTER_COOLDOWN = 2000;
 const DEFAULT_ENEMY_COUNT = 6;
 
-const colorProbeEl = document.createElement('span');
-
-function normalizeFillColor(value) {
-  if (typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  colorProbeEl.style.color = '';
-  colorProbeEl.style.color = trimmed;
-  return colorProbeEl.style.color ? trimmed : '';
-}
-
 const EQUIPMENT_SLOT_LABELS = {
   weapon: 'Weapon',
   helmet: 'Helmet',
@@ -741,16 +730,15 @@ function renderTilePalette() {
       token.style.backgroundImage = `url(${config.sprite})`;
       token.style.backgroundSize = 'cover';
       token.style.backgroundPosition = 'center';
-      token.style.backgroundColor = normalizeFillColor(config.fill) || 'transparent';
+      token.style.backgroundColor = config.fill || '#ffffff';
     } else {
-      token.style.background = normalizeFillColor(config.fill) || '#ffffff';
+      token.style.background = config.fill || '#ffffff';
       token.style.backgroundImage = '';
     }
     if (state.selectedTileId === id) {
       token.classList.add('active');
     }
-    const fillLabel = normalizeFillColor(config.fill);
-    token.innerHTML = `<strong>${id}</strong><span>${fillLabel || (hasSprite ? '' : '#ffffff')}</span>`;
+    token.innerHTML = `<strong>${id}</strong><span>${config.fill || ''}</span>`;
     token.title = config.walkable ? 'Walkable' : 'Blocked';
     token.addEventListener('click', () => {
       state.selectedTileId = id;
@@ -789,8 +777,8 @@ function normalizePalette(palette) {
           if (!tileId) {
             return null;
           }
-          const rawFill = typeof tile.fill === 'string' ? tile.fill : '';
-          const fill = normalizeFillColor(rawFill) || (sprite ? '' : '#ffffff');
+          const fill =
+            typeof tile.fill === 'string' && tile.fill.trim() ? tile.fill.trim() : '#ffffff';
           const walkable = Boolean(tile.walkable);
           return { tileId, sprite, fill, walkable };
         })
@@ -819,11 +807,10 @@ function rebuildPaletteState() {
   state.tileConfig = {};
   const tiles = state.activePalette?.tiles || [];
   tiles.forEach(tile => {
-    const fill = normalizeFillColor(tile.fill) || (tile.sprite ? '' : '#ffffff');
-    state.palette[tile.tileId] = fill;
+    state.palette[tile.tileId] = tile.fill;
     state.tileConfig[tile.tileId] = {
       sprite: tile.sprite,
-      fill,
+      fill: tile.fill,
       walkable: Boolean(tile.walkable),
     };
   });
@@ -860,7 +847,6 @@ function renderPaletteTiles() {
 
     const swatch = document.createElement('div');
     swatch.className = 'palette-tile-swatch';
-    const fillColor = normalizeFillColor(tile.fill);
     if (tile.sprite) {
       const img = document.createElement('img');
       img.src = tile.sprite;
@@ -868,12 +854,12 @@ function renderPaletteTiles() {
       img.loading = 'lazy';
       swatch.appendChild(img);
     } else {
-      swatch.style.background = fillColor || '#ffffff';
+      swatch.style.background = tile.fill || '#ffffff';
     }
 
     const label = document.createElement('span');
     label.textContent = `${tile.tileId} • ${tile.walkable ? 'Walkable' : 'Blocked'} • ${
-      fillColor || (tile.sprite ? 'Sprite' : '#ffffff')
+      tile.fill || '#ffffff'
     }`;
 
     info.appendChild(swatch);
@@ -1061,7 +1047,7 @@ function updateEnemySpritePreview(assetUrl) {
 function loadTileIntoSpriteForm(tile) {
   if (!spriteForm) return;
   spriteTileIdInput.value = tile.tileId;
-  spriteFillInput.value = normalizeFillColor(tile.fill);
+  spriteFillInput.value = tile.fill || '#ffffff';
   spriteAssetPathInput.value = tile.sprite || '';
   spriteWalkableInput.checked = Boolean(tile.walkable);
   updateSpritePreview(tile.sprite);
@@ -1090,7 +1076,7 @@ function handleSpriteFormSubmit(event) {
   event.preventDefault();
   const tileId = spriteTileIdInput.value.trim();
   const spritePath = spriteAssetPathInput.value.trim();
-  const fill = normalizeFillColor(spriteFillInput.value);
+  const fill = spriteFillInput.value.trim() || '#ffffff';
   const walkable = spriteWalkableInput.checked;
   if (!tileId) {
     alert('Tile ID is required.');
@@ -1680,14 +1666,9 @@ function drawZoneTiles(zone) {
       const tileConfig = state.tileConfig[tileId] || {};
       const px = x * cellSize;
       const py = y * cellSize;
-      const fillColor = normalizeFillColor(tileConfig.fill);
-      const hasSprite = Boolean(tileConfig.sprite);
-      const shouldFill = !hasSprite || Boolean(fillColor);
-      if (shouldFill) {
-        ctx.fillStyle = fillColor || '#ffffff';
-        ctx.fillRect(px, py, cellSize, cellSize);
-      }
-      if (hasSprite) {
+      ctx.fillStyle = tileConfig.fill || '#ffffff';
+      ctx.fillRect(px, py, cellSize, cellSize);
+      if (tileConfig.sprite) {
         const image = loadImageAsset(tileConfig.sprite, () => {
           if (zoneCanvasState.zoneId === zone.id) {
             drawZoneTiles(zone);
@@ -2932,9 +2913,11 @@ function applyWorldData(rawWorld) {
     const sprite = typeof config.sprite === 'string' ? config.sprite : '';
     const fallbackFill = paletteEntries[tileId];
     const fill =
-      normalizeFillColor(config.fill) ||
-      normalizeFillColor(fallbackFill) ||
-      (sprite ? '' : '#ffffff');
+      typeof config.fill === 'string' && config.fill.trim()
+        ? config.fill.trim()
+        : typeof fallbackFill === 'string' && fallbackFill.trim()
+          ? fallbackFill.trim()
+          : '#ffffff';
     const walkable = Object.prototype.hasOwnProperty.call(config, 'walkable')
       ? Boolean(config.walkable)
       : true;
