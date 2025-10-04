@@ -678,10 +678,22 @@ body.world-builder {
   background-size:cover;
   background-position:center;
   image-rendering:pixelated;
+  border:0;
+  padding:0;
+  margin:0;
+  box-sizing:border-box;
 }
 
 .zone-cell:hover {
   box-shadow:inset 0 0 0 2px rgba(0, 0, 0, 0.4);
+}
+
+.zone-cell:focus {
+  outline:none;
+}
+
+.zone-cell:focus-visible {
+  box-shadow:inset 0 0 0 2px rgba(0, 0, 0, 0.6);
 }
 
 .zone-cell-enemy {
