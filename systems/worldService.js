@@ -1595,6 +1595,7 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
               ? triggeredNpcInteraction.lines.slice()
               : [],
             sprite: triggeredNpcInteraction.npc.sprite || null,
+            service: triggeredNpcInteraction.npc.service || null,
           },
         }
       : null,
