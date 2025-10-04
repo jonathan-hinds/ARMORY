@@ -1493,15 +1493,39 @@ function wrapDialogText(ctx, text, maxWidth) {
   return lines.length ? lines : [''];
 }
 
+function extractNpcDialogLines(npc) {
+  if (!npc) {
+    return [];
+  }
+  const source = npc.dialog;
+  if (Array.isArray(source)) {
+    return source
+      .map(line => (typeof line === 'string' ? line.trim() : ''))
+      .filter(line => line.length > 0);
+  }
+  if (source && typeof source === 'object') {
+    if (Array.isArray(source.lines)) {
+      return source.lines
+        .map(line => (typeof line === 'string' ? line.trim() : ''))
+        .filter(line => line.length > 0);
+    }
+    if (Array.isArray(source.entries) && source.entries.length) {
+      const entry = source.entries[0];
+      if (entry && Array.isArray(entry.lines)) {
+        return entry.lines
+          .map(line => (typeof line === 'string' ? line.trim() : ''))
+          .filter(line => line.length > 0);
+      }
+    }
+  }
+  return [];
+}
+
 function openWorldNpcDialog(npc) {
   if (!npc) {
     return;
   }
-  const dialogLines = Array.isArray(npc.dialog)
-    ? npc.dialog
-        .map(line => (typeof line === 'string' ? line.trim() : ''))
-        .filter(line => line.length > 0)
-    : [];
+  const dialogLines = extractNpcDialogLines(npc);
   const lines = dialogLines.length ? dialogLines : ['...'];
   worldDialogState = {
     npcId: npc.id || null,

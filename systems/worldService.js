@@ -140,18 +140,75 @@ function normalizeTemplates(rawTemplates) {
 }
 
 function normalizeNpcDialog(rawDialog) {
-  if (Array.isArray(rawDialog)) {
-    return rawDialog
+  const result = { entries: [], loopFrom: null };
+  const appendEntry = candidate => {
+    let lines = [];
+    if (Array.isArray(candidate)) {
+      lines = candidate;
+    } else if (typeof candidate === 'string') {
+      lines = candidate.split(/\r?\n/);
+    } else if (candidate && typeof candidate === 'object') {
+      if (Array.isArray(candidate.lines)) {
+        lines = candidate.lines;
+      } else if (typeof candidate.lines === 'string') {
+        lines = candidate.lines.split(/\r?\n/);
+      } else if (Array.isArray(candidate.dialog)) {
+        lines = candidate.dialog;
+      } else if (typeof candidate.text === 'string') {
+        lines = candidate.text.split(/\r?\n/);
+      }
+    }
+    const normalizedLines = lines
       .map(line => (typeof line === 'string' ? line.trim() : ''))
       .filter(line => line.length > 0);
+    if (normalizedLines.length) {
+      result.entries.push({ lines: normalizedLines });
+    }
+  };
+
+  if (Array.isArray(rawDialog)) {
+    appendEntry(rawDialog);
+    if (result.entries.length) {
+      result.loopFrom = 0;
+    }
+  } else if (typeof rawDialog === 'string') {
+    appendEntry(rawDialog);
+    if (result.entries.length) {
+      result.loopFrom = 0;
+    }
+  } else if (rawDialog && typeof rawDialog === 'object') {
+    if (Array.isArray(rawDialog.entries)) {
+      rawDialog.entries.forEach(entry => appendEntry(entry));
+    } else if (Array.isArray(rawDialog.lines)) {
+      appendEntry(rawDialog.lines);
+    } else if (Array.isArray(rawDialog.dialog)) {
+      appendEntry(rawDialog.dialog);
+    } else if (typeof rawDialog.lines === 'string') {
+      appendEntry(rawDialog.lines);
+    } else if (typeof rawDialog.dialog === 'string') {
+      appendEntry(rawDialog.dialog);
+    }
+    const loopCandidate =
+      rawDialog.loopFrom ?? rawDialog.loopStart ?? rawDialog.loop ?? null;
+    if (Number.isInteger(loopCandidate) && loopCandidate >= 0) {
+      result.loopFrom = loopCandidate;
+    }
   }
-  if (typeof rawDialog === 'string') {
-    return rawDialog
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(line => line.length > 0);
+
+  if (!result.entries.length) {
+    return { entries: [], loopFrom: null };
   }
-  return [];
+
+  if (result.loopFrom == null) {
+    result.loopFrom = null;
+  } else {
+    result.loopFrom = Math.max(0, Math.min(result.entries.length - 1, result.loopFrom));
+  }
+
+  return {
+    entries: result.entries.map(entry => ({ lines: entry.lines.slice() })),
+    loopFrom: result.loopFrom,
+  };
 }
 
 function sanitizeNpcId(value) {
@@ -993,6 +1050,46 @@ function findNpcAtPosition(state, zoneId, x, y) {
   return null;
 }
 
+function advanceNpcDialogLines(npc) {
+  if (!npc) {
+    return [];
+  }
+  if (!npc.dialog || typeof npc.dialog !== 'object') {
+    npc.dialog = { entries: [], loopFrom: null };
+  }
+  if (!npc.dialogState || typeof npc.dialogState !== 'object') {
+    npc.dialogState = { nextIndex: 0 };
+  }
+  const entries = Array.isArray(npc.dialog.entries) ? npc.dialog.entries : [];
+  if (!entries.length) {
+    npc.dialogState.nextIndex = 0;
+    return [];
+  }
+  let index = Number.isInteger(npc.dialogState.nextIndex) ? npc.dialogState.nextIndex : 0;
+  if (index < 0 || index >= entries.length) {
+    index = entries.length - 1;
+  }
+  const entry = entries[index] || {};
+  const lines = Array.isArray(entry.lines)
+    ? entry.lines
+        .map(line => (typeof line === 'string' ? line.trim() : ''))
+        .filter(line => line.length > 0)
+    : [];
+  let nextIndex;
+  if (index < entries.length - 1) {
+    nextIndex = index + 1;
+  } else {
+    const loopFrom = Number.isInteger(npc.dialog.loopFrom) ? npc.dialog.loopFrom : null;
+    if (loopFrom != null && loopFrom >= 0 && loopFrom < entries.length) {
+      nextIndex = loopFrom;
+    } else {
+      nextIndex = entries.length - 1;
+    }
+  }
+  npc.dialogState.nextIndex = nextIndex;
+  return lines;
+}
+
 function findPlayerAtPosition(state, zoneId, x, y, ignoreCharacterId = null) {
   if (!state || !state.players) return null;
   const world = state.world;
@@ -1234,7 +1331,11 @@ async function createWorldInstance(worldId, participantIds = []) {
   if (Array.isArray(world.npcs)) {
     world.npcs.forEach(npc => {
       if (!npc || !npc.id) return;
-      state.npcs.set(npc.id, { ...npc });
+      state.npcs.set(npc.id, {
+        ...npc,
+        dialog: normalizeNpcDialog(npc.dialog),
+        dialogState: { nextIndex: 0 },
+      });
     });
   }
   worldInstances.set(instanceId, state);
@@ -1355,7 +1456,9 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
     } else if (blocking.type === 'enemy') {
       encounterEnemy = blocking.entity;
     } else if (blocking.type === 'npc') {
-      triggeredNpcInteraction = blocking.entity;
+      const npc = blocking.entity;
+      const lines = advanceNpcDialogLines(npc);
+      triggeredNpcInteraction = { npc, lines };
     }
   }
   player.facing = delta.facing;
@@ -1455,12 +1558,12 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
       ? {
           result: 'npc',
           npc: {
-            id: triggeredNpcInteraction.id,
-            name: triggeredNpcInteraction.name,
-            dialog: Array.isArray(triggeredNpcInteraction.dialog)
-              ? triggeredNpcInteraction.dialog.slice()
+            id: triggeredNpcInteraction.npc.id,
+            name: triggeredNpcInteraction.npc.name,
+            dialog: Array.isArray(triggeredNpcInteraction.lines)
+              ? triggeredNpcInteraction.lines.slice()
               : [],
-            sprite: triggeredNpcInteraction.sprite || null,
+            sprite: triggeredNpcInteraction.npc.sprite || null,
           },
         }
       : null,
@@ -1639,12 +1742,13 @@ async function interactWithWorld(worldId, instanceId, characterId) {
   if (!npc) {
     return { result: 'none' };
   }
+  const dialogLines = advanceNpcDialogLines(npc);
   return {
     result: 'npc',
     npc: {
       id: npc.id,
       name: npc.name,
-      dialog: Array.isArray(npc.dialog) ? npc.dialog.slice() : [],
+      dialog: dialogLines.slice(),
       sprite: npc.sprite || null,
     },
   };

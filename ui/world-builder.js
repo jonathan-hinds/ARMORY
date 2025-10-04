@@ -80,7 +80,9 @@ const npcNameInput = document.getElementById('npc-name');
 const npcFacingSelect = document.getElementById('npc-facing');
 const npcSpriteSelect = document.getElementById('npc-sprite-select');
 const npcSpritePreview = document.getElementById('npc-sprite-preview');
-const npcDialogInput = document.getElementById('npc-dialog');
+const npcDialogList = document.getElementById('npc-dialog-entry-list');
+const npcDialogAddButton = document.getElementById('npc-dialog-add');
+const npcDialogLoopSelect = document.getElementById('npc-dialog-loop');
 const npcDeleteButton = document.getElementById('npc-delete');
 
 const generateWorldButton = document.getElementById('generate-world');
@@ -2136,6 +2138,221 @@ function updateNpcPlacementInfo() {
   npcPlacementTargetEl.textContent = zoneLabel === 'Unplaced' ? `${label} – Unplaced` : `${label} – ${zoneLabel} ${coords}`;
 }
 
+function normalizeNpcDialogConfig(rawDialog) {
+  const result = { entries: [], loopFrom: null };
+  const appendEntry = candidate => {
+    let lines = [];
+    if (Array.isArray(candidate)) {
+      lines = candidate;
+    } else if (typeof candidate === 'string') {
+      lines = candidate.split(/\r?\n/);
+    } else if (candidate && typeof candidate === 'object') {
+      if (Array.isArray(candidate.lines)) {
+        lines = candidate.lines;
+      } else if (typeof candidate.lines === 'string') {
+        lines = candidate.lines.split(/\r?\n/);
+      } else if (Array.isArray(candidate.dialog)) {
+        lines = candidate.dialog;
+      } else if (typeof candidate.text === 'string') {
+        lines = candidate.text.split(/\r?\n/);
+      }
+    }
+    const normalized = lines
+      .map(line => (typeof line === 'string' ? line.trim() : ''))
+      .filter(line => line.length > 0);
+    if (normalized.length) {
+      result.entries.push({ lines: normalized });
+    }
+  };
+
+  if (Array.isArray(rawDialog)) {
+    appendEntry(rawDialog);
+    if (result.entries.length) {
+      result.loopFrom = 0;
+    }
+    return result;
+  }
+
+  if (typeof rawDialog === 'string') {
+    appendEntry(rawDialog);
+    if (result.entries.length) {
+      result.loopFrom = 0;
+    }
+    return result;
+  }
+
+  if (rawDialog && typeof rawDialog === 'object') {
+    if (Array.isArray(rawDialog.entries)) {
+      rawDialog.entries.forEach(entry => appendEntry(entry));
+    } else if (Array.isArray(rawDialog.lines)) {
+      appendEntry(rawDialog.lines);
+    } else if (Array.isArray(rawDialog.dialog)) {
+      appendEntry(rawDialog.dialog);
+    } else if (typeof rawDialog.lines === 'string') {
+      appendEntry(rawDialog.lines);
+    } else if (typeof rawDialog.dialog === 'string') {
+      appendEntry(rawDialog.dialog);
+    }
+
+    const loopCandidate =
+      rawDialog.loopFrom ?? rawDialog.loopStart ?? rawDialog.loop ?? null;
+    if (Number.isInteger(loopCandidate) && loopCandidate >= 0) {
+      result.loopFrom = loopCandidate;
+    }
+  }
+
+  if (!result.entries.length) {
+    result.loopFrom = null;
+    return result;
+  }
+
+  if (result.loopFrom == null) {
+    result.loopFrom = null;
+  } else {
+    result.loopFrom = Math.max(0, Math.min(result.entries.length - 1, result.loopFrom));
+  }
+
+  return result;
+}
+
+function cloneNpcDialog(rawDialog) {
+  const normalized = normalizeNpcDialogConfig(rawDialog);
+  const clonedEntries = normalized.entries.map(entry => ({ lines: entry.lines.slice() }));
+  const loopFrom =
+    Number.isInteger(normalized.loopFrom) && clonedEntries.length
+      ? Math.max(0, Math.min(clonedEntries.length - 1, normalized.loopFrom))
+      : null;
+  return {
+    entries: clonedEntries,
+    loopFrom,
+  };
+}
+
+function exportNpcDialog(dialog) {
+  const cloned = cloneNpcDialog(dialog);
+  if (!cloned.entries.length) {
+    return undefined;
+  }
+  const payload = {
+    entries: cloned.entries.map(entry => ({ lines: entry.lines.slice() })),
+  };
+  if (Number.isInteger(cloned.loopFrom) && cloned.loopFrom >= 0) {
+    payload.loopFrom = cloned.loopFrom;
+  }
+  return payload;
+}
+
+function updateNpcDialogLoopOptions(entryCount, loopFrom) {
+  if (!npcDialogLoopSelect) {
+    return;
+  }
+  npcDialogLoopSelect.innerHTML = '';
+  const defaultOption = document.createElement('option');
+  defaultOption.value = '';
+  defaultOption.textContent = entryCount > 0 ? 'Stay on final entry' : 'No entries yet';
+  npcDialogLoopSelect.appendChild(defaultOption);
+  for (let index = 0; index < entryCount; index += 1) {
+    const option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = `Entry ${index + 1}`;
+    npcDialogLoopSelect.appendChild(option);
+  }
+  const withinRange = Number.isInteger(loopFrom) && loopFrom >= 0 && loopFrom < entryCount;
+  npcDialogLoopSelect.value = withinRange ? String(loopFrom) : '';
+  npcDialogLoopSelect.disabled = entryCount === 0;
+}
+
+function readNpcDialogForm(options = {}) {
+  const { includeEmpty = true } = options;
+  const dialog = { entries: [], loopFrom: null };
+  if (npcDialogList) {
+    const entryNodes = Array.from(npcDialogList.querySelectorAll('.npc-dialog-entry textarea[data-dialog-lines]'));
+    entryNodes.forEach(textarea => {
+      const rawLines = textarea.value.split(/\r?\n/);
+      const lines = rawLines
+        .map(line => (typeof line === 'string' ? line.trim() : ''))
+        .filter(line => line.length > 0);
+      if (lines.length || includeEmpty) {
+        dialog.entries.push({ lines });
+      }
+    });
+  }
+  if (npcDialogLoopSelect && !npcDialogLoopSelect.disabled) {
+    const loopValue = npcDialogLoopSelect.value;
+    if (loopValue !== '' && loopValue != null) {
+      const numeric = Number(loopValue);
+      if (Number.isInteger(numeric) && numeric >= 0) {
+        dialog.loopFrom = numeric;
+      }
+    }
+  }
+  return dialog;
+}
+
+function renderNpcDialogEditor(rawDialog) {
+  if (!npcDialogList) {
+    return;
+  }
+  const dialog =
+    rawDialog && typeof rawDialog === 'object' && Array.isArray(rawDialog.entries)
+      ? {
+          entries: rawDialog.entries.map(entry => ({
+            lines: Array.isArray(entry?.lines)
+              ? entry.lines.map(line => (typeof line === 'string' ? line : String(line || '')))
+              : [],
+          })),
+          loopFrom:
+            Number.isInteger(rawDialog.loopFrom) && rawDialog.loopFrom >= 0
+              ? rawDialog.loopFrom
+              : null,
+        }
+      : { entries: [], loopFrom: null };
+
+  const hasEntries = dialog.entries.length > 0;
+  npcDialogList.innerHTML = '';
+
+  if (!hasEntries) {
+    const note = document.createElement('p');
+    note.className = 'npc-dialog-empty';
+    note.textContent = 'No dialogue entries yet. Add one to begin.';
+    npcDialogList.appendChild(note);
+    dialog.entries.push({ lines: [] });
+  }
+
+  dialog.entries.forEach((entry, index) => {
+    const entryEl = document.createElement('div');
+    entryEl.className = 'npc-dialog-entry';
+
+    const header = document.createElement('div');
+    header.className = 'npc-dialog-entry-header';
+    const title = document.createElement('strong');
+    title.textContent = `Entry ${index + 1}`;
+    header.appendChild(title);
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.textContent = 'Remove';
+    removeButton.addEventListener('click', () => {
+      const dialogState = readNpcDialogForm({ includeEmpty: true });
+      dialogState.entries.splice(index, 1);
+      renderNpcDialogEditor(dialogState);
+    });
+    header.appendChild(removeButton);
+    entryEl.appendChild(header);
+
+    const textarea = document.createElement('textarea');
+    textarea.setAttribute('data-dialog-lines', 'true');
+    textarea.placeholder = 'Enter one line per message...';
+    textarea.rows = Math.max(2, entry.lines.length || 0);
+    textarea.value = entry.lines.join('\n');
+    entryEl.appendChild(textarea);
+
+    npcDialogList.appendChild(entryEl);
+  });
+
+  const loopEntryCount = hasEntries ? dialog.entries.length : 0;
+  updateNpcDialogLoopOptions(loopEntryCount, dialog.loopFrom);
+}
+
 function clearNpcForm() {
   if (npcForm) {
     npcForm.reset();
@@ -2145,9 +2362,7 @@ function clearNpcForm() {
   }
   renderNpcSpriteOptions('');
   updateNpcSpritePreview('');
-  if (npcDialogInput) {
-    npcDialogInput.value = '';
-  }
+  renderNpcDialogEditor({ entries: [], loopFrom: null });
 }
 
 function loadNpcIntoForm(npc) {
@@ -2165,9 +2380,7 @@ function loadNpcIntoForm(npc) {
     npcFacingSelect.value = npc.facing || 'down';
   }
   renderNpcSpriteOptions(npc.sprite || '');
-  if (npcDialogInput) {
-    npcDialogInput.value = Array.isArray(npc.dialog) ? npc.dialog.join('\n') : '';
-  }
+  renderNpcDialogEditor(npc.dialog);
 }
 
 function selectNpc(npcId) {
@@ -2282,6 +2495,25 @@ if (npcCreateButton) {
   });
 }
 
+if (npcDialogAddButton) {
+  npcDialogAddButton.addEventListener('click', () => {
+    const dialogState = readNpcDialogForm({ includeEmpty: true });
+    dialogState.entries.push({ lines: [] });
+    renderNpcDialogEditor(dialogState);
+    if (npcDialogList) {
+      const inputs = npcDialogList.querySelectorAll('textarea[data-dialog-lines]');
+      const last = inputs[inputs.length - 1];
+      if (last) {
+        last.focus();
+        const length = last.value.length;
+        last.setSelectionRange(length, length);
+      }
+    }
+  });
+}
+
+renderNpcDialogEditor({ entries: [], loopFrom: null });
+
 if (npcForm) {
   npcForm.addEventListener('submit', event => {
     event.preventDefault();
@@ -2294,12 +2526,7 @@ if (npcForm) {
     const facingValue = npcFacingSelect ? npcFacingSelect.value : 'down';
     const normalizedFacing = ['up', 'down', 'left', 'right'].includes(facingValue) ? facingValue : 'down';
     const spriteValue = npcSpriteSelect && npcSpriteSelect.value ? npcSpriteSelect.value : '';
-    const dialogLines = npcDialogInput
-      ? npcDialogInput.value
-          .split(/\r?\n/)
-          .map(line => line.trim())
-          .filter(line => line.length)
-      : [];
+    const dialogConfig = cloneNpcDialog(readNpcDialogForm({ includeEmpty: false }));
 
     let npc = state.npcs.find(entry => entry.id === state.editingNpcId) || null;
     if (!npc) {
@@ -2308,7 +2535,7 @@ if (npcForm) {
         name: nameValue || normalizedId,
         facing: normalizedFacing,
         sprite: spriteValue || null,
-        dialog: dialogLines,
+        dialog: dialogConfig,
         zoneId: null,
         x: null,
         y: null,
@@ -2320,7 +2547,7 @@ if (npcForm) {
       npc.name = nameValue || normalizedId;
       npc.facing = normalizedFacing;
       npc.sprite = spriteValue || null;
-      npc.dialog = dialogLines;
+      npc.dialog = dialogConfig;
       if (state.selectedNpcId === previousId) {
         state.selectedNpcId = normalizedId;
       }
@@ -2881,16 +3108,22 @@ function buildWorldData() {
       };
     }),
   };
-  const exportedNpcs = state.npcs.map(npc => ({
-    id: npc.id,
-    name: npc.name || npc.id,
-    sprite: npc.sprite || undefined,
-    facing: npc.facing || 'down',
-    dialog: Array.isArray(npc.dialog) ? npc.dialog.slice() : [],
-    zoneId: npc.zoneId || null,
-    x: Number.isFinite(npc.x) ? npc.x : null,
-    y: Number.isFinite(npc.y) ? npc.y : null,
-  }));
+  const exportedNpcs = state.npcs.map(npc => {
+    const dialog = exportNpcDialog(npc.dialog);
+    const payload = {
+      id: npc.id,
+      name: npc.name || npc.id,
+      sprite: npc.sprite || undefined,
+      facing: npc.facing || 'down',
+      zoneId: npc.zoneId || null,
+      x: Number.isFinite(npc.x) ? npc.x : null,
+      y: Number.isFinite(npc.y) ? npc.y : null,
+    };
+    if (dialog) {
+      payload.dialog = dialog;
+    }
+    return payload;
+  });
   if (exportedNpcs.length) {
     world.npcs = exportedNpcs;
   }
@@ -3156,11 +3389,7 @@ function applyWorldData(rawWorld) {
     const sprite = typeof entry?.sprite === 'string' && entry.sprite.trim() ? entry.sprite.trim() : null;
     const facingRaw = typeof entry?.facing === 'string' ? entry.facing.toLowerCase() : '';
     const facing = ['up', 'down', 'left', 'right'].includes(facingRaw) ? facingRaw : 'down';
-    const dialog = Array.isArray(entry?.dialog)
-      ? entry.dialog
-          .map(line => (typeof line === 'string' ? line.trim() : ''))
-          .filter(line => line.length)
-      : [];
+    const dialog = cloneNpcDialog(entry?.dialog);
     const zoneIdRaw = typeof entry?.zoneId === 'string' && entry.zoneId.trim() ? entry.zoneId.trim() : null;
     const zone = zoneIdRaw ? state.zones.find(z => z.id === zoneIdRaw) : null;
     const clampCoord = (value, max) => {
