@@ -581,8 +581,6 @@ const state = {
 
 const imageCache = new Map();
 
-const pointerEventsSupported = typeof window !== 'undefined' && 'PointerEvent' in window;
-
 const zoneCanvasState = {
   baseCanvas: null,
   overlayCanvas: null,
@@ -597,42 +595,6 @@ const zoneCanvasState = {
   lastCell: null,
   previewRect: null,
 };
-
-function normalizeCanvasPointerEvent(event) {
-  if (!event) return null;
-
-  if (typeof event.pointerId !== 'undefined') {
-    return event;
-  }
-
-  const touch = event.changedTouches && event.changedTouches[0];
-  if (touch) {
-    return {
-      pointerId: `touch-${touch.identifier}`,
-      clientX: touch.clientX,
-      clientY: touch.clientY,
-      button: 0,
-      buttons: event.type === 'touchend' || event.type === 'touchcancel' ? 0 : 1,
-      preventDefault: () => event.preventDefault(),
-      originalEvent: event,
-    };
-  }
-
-  return {
-    pointerId: 'mouse',
-    clientX: event.clientX,
-    clientY: event.clientY,
-    button: typeof event.button === 'number' ? event.button : 0,
-    buttons:
-      typeof event.buttons === 'number'
-        ? event.buttons
-        : event.type === 'mousedown'
-        ? 1
-        : 0,
-    preventDefault: () => event.preventDefault(),
-    originalEvent: event,
-  };
-}
 
 function setActiveTab(tabId) {
   if (!tabId) {
@@ -1868,16 +1830,14 @@ function resetZoneCanvasPointerState() {
 function getTileCoordsFromEvent(event) {
   const zone = getSelectedZone();
   if (!zone || !zoneCanvasState.overlayCanvas) return null;
-  const normalized = normalizeCanvasPointerEvent(event);
-  if (!normalized) return null;
   const rect = zoneCanvasState.overlayCanvas.getBoundingClientRect();
   if (!rect.width || !rect.height) return null;
   const width = zone.width * zoneCanvasState.cellSize;
   const height = zone.height * zoneCanvasState.cellSize;
   const scaleX = width / rect.width;
   const scaleY = height / rect.height;
-  const canvasX = (normalized.clientX - rect.left) * scaleX;
-  const canvasY = (normalized.clientY - rect.top) * scaleY;
+  const canvasX = (event.clientX - rect.left) * scaleX;
+  const canvasY = (event.clientY - rect.top) * scaleY;
   const x = Math.floor(canvasX / zoneCanvasState.cellSize);
   const y = Math.floor(canvasY / zoneCanvasState.cellSize);
   if (x < 0 || y < 0 || x >= zone.width || y >= zone.height) {
@@ -1889,12 +1849,10 @@ function getTileCoordsFromEvent(event) {
 function handleZonePointerDown(event) {
   const zone = getSelectedZone();
   if (!zone) return;
-  const normalized = normalizeCanvasPointerEvent(event);
-  if (!normalized) return;
   const coords = getTileCoordsFromEvent(event);
   if (!coords) return;
 
-  if (normalized.button === 2) {
+  if (event.button === 2) {
     event.preventDefault();
     const changed = applySecondaryAction(zone, coords.x, coords.y);
     if (changed) {
@@ -1914,15 +1872,13 @@ function handleZonePointerDown(event) {
     return;
   }
 
-  zoneCanvasState.pointerId = normalized.pointerId;
+  zoneCanvasState.pointerId = event.pointerId;
   zoneCanvasState.startCell = coords;
   zoneCanvasState.lastCell = coords;
 
   if (state.editMode === 'tile') {
     if (state.tileTool === 'brush') {
-      if (pointerEventsSupported && zoneCanvasState.overlayCanvas.setPointerCapture && typeof event.pointerId !== 'undefined') {
-        zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
-      }
+      zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
       zoneCanvasState.dragging = true;
       if (applyTileBrush(zone, coords.x, coords.y, state.selectedTileId)) {
         refreshZoneTiles();
@@ -1933,9 +1889,7 @@ function handleZonePointerDown(event) {
       }
       resetZoneCanvasPointerState();
     } else if (state.tileTool === 'rectangle') {
-      if (pointerEventsSupported && zoneCanvasState.overlayCanvas.setPointerCapture && typeof event.pointerId !== 'undefined') {
-        zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
-      }
+      zoneCanvasState.overlayCanvas.setPointerCapture(event.pointerId);
       zoneCanvasState.dragging = true;
       zoneCanvasState.previewRect = { start: coords, end: coords };
       refreshZoneOverlay();
@@ -1953,13 +1907,8 @@ function handleZonePointerDown(event) {
 }
 
 function handleZonePointerMove(event) {
-  const normalized = normalizeCanvasPointerEvent(event);
-  if (!normalized) return;
-  if (!zoneCanvasState.dragging || zoneCanvasState.pointerId !== normalized.pointerId) {
+  if (!zoneCanvasState.dragging || zoneCanvasState.pointerId !== event.pointerId) {
     return;
-  }
-  if (event.cancelable) {
-    event.preventDefault();
   }
   const zone = getSelectedZone();
   if (!zone || zoneCanvasState.zoneId !== zone.id) {
@@ -1985,16 +1934,10 @@ function handleZonePointerMove(event) {
 }
 
 function handleZonePointerUp(event) {
-  const normalized = normalizeCanvasPointerEvent(event);
-  if (!normalized) return;
-  if (zoneCanvasState.pointerId !== normalized.pointerId) {
+  if (zoneCanvasState.pointerId !== event.pointerId) {
     return;
   }
-  if (
-    pointerEventsSupported &&
-    typeof event.pointerId !== 'undefined' &&
-    zoneCanvasState.overlayCanvas?.hasPointerCapture?.(event.pointerId)
-  ) {
+  if (zoneCanvasState.overlayCanvas?.hasPointerCapture(event.pointerId)) {
     zoneCanvasState.overlayCanvas.releasePointerCapture(event.pointerId);
   }
   const zone = getSelectedZone();
@@ -2010,16 +1953,10 @@ function handleZonePointerUp(event) {
 }
 
 function handleZonePointerCancel(event) {
-  const normalized = normalizeCanvasPointerEvent(event);
-  if (!normalized) return;
-  if (zoneCanvasState.pointerId !== normalized.pointerId) {
+  if (zoneCanvasState.pointerId !== event.pointerId) {
     return;
   }
-  if (
-    pointerEventsSupported &&
-    typeof event.pointerId !== 'undefined' &&
-    zoneCanvasState.overlayCanvas?.hasPointerCapture?.(event.pointerId)
-  ) {
+  if (zoneCanvasState.overlayCanvas?.hasPointerCapture(event.pointerId)) {
     zoneCanvasState.overlayCanvas.releasePointerCapture(event.pointerId);
   }
   zoneCanvasState.previewRect = null;
@@ -2078,24 +2015,11 @@ function renderZoneGrid() {
   zoneCanvasState.previewRect = null;
   resetZoneCanvasPointerState();
 
-  overlayCanvas.style.touchAction = 'none';
-
-  if (pointerEventsSupported) {
-    overlayCanvas.addEventListener('pointerdown', handleZonePointerDown);
-    overlayCanvas.addEventListener('pointermove', handleZonePointerMove);
-    overlayCanvas.addEventListener('pointerup', handleZonePointerUp);
-    overlayCanvas.addEventListener('pointercancel', handleZonePointerCancel);
-    overlayCanvas.addEventListener('pointerleave', handleZonePointerCancel);
-  } else {
-    overlayCanvas.addEventListener('mousedown', handleZonePointerDown);
-    overlayCanvas.addEventListener('mousemove', handleZonePointerMove);
-    overlayCanvas.addEventListener('mouseup', handleZonePointerUp);
-    overlayCanvas.addEventListener('mouseleave', handleZonePointerCancel);
-    overlayCanvas.addEventListener('touchstart', handleZonePointerDown, { passive: false });
-    overlayCanvas.addEventListener('touchmove', handleZonePointerMove, { passive: false });
-    overlayCanvas.addEventListener('touchend', handleZonePointerUp);
-    overlayCanvas.addEventListener('touchcancel', handleZonePointerCancel);
-  }
+  overlayCanvas.addEventListener('pointerdown', handleZonePointerDown);
+  overlayCanvas.addEventListener('pointermove', handleZonePointerMove);
+  overlayCanvas.addEventListener('pointerup', handleZonePointerUp);
+  overlayCanvas.addEventListener('pointercancel', handleZonePointerCancel);
+  overlayCanvas.addEventListener('pointerleave', handleZonePointerCancel);
   overlayCanvas.addEventListener('contextmenu', event => event.preventDefault());
 
   drawZoneTiles(zone);
