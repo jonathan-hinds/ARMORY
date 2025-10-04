@@ -60,6 +60,7 @@ const {
   subscribe: subscribeToWorld,
   runEncounter: runWorldEncounter,
   createWorldInstance,
+  interact: interactWithWorld,
 } = require("./systems/worldService");
 const {
   queueForWorld,
@@ -437,6 +438,25 @@ app.post("/worlds/:worldId/move", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message || "failed to move" });
+  }
+});
+
+app.post("/worlds/:worldId/interact", async (req, res) => {
+  const worldId = req.params.worldId;
+  const { characterId, instanceId } = req.body || {};
+  if (!characterId || !instanceId) {
+    return res.status(400).json({ error: "characterId and instanceId required" });
+  }
+  try {
+    const numericId = Number(characterId);
+    if (!Number.isInteger(numericId)) {
+      return res.status(400).json({ error: "characterId must be an integer" });
+    }
+    const payload = await interactWithWorld(worldId, instanceId, numericId);
+    res.json(payload || { result: "none" });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message || "failed to interact" });
   }
 });
 

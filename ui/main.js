@@ -146,6 +146,7 @@ let worldCurrentInstanceId = null;
 let worldConfig = null;
 let worldPlayersState = new Map();
 let worldEnemiesState = new Map();
+let worldNpcsState = new Map();
 let worldStreamSource = null;
 let worldQueueSource = null;
 let worldQueueState = null;
@@ -186,6 +187,8 @@ let worldBattleBars = null;
 let worldBattleBossBars = null;
 let worldBattleLogEl = null;
 let worldBattleCloseButton = null;
+let worldDialogState = null;
+let worldInteractPending = false;
 let worldCanvasFocusActive = false;
 let worldFocusExitButton = null;
 let worldFocusControlsInitialized = false;
@@ -569,8 +572,10 @@ function resetWorldState() {
     worldEncounterSource = null;
   }
   closeWorldEncounterDialog();
+  closeWorldDialog();
   worldPlayersState = new Map();
   worldEnemiesState = new Map();
+  worldNpcsState = new Map();
   worldEntityMotion.clear();
   worldConfig = null;
   worldCurrentWorldId = null;
@@ -582,6 +587,8 @@ function resetWorldState() {
   worldCurrentZoneId = null;
   worldMovementPending = false;
   worldMovementLocked = false;
+  worldDialogState = null;
+  worldInteractPending = false;
   worldLastMoveAt = 0;
   clearWorldDpadHold();
   updateWorldStatus(currentCharacter ? 'Disconnected' : 'Select a character');
@@ -1380,6 +1387,29 @@ function renderWorldScene() {
         worldCtx.fillStyle = '#000000';
         worldCtx.fillRect(innerLeft, innerTop, innerSize, innerSize);
       }
+    } else if (options.isNpc) {
+      const sprite = entry.sprite ? getWorldSprite(entry.sprite) : null;
+      if (
+        sprite &&
+        sprite.complete &&
+        sprite.naturalWidth > 0 &&
+        sprite.naturalHeight > 0
+      ) {
+        size = Math.max(tileSize, baseSize);
+        drawLeft = Math.round(screenX - size / 2);
+        drawTop = Math.round(screenY - size / 2);
+        worldCtx.drawImage(sprite, drawLeft, drawTop, size, size);
+      } else {
+        worldCtx.fillStyle = '#ffffff';
+        worldCtx.fillRect(drawLeft, drawTop, size, size);
+        worldCtx.strokeStyle = '#000000';
+        worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
+        const accentSize = Math.max(4, Math.floor(size / 3));
+        const accentLeft = Math.round(drawLeft + (size - accentSize) / 2);
+        const accentTop = Math.round(drawTop + (size - accentSize) / 2);
+        worldCtx.fillStyle = '#000000';
+        worldCtx.fillRect(accentLeft, accentTop, accentSize, accentSize);
+      }
     } else {
       const fill = options.isYou ? '#ffffff' : '#000000';
       const border = options.isYou ? '#000000' : '#ffffff';
@@ -1389,7 +1419,7 @@ function renderWorldScene() {
       worldCtx.strokeRect(drawLeft + 0.5, drawTop + 0.5, size, size);
     }
     worldCtx.restore();
-    const label = entry.name || (options.isEnemy ? 'Foe' : 'Adventurer');
+    const label = entry.name || (options.isEnemy ? 'Foe' : options.isNpc ? 'Resident' : 'Adventurer');
     drawNameplate(label, screenX, drawTop, options);
   };
 
@@ -1398,12 +1428,141 @@ function renderWorldScene() {
     const motionKey = entry && entry.id ? getWorldMotionKeyForEnemy(entry.id) : null;
     drawEntity(entry, { isEnemy: true, motionKey });
   });
+  worldNpcsState.forEach(entry => {
+    if (entry && entry.zoneId && worldCurrentZoneId && entry.zoneId !== worldCurrentZoneId) return;
+    drawEntity(entry, { isNpc: true });
+  });
   worldPlayersState.forEach(entry => {
     if (entry && entry.zoneId && worldCurrentZoneId && entry.zoneId !== worldCurrentZoneId) return;
     const isYou = currentCharacter && entry && entry.characterId === currentCharacter.id;
     const motionKey = entry && entry.characterId ? getWorldMotionKeyForPlayer(entry.characterId) : null;
     drawEntity(entry, { isYou, motionKey });
   });
+
+  drawWorldDialog();
+}
+
+function wrapDialogText(ctx, text, maxWidth) {
+  if (!ctx) return [text];
+  const safe = typeof text === 'string' ? text.trim() : String(text || '');
+  if (!safe) {
+    return [''];
+  }
+  const words = safe.split(/\s+/).filter(Boolean);
+  if (!words.length) {
+    return [''];
+  }
+  const lines = [];
+  let current = words[0];
+  for (let i = 1; i < words.length; i += 1) {
+    const word = words[i];
+    const candidate = `${current} ${word}`;
+    if (ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) {
+    lines.push(current);
+  }
+  return lines.length ? lines : [''];
+}
+
+function drawWorldDialog() {
+  if (!worldCanvas || !worldCtx) return;
+  if (!worldDialogState || !Array.isArray(worldDialogState.lines) || !worldDialogState.lines.length) {
+    return;
+  }
+  const { width, height } = worldCanvas;
+  const padding = Math.max(12, Math.floor(Math.min(width, height) / 30));
+  const baseFontSize = Math.max(16, Math.floor(Math.min(width, height) / 26));
+  const lineHeight = Math.floor(baseFontSize * 1.25);
+  const baseBoxHeight = Math.max(Math.floor(height * 0.22), lineHeight * 3 + padding * 2);
+  const maxBoxHeight = Math.min(Math.floor(height * 0.45), height - padding * 2);
+  const nameText = worldDialogState.name ? `${worldDialogState.name}:` : '';
+
+  worldCtx.save();
+  worldCtx.font = `bold ${baseFontSize}px "Courier New", monospace`;
+  const headerHeight = nameText ? lineHeight : 0;
+  const availableTextHeight = Math.max(
+    lineHeight,
+    Math.min(maxBoxHeight, baseBoxHeight) - padding * 2 - headerHeight,
+  );
+  worldCtx.font = `${baseFontSize}px "Courier New", monospace`;
+  const maxLines = Math.max(1, Math.floor(availableTextHeight / lineHeight));
+  const activeLineIndex = Math.min(
+    worldDialogState.index,
+    worldDialogState.lines.length - 1,
+  );
+  const activeLine = worldDialogState.lines[activeLineIndex] || '';
+  const maxTextWidth = width - padding * 4;
+  const wrappedLines = wrapDialogText(worldCtx, activeLine, maxTextWidth);
+  const visibleLines = wrappedLines.slice(0, maxLines);
+  const contentHeight = headerHeight + visibleLines.length * lineHeight;
+  const computedHeight = padding * 2 + contentHeight;
+  const boxHeight = Math.max(
+    Math.min(Math.max(baseBoxHeight, computedHeight), maxBoxHeight),
+    padding * 2 + lineHeight,
+  );
+  const boxWidth = width - padding * 2;
+  const boxX = padding;
+  const boxY = height - boxHeight - padding;
+
+  worldCtx.fillStyle = '#ffffff';
+  worldCtx.fillRect(boxX, boxY, boxWidth, boxHeight);
+  worldCtx.strokeStyle = '#000000';
+  worldCtx.lineWidth = Math.max(2, Math.floor(baseFontSize / 5));
+  worldCtx.strokeRect(boxX + 0.5, boxY + 0.5, boxWidth, boxHeight);
+
+  worldCtx.fillStyle = '#000000';
+  worldCtx.textAlign = 'left';
+  worldCtx.textBaseline = 'top';
+  let cursorY = boxY + padding;
+  if (nameText) {
+    worldCtx.font = `bold ${baseFontSize}px "Courier New", monospace`;
+    worldCtx.fillText(nameText, boxX + padding, cursorY);
+    cursorY += lineHeight;
+  }
+  worldCtx.font = `${baseFontSize}px "Courier New", monospace`;
+  visibleLines.forEach(line => {
+    worldCtx.fillText(line, boxX + padding, cursorY);
+    cursorY += lineHeight;
+  });
+
+  const indicatorSize = Math.max(10, Math.floor(baseFontSize * 0.8));
+  const indicatorX = boxX + boxWidth - padding - indicatorSize;
+  const indicatorY = boxY + boxHeight - padding - indicatorSize;
+  if (worldDialogState.index < worldDialogState.lines.length - 1) {
+    worldCtx.beginPath();
+    worldCtx.moveTo(indicatorX, indicatorY);
+    worldCtx.lineTo(indicatorX + indicatorSize, indicatorY);
+    worldCtx.lineTo(indicatorX + indicatorSize / 2, indicatorY + indicatorSize);
+    worldCtx.closePath();
+    worldCtx.fill();
+  } else {
+    const dotSize = Math.max(4, Math.floor(indicatorSize / 3));
+    worldCtx.fillRect(indicatorX + indicatorSize - dotSize, indicatorY + indicatorSize - dotSize, dotSize, dotSize);
+  }
+  worldCtx.restore();
+}
+
+function closeWorldDialog() {
+  worldDialogState = null;
+  worldMovementLocked = false;
+}
+
+function advanceWorldDialog() {
+  if (!worldDialogState) {
+    return;
+  }
+  const nextIndex = worldDialogState.index + 1;
+  if (nextIndex >= worldDialogState.lines.length) {
+    closeWorldDialog();
+  } else {
+    worldDialogState.index = nextIndex;
+  }
 }
 
 function startWorldRenderLoop() {
@@ -1507,6 +1666,25 @@ function handleWorldStateUpdate(data) {
     }
     worldEnemiesState = nextEnemies;
   }
+  if (Object.prototype.hasOwnProperty.call(data, 'npcs')) {
+    const nextNpcs = new Map();
+    if (Array.isArray(data.npcs)) {
+      data.npcs.forEach(npc => {
+        if (!npc || !npc.id) return;
+        const zoneId = typeof npc.zoneId === 'string' && npc.zoneId ? npc.zoneId : null;
+        nextNpcs.set(npc.id, {
+          id: npc.id,
+          name: npc.name || 'Resident',
+          x: Number.isFinite(npc.x) ? npc.x : 0,
+          y: Number.isFinite(npc.y) ? npc.y : 0,
+          facing: npc.facing || 'down',
+          zoneId,
+          sprite: typeof npc.sprite === 'string' && npc.sprite.trim() ? npc.sprite.trim() : null,
+        });
+      });
+    }
+    worldNpcsState = nextNpcs;
+  }
   const phase = data.phase || 'explore';
   if (phase === 'encounter') {
     updateWorldStatus('Encounter!');
@@ -1601,16 +1779,68 @@ async function enterWorldInstance(worldId, instanceId, worldPayload = null) {
 
 function handleWorldKeydown(event) {
   if (!isTabActive('world')) return;
-  if (!currentCharacter || !worldCurrentWorldId || worldMovementLocked) return;
+  if (!currentCharacter || !worldCurrentWorldId) return;
   const target = event.target;
   if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
     return;
   }
   const key = (event.key || event.code || '').toLowerCase();
+  if (key === 'escape') {
+    if (worldDialogState) {
+      event.preventDefault();
+      closeWorldDialog();
+    }
+    return;
+  }
+  if (key === 'enter' || key === ' ' || key === 'spacebar' || key === 'space' || key === 'z' || key === 'e') {
+    event.preventDefault();
+    triggerWorldInteract();
+    return;
+  }
   const direction = WORLD_KEY_MAP[key];
   if (!direction) return;
   event.preventDefault();
   queueWorldMove(direction);
+}
+
+async function triggerWorldInteract() {
+  if (!currentCharacter || !worldCurrentWorldId || !worldCurrentInstanceId) return;
+  if (worldDialogState) {
+    advanceWorldDialog();
+    return;
+  }
+  if (worldInteractPending) return;
+  worldInteractPending = true;
+  try {
+    const payload = await postJSON(`/worlds/${encodeURIComponent(worldCurrentWorldId)}/interact`, {
+      characterId: currentCharacter.id,
+      instanceId: worldCurrentInstanceId,
+    });
+    if (payload && payload.result === 'npc' && payload.npc) {
+      const npc = payload.npc;
+      const dialogLines = Array.isArray(npc.dialog)
+        ? npc.dialog
+            .map(line => (typeof line === 'string' ? line.trim() : ''))
+            .filter(line => line.length > 0)
+        : [];
+      const lines = dialogLines.length ? dialogLines : ['...'];
+      worldDialogState = {
+        npcId: npc.id || null,
+        name: npc.name || 'Resident',
+        lines,
+        index: 0,
+      };
+      worldMovementLocked = true;
+    } else if (payload && payload.result === 'none') {
+      // No interaction available; do nothing.
+    }
+  } catch (err) {
+    if (worldMessageEl) {
+      showMessage(worldMessageEl, err.message || 'Interaction failed.', true);
+    }
+  } finally {
+    worldInteractPending = false;
+  }
 }
 
 async function queueWorldMove(direction) {
@@ -1819,6 +2049,7 @@ function startWorldEncounterStream(token) {
     worldEncounterSource.close();
     worldEncounterSource = null;
   }
+  worldDialogState = null;
   worldMovementLocked = true;
   updateWorldStatus('Encounter!');
   if (worldMessageEl) {

@@ -20,6 +20,7 @@ const { runDungeonCombat } = require('./combatEngine');
 const { xpForNextLevel } = require('./characterService');
 
 const WORLD_FILE = path.join(__dirname, '..', 'data', 'worlds.json');
+const VALID_FACING = new Set(['up', 'down', 'left', 'right']);
 
 function uuid() {
   if (typeof crypto.randomUUID === 'function') {
@@ -138,6 +139,39 @@ function normalizeTemplates(rawTemplates) {
     .filter(Boolean);
 }
 
+function normalizeNpcDialog(rawDialog) {
+  if (Array.isArray(rawDialog)) {
+    return rawDialog
+      .map(line => (typeof line === 'string' ? line.trim() : ''))
+      .filter(line => line.length > 0);
+  }
+  if (typeof rawDialog === 'string') {
+    return rawDialog
+      .split(/\r?\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+  }
+  return [];
+}
+
+function sanitizeNpcId(value) {
+  const base = typeof value === 'string' ? value : '';
+  const sanitized = base.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return sanitized || 'npc';
+}
+
+function uniqueNpcId(baseId, used) {
+  const sanitized = sanitizeNpcId(baseId);
+  let candidate = sanitized;
+  let suffix = 2;
+  while (used.has(candidate)) {
+    candidate = `${sanitized}_${suffix}`;
+    suffix += 1;
+  }
+  used.add(candidate);
+  return candidate;
+}
+
 function normalizeEncounter(raw = {}) {
   const tiles = Array.isArray(raw.tiles)
     ? raw.tiles
@@ -242,6 +276,72 @@ function normalizeEnemyPlacements(rawPlacements) {
     .filter(Boolean);
 }
 
+function normalizeNpcs(entry, zones, defaultZoneId) {
+  const zoneIds = new Set(Array.isArray(zones) ? zones.map(zone => zone.id) : []);
+  const usedIds = new Set();
+  const npcs = [];
+  const npcMap = new Map();
+  const zoneNpcMap = new Map();
+  const rawNpcs = Array.isArray(entry && entry.npcs) ? entry.npcs : [];
+  rawNpcs.forEach((npcEntry, index) => {
+    if (!npcEntry || typeof npcEntry !== 'object') {
+      return;
+    }
+    const baseId = npcEntry.id || `npc_${index + 1}`;
+    const id = uniqueNpcId(baseId, usedIds);
+    const name = typeof npcEntry.name === 'string' && npcEntry.name.trim() ? npcEntry.name.trim() : id;
+    const sprite =
+      typeof npcEntry.sprite === 'string' && npcEntry.sprite.trim() ? npcEntry.sprite.trim() : null;
+    const zoneIdRaw = typeof npcEntry.zoneId === 'string' && npcEntry.zoneId.trim() ? npcEntry.zoneId.trim() : null;
+    const zoneId = zoneIdRaw && zoneIds.has(zoneIdRaw) ? zoneIdRaw : null;
+    if (!zoneId) {
+      return;
+    }
+    const xRaw = Number.isFinite(npcEntry.x) ? npcEntry.x : parseInt(npcEntry.x, 10);
+    const yRaw = Number.isFinite(npcEntry.y) ? npcEntry.y : parseInt(npcEntry.y, 10);
+    let x = Number.isFinite(xRaw) ? Math.max(0, Math.round(xRaw)) : 0;
+    let y = Number.isFinite(yRaw) ? Math.max(0, Math.round(yRaw)) : 0;
+    if (zoneId) {
+      const zone = zones.find(z => z.id === zoneId);
+      if (zone) {
+        if (Number.isFinite(zone.width) && zone.width > 0) {
+          x = Math.max(0, Math.min(zone.width - 1, x));
+        }
+        if (Number.isFinite(zone.height) && zone.height > 0) {
+          y = Math.max(0, Math.min(zone.height - 1, y));
+        }
+      }
+    }
+    const facingRaw = typeof npcEntry.facing === 'string' ? npcEntry.facing.toLowerCase() : '';
+    const facing = VALID_FACING.has(facingRaw) ? facingRaw : 'down';
+    const dialog = normalizeNpcDialog(npcEntry.dialog);
+    const npc = {
+      id,
+      name,
+      sprite,
+      zoneId,
+      x,
+      y,
+      facing,
+      dialog,
+    };
+    npcs.push(npc);
+    npcMap.set(id, npc);
+    if (zoneId) {
+      if (!zoneNpcMap.has(zoneId)) {
+        zoneNpcMap.set(zoneId, []);
+      }
+      zoneNpcMap.get(zoneId).push(npc);
+    }
+  });
+  zones.forEach(zone => {
+    if (!zoneNpcMap.has(zone.id)) {
+      zoneNpcMap.set(zone.id, []);
+    }
+  });
+  return { npcs, npcMap, zoneNpcMap };
+}
+
 function normalizeZoneEntry(entry, fallbackBaseId, usedIds) {
   const baseId = entry && entry.id ? String(entry.id) : fallbackBaseId;
   const id = uniqueZoneId(baseId, usedIds);
@@ -280,6 +380,7 @@ function normalizeZoneEntry(entry, fallbackBaseId, usedIds) {
     transports,
     enemyPlacements,
     walkableTiles,
+    npcs: [],
   };
 }
 
@@ -351,6 +452,18 @@ function normalizeWorld(entry) {
   });
   const defaultZone = zones[0] || null;
   const defaultZoneId = defaultZone ? defaultZone.id : null;
+  const { npcs, npcMap, zoneNpcMap } = normalizeNpcs(entry, zones, defaultZoneId);
+  zones.forEach(zone => {
+    const zoneNpcs = zoneNpcMap.get(zone.id) || [];
+    zone.npcs = zoneNpcs.map(npc => ({
+      id: npc.id,
+      name: npc.name,
+      x: npc.x,
+      y: npc.y,
+      facing: npc.facing,
+      sprite: npc.sprite || null,
+    }));
+  });
   const tiles = defaultZone ? defaultZone.tiles : [];
   const width = defaultZone ? defaultZone.width : tiles.length ? tiles[0].length : 0;
   const height = defaultZone ? defaultZone.height : tiles.length;
@@ -378,6 +491,8 @@ function normalizeWorld(entry) {
     zoneMap,
     defaultZoneId,
     walkableTiles,
+    npcs,
+    npcMap,
   };
 }
 
@@ -437,6 +552,27 @@ function sanitizeWorld(world) {
         tiles: zone.tiles,
         spawn: zone.spawn,
         transports: zone.transports,
+        npcs: Array.isArray(zone.npcs)
+          ? zone.npcs.map(npc => ({
+              id: npc.id,
+              name: npc.name,
+              x: npc.x,
+              y: npc.y,
+              facing: npc.facing,
+              sprite: npc.sprite || null,
+            }))
+          : [],
+      }))
+    : [];
+  const npcs = Array.isArray(world.npcs)
+    ? world.npcs.map(npc => ({
+        id: npc.id,
+        name: npc.name,
+        zoneId: npc.zoneId || null,
+        x: npc.x,
+        y: npc.y,
+        facing: npc.facing,
+        sprite: npc.sprite || null,
       }))
     : [];
   return {
@@ -450,6 +586,7 @@ function sanitizeWorld(world) {
     moveCooldownMs: world.moveCooldownMs,
     defaultZoneId: world.defaultZoneId || null,
     zones,
+    npcs,
   };
 }
 
@@ -479,6 +616,21 @@ function serializeEnemiesForClient(state) {
   }));
 }
 
+function serializeNpcsForClient(state) {
+  if (!state || !state.npcs) {
+    return [];
+  }
+  return Array.from(state.npcs.values()).map(npc => ({
+    id: npc.id,
+    name: npc.name,
+    x: npc.x,
+    y: npc.y,
+    facing: npc.facing || 'down',
+    zoneId: npc.zoneId || null,
+    sprite: npc.sprite || null,
+  }));
+}
+
 function broadcastWorldState(state) {
   if (!state) return;
   const payload = {
@@ -486,6 +638,7 @@ function broadcastWorldState(state) {
     phase: state.phase,
     players: serializePlayersForClient(state),
     enemies: serializeEnemiesForClient(state),
+    npcs: serializeNpcsForClient(state),
   };
   state.listeners.forEach(listener => {
     try {
@@ -639,6 +792,12 @@ const ENEMY_MOVE_DELTAS = [
   { dx: 1, dy: 0, facing: 'right' },
 ];
 const ENEMY_IDLE_MOVE = { dx: 0, dy: 0, facing: 'down' };
+const PLAYER_FACING_DELTAS = {
+  up: { dx: 0, dy: -1 },
+  down: { dx: 0, dy: 1 },
+  left: { dx: -1, dy: 0 },
+  right: { dx: 1, dy: 0 },
+};
 
 function shuffleArray(array) {
   for (let i = array.length - 1; i > 0; i -= 1) {
@@ -799,6 +958,21 @@ function findEnemyAtPosition(state, zoneId, x, y) {
     }
   }
   return null;
+}
+
+function findNpcAtPosition(state, zoneId, x, y) {
+  if (!state || !state.npcs) return null;
+  for (const npc of state.npcs.values()) {
+    if (npc.zoneId === zoneId && npc.x === x && npc.y === y) {
+      return npc;
+    }
+  }
+  return null;
+}
+
+function getFacingDelta(facing) {
+  const normalized = typeof facing === 'string' ? facing.toLowerCase() : '';
+  return PLAYER_FACING_DELTAS[normalized] || PLAYER_FACING_DELTAS.down;
 }
 
 function moveEnemies(state) {
@@ -976,11 +1150,18 @@ async function createWorldInstance(worldId, participantIds = []) {
     world,
     players: new Map(),
     enemies: new Map(),
+    npcs: new Map(),
     listeners: new Set(),
     expectedParticipants: new Set(participantIds),
     phase: 'lobby',
     activeEncounter: null,
   };
+  if (Array.isArray(world.npcs)) {
+    world.npcs.forEach(npc => {
+      if (!npc || !npc.id) return;
+      state.npcs.set(npc.id, { ...npc });
+    });
+  }
   worldInstances.set(instanceId, state);
   spawnMissingEnemies(state);
   return { instanceId, world: sanitizeWorld(world) };
@@ -1025,6 +1206,7 @@ async function joinWorld(worldId, instanceId, characterId) {
     },
     players: serializePlayersForClient(state),
     enemies: serializeEnemiesForClient(state),
+    npcs: serializeNpcsForClient(state),
     phase: state.phase,
   };
 }
@@ -1160,6 +1342,7 @@ function subscribe(worldId, instanceId, characterId, send) {
     phase: state.phase,
     players: serializePlayersForClient(state),
     enemies: serializeEnemiesForClient(state),
+    npcs: serializeNpcsForClient(state),
   });
   if (state.phase === 'encounter' && state.activeEncounter) {
     send({
@@ -1298,6 +1481,39 @@ async function startEncounterBattle(state, encounter) {
   broadcastWorldState(state);
 }
 
+async function interactWithWorld(worldId, instanceId, characterId) {
+  if (!Number.isFinite(characterId)) {
+    throw new Error('characterId required');
+  }
+  const state = ensureInstance(worldId, instanceId);
+  ensureParticipant(state, characterId);
+  const player = state.players.get(characterId);
+  if (!player) {
+    throw new Error('player not in world');
+  }
+  const zoneId = player.zoneId || state.world.defaultZoneId || null;
+  if (!zoneId) {
+    return { result: 'none' };
+  }
+  const facing = player.facing || 'down';
+  const delta = getFacingDelta(facing);
+  const targetX = player.x + delta.dx;
+  const targetY = player.y + delta.dy;
+  const npc = findNpcAtPosition(state, zoneId, targetX, targetY);
+  if (!npc) {
+    return { result: 'none' };
+  }
+  return {
+    result: 'npc',
+    npc: {
+      id: npc.id,
+      name: npc.name,
+      dialog: Array.isArray(npc.dialog) ? npc.dialog.slice() : [],
+      sprite: npc.sprite || null,
+    },
+  };
+}
+
 function runEncounter(worldId, instanceId, characterId, token, send) {
   const state = ensureInstance(worldId, instanceId);
   const encounter = state.activeEncounter;
@@ -1334,4 +1550,5 @@ module.exports = {
   movePlayer,
   subscribe,
   runEncounter,
+  interact: interactWithWorld,
 };
