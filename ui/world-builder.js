@@ -41,6 +41,8 @@ const transportZoneSelect = document.getElementById('transport-zone-select');
 const transportTargetXInput = document.getElementById('transport-target-x');
 const transportTargetYInput = document.getElementById('transport-target-y');
 const transportClearButton = document.getElementById('transport-clear');
+const tileControls = document.getElementById('tile-controls');
+const brushSizeInput = document.getElementById('brush-size');
 const enemyModeInfo = document.getElementById('enemy-mode-info');
 const enemyPlacementTargetEl = document.getElementById('enemy-placement-target');
 
@@ -81,6 +83,7 @@ const DEFAULT_ENCOUNTER_TILES = [2];
 const DEFAULT_ENCOUNTER_CHANCE = 0.22;
 const DEFAULT_ENCOUNTER_COOLDOWN = 2000;
 const DEFAULT_ENEMY_COUNT = 6;
+const MAX_BRUSH_SIZE = 25;
 
 const EQUIPMENT_SLOT_LABELS = {
   weapon: 'Weapon',
@@ -569,6 +572,7 @@ const state = {
   selectedZoneId: null,
   selectedTileId: null,
   editMode: 'tile',
+  brushSize: 1,
   transportPlacement: null,
   enemyTemplates: [],
   selectedEnemyTemplateId: null,
@@ -643,6 +647,14 @@ function initializeDefaults() {
   renderPaletteSelect();
 }
 
+function clampBrushSize(value) {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  const rounded = Math.round(Math.abs(value));
+  return Math.max(1, Math.min(MAX_BRUSH_SIZE, rounded));
+}
+
 function attachWorldListeners() {
   worldIdInput.addEventListener('input', e => {
     state.world.id = e.target.value.trim();
@@ -688,6 +700,16 @@ function attachWorldListeners() {
         state.world.encounterCooldownMs = value;
       }
     });
+  }
+  if (brushSizeInput) {
+    const updateBrushSize = inputValue => {
+      const normalized = clampBrushSize(Number(inputValue));
+      state.brushSize = normalized;
+      brushSizeInput.value = String(normalized);
+    };
+    brushSizeInput.value = String(state.brushSize);
+    brushSizeInput.addEventListener('input', e => updateBrushSize(e.target.value));
+    brushSizeInput.addEventListener('change', e => updateBrushSize(e.target.value));
   }
 }
 
@@ -1357,6 +1379,12 @@ function setEditMode(mode) {
   });
   transportControls.classList.toggle('hidden', mode !== 'transport');
   enemyModeInfo.classList.toggle('hidden', mode !== 'enemy');
+  if (tileControls) {
+    tileControls.classList.toggle('hidden', mode !== 'tile');
+  }
+  if (brushSizeInput) {
+    brushSizeInput.disabled = mode !== 'tile';
+  }
 }
 
 modeButtons.forEach(button => {
@@ -1451,6 +1479,34 @@ function handleSpawnPlacement(zone, x, y) {
   zone.spawn = { x, y };
 }
 
+function getBrushSize() {
+  return clampBrushSize(Number(state.brushSize));
+}
+
+function applyTileBrush(zone, centerX, centerY, tileId) {
+  if (!zone || tileId == null) {
+    return;
+  }
+  const size = getBrushSize();
+  const offset = Math.floor((size - 1) / 2);
+  const startX = centerX - offset;
+  const startY = centerY - offset;
+  for (let dy = 0; dy < size; dy += 1) {
+    for (let dx = 0; dx < size; dx += 1) {
+      const targetX = startX + dx;
+      const targetY = startY + dy;
+      if (
+        targetX >= 0 &&
+        targetX < zone.width &&
+        targetY >= 0 &&
+        targetY < zone.height
+      ) {
+        zone.tiles[targetY][targetX] = tileId;
+      }
+    }
+  }
+}
+
 function handleZoneCellClick(event) {
   const zone = getSelectedZone();
   if (!zone) return;
@@ -1462,7 +1518,7 @@ function handleZoneCellClick(event) {
         alert('Select a tile from the palette first.');
         return;
       }
-      zone.tiles[y][x] = state.selectedTileId;
+      applyTileBrush(zone, x, y, state.selectedTileId);
       break;
     case 'enemy':
       handleEnemyPlacement(zone, x, y);
@@ -1496,7 +1552,7 @@ function handleZoneCellContextMenu(event) {
   } else if (state.editMode === 'tile') {
     const defaultTile = Object.keys(state.tileConfig)[0];
     if (defaultTile) {
-      zone.tiles[y][x] = defaultTile;
+      applyTileBrush(zone, x, y, defaultTile);
     }
   }
   renderZoneEditor();
