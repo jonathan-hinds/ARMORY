@@ -895,6 +895,23 @@ function chooseEncounterTemplate(world, templateId = null) {
   return encounters.templates[encounters.templates.length - 1] || null;
 }
 
+function normalizeSpawnChance(template) {
+  if (!template) return 0;
+  const raw = Number.isFinite(template.spawnChance)
+    ? template.spawnChance
+    : parseFloat(template.spawnChance);
+  if (!Number.isFinite(raw)) {
+    return 1;
+  }
+  if (raw <= 0) {
+    return 0;
+  }
+  if (raw >= 1) {
+    return 1;
+  }
+  return raw;
+}
+
 const ENEMY_MOVE_DELTAS = [
   { dx: 0, dy: -1, facing: 'up' },
   { dx: 0, dy: 1, facing: 'down' },
@@ -975,6 +992,7 @@ function spawnMissingEnemies(state) {
       return;
     }
     const zoneWalkable = shuffleArray(zone.walkableTiles.slice());
+    const placements = Array.isArray(zone.enemyPlacements) ? zone.enemyPlacements : [];
     const occupied = new Set();
     const enemyPositions = [];
     const playerPositions = [];
@@ -986,7 +1004,7 @@ function spawnMissingEnemies(state) {
         existingCount += 1;
       }
     });
-    if (existingCount >= desired) {
+    if (!placements.length && existingCount >= desired) {
       return;
     }
     state.players.forEach(player => {
@@ -998,6 +1016,46 @@ function spawnMissingEnemies(state) {
     });
     if (zone.spawn) {
       occupied.add(positionKey(zone.id, zone.spawn.x, zone.spawn.y));
+    }
+
+    if (placements.length) {
+      placements.forEach(placement => {
+        const key = positionKey(zone.id, placement.x, placement.y);
+        if (occupied.has(key)) {
+          return;
+        }
+        if (!isWalkableTile(world, zone.id, placement.x, placement.y)) {
+          return;
+        }
+        const template =
+          getEncounterTemplateById(world, placement.templateId) ||
+          chooseEncounterTemplate(world, placement.templateId);
+        if (!template) {
+          return;
+        }
+        const spawnChance = normalizeSpawnChance(template);
+        if (spawnChance <= 0) {
+          return;
+        }
+        if (spawnChance < 1 && Math.random() > spawnChance) {
+          return;
+        }
+        const enemy = {
+          id: uuid(),
+          templateId: template.id,
+          name: template.name,
+          x: placement.x,
+          y: placement.y,
+          zoneId: zone.id,
+          facing: 'down',
+          updatedAt: now,
+          sprite: template.sprite || null,
+        };
+        enemyMap.set(enemy.id, enemy);
+        enemyPositions.push({ x: enemy.x, y: enemy.y });
+        occupied.add(key);
+      });
+      return;
     }
 
     const trySpawn = enforceDistance => {
