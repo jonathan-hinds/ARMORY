@@ -37,9 +37,10 @@ const zoneDetailsEl = document.getElementById('zone-details');
 
 const modeButtons = Array.from(document.querySelectorAll('.mode-button'));
 const transportControls = document.getElementById('transport-controls');
-const transportZoneSelect = document.getElementById('transport-zone-select');
-const transportTargetXInput = document.getElementById('transport-target-x');
-const transportTargetYInput = document.getElementById('transport-target-y');
+const transportSourceButton = document.getElementById('transport-source-button');
+const transportDestinationButton = document.getElementById('transport-destination-button');
+const transportStageIndicator = document.getElementById('transport-stage-indicator');
+const transportTwoWayToggle = document.getElementById('transport-two-way');
 const transportClearButton = document.getElementById('transport-clear');
 const tileControls = document.getElementById('tile-controls');
 const brushSizeInput = document.getElementById('brush-size');
@@ -590,7 +591,12 @@ const state = {
   selectedTileId: null,
   editMode: 'tile',
   brushSize: 1,
-  transportPlacement: null,
+  transportSelection: {
+    stage: 'source',
+    source: null,
+    destination: null,
+    twoWay: false,
+  },
   enemyTemplates: [],
   selectedEnemyTemplateId: null,
   enemyFormRotation: [],
@@ -1490,6 +1496,9 @@ function setEditMode(mode) {
   if (brushSizeInput) {
     brushSizeInput.disabled = mode !== 'tile';
   }
+  if (mode === 'transport') {
+    updateTransportOptions();
+  }
 }
 
 modeButtons.forEach(button => {
@@ -1498,47 +1507,168 @@ modeButtons.forEach(button => {
   });
 });
 
-function setTransportPlacement() {
-  const zoneId = transportZoneSelect.value || null;
-  const x = parseInt(transportTargetXInput.value, 10);
-  const y = parseInt(transportTargetYInput.value, 10);
-  if (zoneId && Number.isInteger(x) && Number.isInteger(y)) {
-    state.transportPlacement = { zoneId, x, y };
-  } else if (zoneId) {
-    state.transportPlacement = { zoneId, x: null, y: null };
+function resetTransportSelection({ keepTwoWay = true } = {}) {
+  const selection = state.transportSelection;
+  if (!selection) return;
+  if (!keepTwoWay) {
+    selection.twoWay = false;
+    if (transportTwoWayToggle) {
+      transportTwoWayToggle.checked = false;
+    }
+  }
+  selection.source = null;
+  selection.destination = null;
+  selection.stage = 'source';
+}
+
+function setTransportStage(stage) {
+  const selection = state.transportSelection;
+  if (!selection) return;
+  if (stage === 'destination' && !selection.source) {
+    selection.stage = 'source';
+  } else if (stage === 'source' || stage === 'destination') {
+    selection.stage = stage;
+  }
+  updateTransportOptions();
+}
+
+function setTransportSource(zone, x, y) {
+  const selection = state.transportSelection;
+  if (!selection) return;
+  selection.source = { zoneId: zone.id, x, y };
+  const existing = zone.transports.find(t => t.from.x === x && t.from.y === y);
+  if (existing) {
+    selection.destination = {
+      zoneId: existing.toZoneId,
+      x: existing.to.x,
+      y: existing.to.y,
+    };
+    const targetZone = state.zones.find(z => z.id === existing.toZoneId);
+    if (targetZone) {
+      const reverse = targetZone.transports.find(
+        t =>
+          t.from.x === existing.to.x &&
+          t.from.y === existing.to.y &&
+          t.toZoneId === zone.id &&
+          t.to.x === x &&
+          t.to.y === y,
+      );
+      selection.twoWay = Boolean(reverse);
+    }
   } else {
-    state.transportPlacement = null;
+    selection.destination = null;
+  }
+  selection.stage = 'destination';
+  updateTransportOptions();
+}
+
+function setTransportDestination(zone, x, y) {
+  const selection = state.transportSelection;
+  if (!selection) return;
+  if (!selection.source) {
+    setTransportSource(zone, x, y);
+    return;
+  }
+  selection.destination = { zoneId: zone.id, x, y };
+  if (
+    selection.source.zoneId === selection.destination.zoneId &&
+    selection.source.x === selection.destination.x &&
+    selection.source.y === selection.destination.y
+  ) {
+    alert('Transport cannot target the same tile.');
+    selection.destination = null;
+    updateTransportOptions();
+    return;
+  }
+  applyTransportSelection();
+}
+
+function applyTransportSelection() {
+  const selection = state.transportSelection;
+  if (!selection?.source || !selection.destination) {
+    return;
+  }
+  const sourceZone = state.zones.find(z => z.id === selection.source.zoneId);
+  const destinationZone = state.zones.find(z => z.id === selection.destination.zoneId);
+  if (!sourceZone || !destinationZone) {
+    alert('Selected zones no longer exist.');
+    resetTransportSelection();
+    updateTransportOptions();
+    return;
+  }
+  const { source, destination } = selection;
+  const existingIndex = sourceZone.transports.findIndex(
+    t => t.from.x === source.x && t.from.y === source.y,
+  );
+  const transport = {
+    from: { x: source.x, y: source.y },
+    toZoneId: destination.zoneId,
+    to: { x: destination.x, y: destination.y },
+  };
+  if (existingIndex >= 0) {
+    sourceZone.transports.splice(existingIndex, 1, transport);
+  } else {
+    sourceZone.transports.push(transport);
+  }
+  const reverseTransport = {
+    from: { x: destination.x, y: destination.y },
+    toZoneId: source.zoneId,
+    to: { x: source.x, y: source.y },
+  };
+  const reverseIndex = destinationZone.transports.findIndex(
+    t => t.from.x === destination.x && t.from.y === destination.y && t.toZoneId === source.zoneId,
+  );
+  if (selection.twoWay) {
+    if (reverseIndex >= 0) {
+      destinationZone.transports.splice(reverseIndex, 1, reverseTransport);
+    } else {
+      destinationZone.transports.push(reverseTransport);
+    }
+  } else if (
+    reverseIndex >= 0 &&
+    destinationZone.transports[reverseIndex].to.x === source.x &&
+    destinationZone.transports[reverseIndex].to.y === source.y
+  ) {
+    destinationZone.transports.splice(reverseIndex, 1);
+  }
+  resetTransportSelection({ keepTwoWay: true });
+  updateTransportOptions();
+  renderZonesList();
+}
+
+function handleTransportClick(zone, x, y) {
+  if (!state.transportSelection) return;
+  if (state.transportSelection.stage === 'destination' && state.transportSelection.source) {
+    setTransportDestination(zone, x, y);
+  } else {
+    setTransportSource(zone, x, y);
   }
 }
 
-transportZoneSelect.addEventListener('change', () => {
-  setTransportPlacement();
-});
-transportTargetXInput.addEventListener('input', () => {
-  setTransportPlacement();
-});
-transportTargetYInput.addEventListener('input', () => {
-  setTransportPlacement();
-});
+if (transportSourceButton) {
+  transportSourceButton.addEventListener('click', () => {
+    setTransportStage('source');
+  });
+}
+
+if (transportDestinationButton) {
+  transportDestinationButton.addEventListener('click', () => {
+    setTransportStage('destination');
+  });
+}
+
+if (transportTwoWayToggle) {
+  transportTwoWayToggle.addEventListener('change', () => {
+    if (!state.transportSelection) return;
+    state.transportSelection.twoWay = transportTwoWayToggle.checked;
+  });
+}
+
 transportClearButton.addEventListener('click', () => {
-  transportZoneSelect.value = '';
-  transportTargetXInput.value = '';
-  transportTargetYInput.value = '';
-  state.transportPlacement = null;
+  resetTransportSelection();
+  updateTransportOptions();
+  renderZoneEditor();
 });
-
-function ensureTransportPlacement() {
-  const placement = state.transportPlacement;
-  if (!placement || !placement.zoneId) {
-    alert('Select a target zone and coordinates for the transport.');
-    return false;
-  }
-  if (placement.x == null || placement.y == null) {
-    alert('Provide target coordinates for the transport.');
-    return false;
-  }
-  return true;
-}
 
 function handleEnemyPlacement(zone, x, y) {
   const templateId = state.selectedEnemyTemplateId;
@@ -1587,28 +1717,6 @@ function handleNpcPlacement(zone, x, y) {
   renderZoneEditor();
   renderNpcList();
   updateNpcPlacementInfo();
-}
-
-function handleTransportPlacement(zone, x, y) {
-  if (!ensureTransportPlacement()) {
-    return;
-  }
-  const placement = state.transportPlacement;
-  if (placement.zoneId === zone.id && placement.x === x && placement.y === y) {
-    alert('Transport cannot target the same tile.');
-    return;
-  }
-  const existingIndex = zone.transports.findIndex(t => t.from.x === x && t.from.y === y);
-  const transport = {
-    from: { x, y },
-    toZoneId: placement.zoneId,
-    to: { x: placement.x, y: placement.y },
-  };
-  if (existingIndex >= 0) {
-    zone.transports.splice(existingIndex, 1, transport);
-  } else {
-    zone.transports.push(transport);
-  }
 }
 
 function handleSpawnPlacement(zone, x, y) {
@@ -1663,7 +1771,7 @@ function handleZoneCellClick(event) {
       handleNpcPlacement(zone, x, y);
       break;
     case 'transport':
-      handleTransportPlacement(zone, x, y);
+      handleTransportClick(zone, x, y);
       break;
     case 'spawn':
       handleSpawnPlacement(zone, x, y);
@@ -1693,6 +1801,27 @@ function handleZoneCellContextMenu(event) {
     }
   } else if (state.editMode === 'transport') {
     zone.transports = zone.transports.filter(t => !(t.from.x === x && t.from.y === y));
+    const selection = state.transportSelection;
+    if (selection) {
+      if (
+        selection.source &&
+        selection.source.zoneId === zone.id &&
+        selection.source.x === x &&
+        selection.source.y === y
+      ) {
+        selection.source = null;
+        selection.stage = 'source';
+      }
+      if (
+        selection.destination &&
+        selection.destination.zoneId === zone.id &&
+        selection.destination.x === x &&
+        selection.destination.y === y
+      ) {
+        selection.destination = null;
+      }
+      updateTransportOptions();
+    }
   } else if (state.editMode === 'spawn') {
     if (zone.spawn && zone.spawn.x === x && zone.spawn.y === y) {
       zone.spawn = null;
@@ -1784,6 +1913,23 @@ function renderZoneGrid() {
       if (zone.transports.some(t => t.from.x === x && t.from.y === y)) {
         cell.classList.add('has-transport');
       }
+      const selection = state.transportSelection;
+      if (
+        selection?.source &&
+        selection.source.zoneId === zone.id &&
+        selection.source.x === x &&
+        selection.source.y === y
+      ) {
+        cell.classList.add('transport-source');
+      }
+      if (
+        selection?.destination &&
+        selection.destination.zoneId === zone.id &&
+        selection.destination.x === x &&
+        selection.destination.y === y
+      ) {
+        cell.classList.add('transport-destination');
+      }
       cell.addEventListener('click', handleZoneCellClick);
       cell.addEventListener('contextmenu', handleZoneCellContextMenu);
       grid.appendChild(cell);
@@ -1802,7 +1948,28 @@ function removeEnemyPlacement(zoneId, index) {
 function removeTransport(zoneId, index) {
   const zone = state.zones.find(z => z.id === zoneId);
   if (!zone) return;
-  zone.transports.splice(index, 1);
+  const [removed] = zone.transports.splice(index, 1);
+  if (removed && state.transportSelection) {
+    const selection = state.transportSelection;
+    if (
+      selection.source &&
+      selection.source.zoneId === zoneId &&
+      selection.source.x === removed.from.x &&
+      selection.source.y === removed.from.y
+    ) {
+      selection.source = null;
+      selection.stage = 'source';
+    }
+    if (
+      selection.destination &&
+      selection.destination.zoneId === removed.toZoneId &&
+      selection.destination.x === removed.to.x &&
+      selection.destination.y === removed.to.y
+    ) {
+      selection.destination = null;
+    }
+    updateTransportOptions();
+  }
   renderZoneEditor();
 }
 
@@ -1946,28 +2113,74 @@ function renderZoneDetails() {
 function renderZoneEditor() {
   renderZoneDetails();
   renderZoneGrid();
+  updateTransportOptions();
+}
+
+function getZoneDisplayName(zoneId) {
+  if (!zoneId) return '';
+  const zone = state.zones.find(z => z.id === zoneId);
+  return zone ? zone.name || zone.id : zoneId;
 }
 
 function updateTransportOptions() {
-  const zone = getSelectedZone();
-  const currentId = zone?.id;
-  transportZoneSelect.innerHTML = '<option value="">Select zone</option>';
-  state.zones
-    .filter(z => z.id !== currentId)
-    .forEach(z => {
-      const option = document.createElement('option');
-      option.value = z.id;
-      option.textContent = z.name || z.id;
-      transportZoneSelect.appendChild(option);
-    });
-  if (state.transportPlacement && state.transportPlacement.zoneId) {
-    const exists = state.zones.some(z => z.id === state.transportPlacement.zoneId);
-    if (!exists || state.transportPlacement.zoneId === currentId) {
-      state.transportPlacement = null;
-      transportZoneSelect.value = '';
-      transportTargetXInput.value = '';
-      transportTargetYInput.value = '';
+  const selection = state.transportSelection;
+  if (!selection) return;
+
+  const validatePoint = point => {
+    if (!point) return null;
+    const zone = state.zones.find(z => z.id === point.zoneId);
+    if (!zone) {
+      return null;
     }
+    if (
+      point.x < 0 ||
+      point.y < 0 ||
+      point.x >= zone.width ||
+      point.y >= zone.height
+    ) {
+      return null;
+    }
+    return point;
+  };
+
+  const validSource = validatePoint(selection.source);
+  const validDestination = validatePoint(selection.destination);
+  if (!validSource && selection.source) {
+    selection.source = null;
+  }
+  if (!validDestination && selection.destination) {
+    selection.destination = null;
+  }
+  if (!selection.source && selection.stage === 'destination') {
+    selection.stage = 'source';
+  }
+
+  const formatPoint = point => `${getZoneDisplayName(point.zoneId)} (${point.x}, ${point.y})`;
+
+  if (transportSourceButton) {
+    transportSourceButton.textContent = selection.source
+      ? `Source: ${formatPoint(selection.source)}`
+      : 'Select source tile';
+    transportSourceButton.classList.toggle('active', selection.stage === 'source');
+  }
+
+  if (transportDestinationButton) {
+    transportDestinationButton.textContent = selection.destination
+      ? `Destination: ${formatPoint(selection.destination)}`
+      : 'Select destination tile';
+    transportDestinationButton.classList.toggle('active', selection.stage === 'destination');
+    transportDestinationButton.disabled = !selection.source;
+  }
+
+  if (transportStageIndicator) {
+    transportStageIndicator.textContent =
+      selection.stage === 'destination' && selection.source
+        ? `Click a tile to set the destination for ${formatPoint(selection.source)}.`
+        : 'Click a tile to set the source.';
+  }
+
+  if (transportTwoWayToggle) {
+    transportTwoWayToggle.checked = Boolean(selection.twoWay);
   }
 }
 
@@ -3464,7 +3677,7 @@ function applyWorldData(rawWorld) {
     };
   });
   state.selectedZoneId = state.zones[0]?.id || null;
-  state.transportPlacement = null;
+  resetTransportSelection({ keepTwoWay: false });
   const npcSource = Array.isArray(worldSource.npcs) ? worldSource.npcs : [];
   const usedNpcIds = new Set();
   state.npcs = npcSource.map((entry, index) => {

@@ -136,19 +136,30 @@
                   </label>
                 </div>
                 <div class="transport-controls hidden" id="transport-controls">
-                  <label>
-                    Target Zone
-                    <select id="transport-zone-select"></select>
+                  <div class="transport-stage" id="transport-stage-indicator">
+                    Select a source tile.
+                  </div>
+                  <div class="transport-pickers">
+                    <button
+                      type="button"
+                      class="transport-pick-button"
+                      id="transport-source-button"
+                    >
+                      Select source tile
+                    </button>
+                    <button
+                      type="button"
+                      class="transport-pick-button"
+                      id="transport-destination-button"
+                    >
+                      Select destination tile
+                    </button>
+                  </div>
+                  <label class="field-inline checkbox transport-two-way">
+                    <input type="checkbox" id="transport-two-way" />
+                    <span>Create two-way link</span>
                   </label>
-                  <label>
-                    Target X
-                    <input id="transport-target-x" type="number" min="0" />
-                  </label>
-                  <label>
-                    Target Y
-                    <input id="transport-target-y" type="number" min="0" />
-                  </label>
-                  <button type="button" id="transport-clear">Clear Target</button>
+                  <button type="button" id="transport-clear">Clear Selection</button>
                 </div>
                 <div class="enemy-mode-info hidden" id="enemy-mode-info">
                   <span>Placement Target:</span>
