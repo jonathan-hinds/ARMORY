@@ -82,7 +82,7 @@
           "equipment": {},
           "xpPct": 0.05,
           "gold": 5,
-          "spawnChance": 0.5,
+          "spawnChance": 0.9,
           "sprite": "/assets/sprites/creatures1.png"
         },
         {
@@ -378,6 +378,28 @@
           {
             "from": {
               "x": 19,
+              "y": 2
+            },
+            "toZoneId": "marsh_ruins",
+            "to": {
+              "x": 0,
+              "y": 2
+            }
+          },
+          {
+            "from": {
+              "x": 19,
+              "y": 3
+            },
+            "toZoneId": "marsh_ruins",
+            "to": {
+              "x": 0,
+              "y": 3
+            }
+          },
+          {
+            "from": {
+              "x": 19,
               "y": 4
             },
             "toZoneId": "marsh_ruins",
@@ -406,6 +428,39 @@
             "to": {
               "x": 0,
               "y": 6
+            }
+          },
+          {
+            "from": {
+              "x": 19,
+              "y": 7
+            },
+            "toZoneId": "marsh_ruins",
+            "to": {
+              "x": 0,
+              "y": 7
+            }
+          },
+          {
+            "from": {
+              "x": 19,
+              "y": 8
+            },
+            "toZoneId": "marsh_ruins",
+            "to": {
+              "x": 0,
+              "y": 8
+            }
+          },
+          {
+            "from": {
+              "x": 19,
+              "y": 9
+            },
+            "toZoneId": "marsh_ruins",
+            "to": {
+              "x": 0,
+              "y": 9
             }
           }
         ],
@@ -1123,6 +1178,28 @@
           {
             "from": {
               "x": 0,
+              "y": 2
+            },
+            "toZoneId": "marsh",
+            "to": {
+              "x": 19,
+              "y": 2
+            }
+          },
+          {
+            "from": {
+              "x": 0,
+              "y": 3
+            },
+            "toZoneId": "marsh",
+            "to": {
+              "x": 19,
+              "y": 3
+            }
+          },
+          {
+            "from": {
+              "x": 0,
               "y": 4
             },
             "toZoneId": "marsh",
@@ -1151,6 +1228,39 @@
             "to": {
               "x": 19,
               "y": 6
+            }
+          },
+          {
+            "from": {
+              "x": 0,
+              "y": 7
+            },
+            "toZoneId": "marsh",
+            "to": {
+              "x": 19,
+              "y": 7
+            }
+          },
+          {
+            "from": {
+              "x": 0,
+              "y": 8
+            },
+            "toZoneId": "marsh",
+            "to": {
+              "x": 19,
+              "y": 8
+            }
+          },
+          {
+            "from": {
+              "x": 0,
+              "y": 9
+            },
+            "toZoneId": "marsh",
+            "to": {
+              "x": 19,
+              "y": 9
             }
           }
         ],
