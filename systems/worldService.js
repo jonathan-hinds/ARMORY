@@ -966,7 +966,48 @@ function ensureEnemyMap(state) {
   return state.enemies;
 }
 
-function spawnMissingEnemies(state) {
+function ensureZoneSpawnTracker(state) {
+  if (!state.zoneSpawnTracker) {
+    state.zoneSpawnTracker = new Map();
+  }
+  return state.zoneSpawnTracker;
+}
+
+function getZoneSpawnState(state, zoneId) {
+  if (!zoneId) return null;
+  const tracker = ensureZoneSpawnTracker(state);
+  let entry = tracker.get(zoneId);
+  if (!entry) {
+    entry = { pending: true };
+    tracker.set(zoneId, entry);
+  }
+  return entry;
+}
+
+function markZoneSpawned(state, zoneId) {
+  if (!zoneId) return;
+  const entry = getZoneSpawnState(state, zoneId);
+  if (entry) {
+    entry.pending = false;
+  }
+}
+
+function markZonePending(state, zoneId, { clearExistingEnemies = false } = {}) {
+  if (!zoneId) return;
+  const entry = getZoneSpawnState(state, zoneId);
+  if (entry) {
+    entry.pending = true;
+  }
+  if (clearExistingEnemies && state.enemies) {
+    Array.from(state.enemies.values()).forEach(enemy => {
+      if (enemy.zoneId === zoneId) {
+        state.enemies.delete(enemy.id);
+      }
+    });
+  }
+}
+
+function spawnMissingEnemies(state, options = {}) {
   if (!state || !state.world) return;
   if (state.phase === 'encounter') return;
   const world = state.world;
@@ -974,11 +1015,20 @@ function spawnMissingEnemies(state) {
   if (!desired) return;
   const enemyMap = ensureEnemyMap(state);
   const zonesToPopulate = new Set();
-  state.players.forEach(player => {
-    if (player && player.zoneId) {
-      zonesToPopulate.add(player.zoneId);
-    }
-  });
+  if (options && Array.isArray(options.zones)) {
+    options.zones.forEach(zoneId => {
+      if (zoneId) {
+        zonesToPopulate.add(zoneId);
+      }
+    });
+  }
+  if (!zonesToPopulate.size) {
+    state.players.forEach(player => {
+      if (player && player.zoneId) {
+        zonesToPopulate.add(player.zoneId);
+      }
+    });
+  }
   if (!zonesToPopulate.size && world.defaultZoneId) {
     zonesToPopulate.add(world.defaultZoneId);
   }
@@ -1019,6 +1069,10 @@ function spawnMissingEnemies(state) {
     }
 
     if (placements.length) {
+      const spawnState = getZoneSpawnState(state, zone.id);
+      if (!spawnState || !spawnState.pending) {
+        return;
+      }
       placements.forEach(placement => {
         const key = positionKey(zone.id, placement.x, placement.y);
         if (occupied.has(key)) {
@@ -1055,6 +1109,7 @@ function spawnMissingEnemies(state) {
         enemyPositions.push({ x: enemy.x, y: enemy.y });
         occupied.add(key);
       });
+      markZoneSpawned(state, zone.id);
       return;
     }
 
@@ -1116,6 +1171,29 @@ function spawnMissingEnemies(state) {
   } else {
     zonesToPopulate.forEach(zoneId => spawnInZone(zoneId));
   }
+}
+
+function handleZoneExit(state, zoneId) {
+  if (!state || !zoneId) return;
+  const world = state.world;
+  if (!world) return;
+  const remaining = Array.from(state.players.values()).some(player => {
+    if (!player) return false;
+    const playerZoneId = player.zoneId || world.defaultZoneId || null;
+    return playerZoneId === zoneId;
+  });
+  if (!remaining) {
+    markZonePending(state, zoneId, { clearExistingEnemies: true });
+  }
+}
+
+function handleZoneEnter(state, zoneId) {
+  if (!state || !zoneId) return;
+  const spawnState = getZoneSpawnState(state, zoneId);
+  if (!spawnState || !spawnState.pending) {
+    return;
+  }
+  spawnMissingEnemies(state, { zones: [zoneId] });
 }
 
 function findEnemyAtPosition(state, zoneId, x, y) {
@@ -1415,6 +1493,7 @@ async function createWorldInstance(worldId, participantIds = []) {
     expectedParticipants: new Set(participantIds),
     phase: 'lobby',
     activeEncounter: null,
+    zoneSpawnTracker: new Map(),
   };
   if (Array.isArray(world.npcs)) {
     world.npcs.forEach(npc => {
@@ -1428,7 +1507,6 @@ async function createWorldInstance(worldId, participantIds = []) {
     });
   }
   worldInstances.set(instanceId, state);
-  spawnMissingEnemies(state);
   return { instanceId, world: sanitizeWorld(world) };
 }
 
@@ -1454,6 +1532,7 @@ async function joinWorld(worldId, instanceId, characterId) {
   await ensureAdventureIdle(characterId);
   const prep = await prepareCharacterForCombat(characterId);
   const entry = ensurePlayerEntry(state, characterId, prep.character.name);
+  handleZoneEnter(state, entry.zoneId || state.world.defaultZoneId || null);
   if (state.phase !== 'encounter') {
     state.phase = 'explore';
   }
@@ -1480,7 +1559,9 @@ async function leaveWorld(worldId, instanceId, characterId) {
   const state = ensureInstance(worldId, instanceId);
   const existing = state.players.get(characterId);
   if (existing) {
+    const previousZoneId = existing.zoneId || state.world.defaultZoneId || null;
     state.players.delete(characterId);
+    handleZoneExit(state, previousZoneId);
     if (state.activeEncounter && state.activeEncounter.listeners) {
       state.activeEncounter.listeners.forEach(listener => {
         try {
@@ -1604,6 +1685,12 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
     player.zoneId = world.defaultZoneId || null;
   }
 
+  const zoneAfterMove = player.zoneId || world.defaultZoneId || null;
+  if (zoneAfterMove !== zoneBeforeMove) {
+    handleZoneExit(state, zoneBeforeMove);
+    handleZoneEnter(state, zoneAfterMove);
+  }
+
   let encounter = null;
   if (encounterEnemy) {
     encounter = beginEnemyEncounter(state, encounterEnemy, characterId);
@@ -1627,10 +1714,6 @@ async function movePlayer(worldId, instanceId, characterId, direction) {
       const { enemy, characterId: collidedCharacterId } = enemyCollisions[0];
       encounter = beginEnemyEncounter(state, enemy, collidedCharacterId || characterId);
     }
-  }
-
-  if (!encounter) {
-    spawnMissingEnemies(state);
   }
 
   broadcastWorldState(state);
@@ -1806,7 +1889,6 @@ async function startEncounterBattle(state, encounter) {
 
   state.activeEncounter = null;
   state.phase = state.players.size ? 'explore' : 'lobby';
-  spawnMissingEnemies(state);
   broadcastWorldState(state);
 }
 
