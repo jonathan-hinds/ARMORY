@@ -979,40 +979,16 @@ function spawnMissingEnemies(state) {
     const enemyPositions = [];
     const playerPositions = [];
     let existingCount = 0;
-
-    const placements = Array.isArray(zone.enemyPlacements) ? zone.enemyPlacements : [];
-    const placementMap = new Map();
-    placements.forEach(placement => {
-      if (!placement || typeof placement !== 'object') return;
-      const xRaw = Number.isFinite(placement.x) ? placement.x : parseInt(placement.x, 10);
-      const yRaw = Number.isFinite(placement.y) ? placement.y : parseInt(placement.y, 10);
-      const x = Number.isFinite(xRaw) ? Math.max(0, Math.round(xRaw)) : null;
-      const y = Number.isFinite(yRaw) ? Math.max(0, Math.round(yRaw)) : null;
-      if (x == null || y == null) return;
-      const key = positionKey(zone.id, x, y);
-      if (!placementMap.has(key)) {
-        placementMap.set(key, {
-          x,
-          y,
-          templateId: typeof placement.templateId === 'string' ? placement.templateId : String(placement.templateId || ''),
-        });
-      }
-    });
-
-    const placementEnemyMap = new Map();
     enemyMap.forEach(enemy => {
       if (enemy.zoneId === zone.id) {
-        const key = positionKey(zone.id, enemy.x, enemy.y);
-        occupied.add(key);
-        const placement = placementMap.get(key);
-        if (placement) {
-          placementEnemyMap.set(key, enemy);
-        } else {
-          enemyPositions.push({ x: enemy.x, y: enemy.y });
-          existingCount += 1;
-        }
+        occupied.add(positionKey(zone.id, enemy.x, enemy.y));
+        enemyPositions.push({ x: enemy.x, y: enemy.y });
+        existingCount += 1;
       }
     });
+    if (existingCount >= desired) {
+      return;
+    }
     state.players.forEach(player => {
       if (!player) return;
       const playerZoneId = player.zoneId || world.defaultZoneId || null;
@@ -1022,67 +998,6 @@ function spawnMissingEnemies(state) {
     });
     if (zone.spawn) {
       occupied.add(positionKey(zone.id, zone.spawn.x, zone.spawn.y));
-    }
-
-    placementMap.forEach(placement => {
-      const key = positionKey(zone.id, placement.x, placement.y);
-      occupied.add(key);
-      if (!isWalkableTile(world, zone.id, placement.x, placement.y)) {
-        const existingEnemy = placementEnemyMap.get(key);
-        if (existingEnemy) {
-          enemyMap.delete(existingEnemy.id);
-        }
-        return;
-      }
-      const template = getEncounterTemplateById(world, placement.templateId);
-      if (!template) {
-        const existingEnemy = placementEnemyMap.get(key);
-        if (existingEnemy) {
-          enemyMap.delete(existingEnemy.id);
-        }
-        return;
-      }
-      const existingEnemy = placementEnemyMap.get(key);
-      if (existingEnemy && existingEnemy.templateId === template.id) {
-        existingEnemy.name = template.name;
-        existingEnemy.sprite = template.sprite || null;
-        existingEnemy.updatedAt = now;
-        enemyPositions.push({ x: existingEnemy.x, y: existingEnemy.y });
-        existingCount += 1;
-        return;
-      }
-      if (existingEnemy) {
-        enemyMap.delete(existingEnemy.id);
-      }
-      const rawChance = Number.isFinite(template.spawnChance)
-        ? template.spawnChance
-        : parseFloat(template.spawnChance);
-      const spawnChance = Number.isFinite(rawChance) ? Math.min(1, Math.max(0, rawChance)) : 1;
-      if (spawnChance <= 0) {
-        return;
-      }
-      if (Math.random() >= spawnChance) {
-        return;
-      }
-      const enemy = {
-        id: uuid(),
-        templateId: template.id,
-        name: template.name,
-        x: placement.x,
-        y: placement.y,
-        zoneId: zone.id,
-        facing: 'down',
-        updatedAt: now,
-        sprite: template.sprite || null,
-      };
-      enemyMap.set(enemy.id, enemy);
-      enemyPositions.push({ x: enemy.x, y: enemy.y });
-      occupied.add(key);
-      existingCount += 1;
-    });
-
-    if (existingCount >= desired) {
-      return;
     }
 
     const trySpawn = enforceDistance => {
