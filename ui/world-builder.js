@@ -21,14 +21,13 @@ const paletteDescriptionInput = document.getElementById('palette-description');
 const createPaletteButton = document.getElementById('create-palette');
 const savePaletteButton = document.getElementById('save-palette');
 const deletePaletteButton = document.getElementById('delete-palette');
-const paletteTileList = document.getElementById('palette-tile-list');
+const paletteGridEl = document.getElementById('palette-grid');
 const spriteAssetList = document.getElementById('sprite-asset-list');
-const spriteForm = document.getElementById('sprite-form');
-const spriteTileIdInput = document.getElementById('sprite-tile-id');
-const spriteFillInput = document.getElementById('sprite-fill');
-const spriteAssetPathInput = document.getElementById('sprite-asset-path');
-const spriteWalkableInput = document.getElementById('sprite-walkable');
-const spritePreview = document.getElementById('sprite-preview');
+const selectedAssetPreview = document.getElementById('selected-asset-preview');
+const selectedAssetWalkableInput = document.getElementById('selected-asset-walkable');
+const addPaletteTileButton = document.getElementById('add-palette-tile');
+const updatePaletteTileButton = document.getElementById('update-palette-tile');
+const removePaletteTileButton = document.getElementById('remove-palette-tile');
 
 const addZoneButton = document.getElementById('add-zone');
 const zoneListEl = document.getElementById('zone-list');
@@ -573,6 +572,8 @@ const state = {
   selectedPaletteId: null,
   spriteBuilder: {
     selectedAsset: null,
+    selectedPaletteTileId: null,
+    pendingWalkable: true,
   },
   world: {
     id: '',
@@ -739,8 +740,23 @@ function attachWorldListeners() {
   }
 }
 
+function getDisplayTileSize() {
+  const value = Number(state.world.tileSize);
+  if (Number.isFinite(value) && value > 0) {
+    return Math.max(24, Math.min(96, value));
+  }
+  return 48;
+}
+
+function applyTileSizeToElement(element) {
+  if (!element) return;
+  element.style.setProperty('--tile-size', `${getDisplayTileSize()}px`);
+}
+
 function renderTilePalette() {
+  if (!tilePaletteEl) return;
   tilePaletteEl.innerHTML = '';
+  applyTileSizeToElement(tilePaletteEl);
   const tileEntries = Object.entries(state.tileConfig);
   if (!tileEntries.length) {
     const empty = document.createElement('p');
@@ -752,25 +768,28 @@ function renderTilePalette() {
     const token = document.createElement('button');
     token.type = 'button';
     token.className = 'tile-token';
-    const hasSprite = Boolean(config.sprite);
-    if (hasSprite) {
-      token.classList.add('has-sprite');
-      token.style.backgroundImage = `url(${config.sprite})`;
-      token.style.backgroundSize = 'cover';
-      token.style.backgroundPosition = 'center';
-      token.style.backgroundColor = config.fill || '#ffffff';
-    } else {
-      token.style.background = config.fill || '#ffffff';
-      token.style.backgroundImage = '';
-    }
     if (state.selectedTileId === id) {
       token.classList.add('active');
     }
-    token.innerHTML = `<strong>${id}</strong><span>${config.fill || ''}</span>`;
-    token.title = config.walkable ? 'Walkable' : 'Blocked';
+    if (config.sprite) {
+      token.style.backgroundImage = `url(${config.sprite})`;
+      token.style.backgroundColor = config.fill || '#ffffff';
+    } else {
+      token.style.backgroundImage = 'none';
+      token.style.backgroundColor = config.fill || '#ffffff';
+    }
+    if (!config.walkable) {
+      token.classList.add('tile-token-blocked');
+    }
+    token.title = config.walkable ? 'Walkable tile' : 'Blocked tile';
+    const label = document.createElement('span');
+    label.className = 'tile-token-label';
+    label.textContent = id;
+    token.appendChild(label);
     token.addEventListener('click', () => {
-      state.selectedTileId = id;
+      setSelectedPaletteTile(id, { skipTilePalette: true });
       renderTilePalette();
+      renderZoneEditor();
     });
     tilePaletteEl.appendChild(token);
   });
@@ -856,62 +875,185 @@ function setPaletteInputsFromState() {
   }
 }
 
-function renderPaletteTiles() {
-  if (!paletteTileList) return;
-  paletteTileList.innerHTML = '';
+function renderPaletteGrid() {
+  if (!paletteGridEl) return;
+  paletteGridEl.innerHTML = '';
+  applyTileSizeToElement(paletteGridEl);
   const tiles = state.activePalette?.tiles || [];
   if (!tiles.length) {
-    const empty = document.createElement('p');
-    empty.textContent = 'No tiles in this palette yet.';
-    paletteTileList.appendChild(empty);
+    const empty = document.createElement('div');
+    empty.className = 'palette-grid-empty';
+    empty.textContent = 'Palette is empty';
+    paletteGridEl.appendChild(empty);
     return;
   }
   tiles.forEach(tile => {
-    const item = document.createElement('div');
-    item.className = 'palette-tile';
-
-    const info = document.createElement('div');
-    info.className = 'palette-tile-info';
-
-    const swatch = document.createElement('div');
-    swatch.className = 'palette-tile-swatch';
-    if (tile.sprite) {
-      const img = document.createElement('img');
-      img.src = tile.sprite;
-      img.alt = tile.tileId;
-      img.loading = 'lazy';
-      swatch.appendChild(img);
-    } else {
-      swatch.style.background = tile.fill || '#ffffff';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'tile-token';
+    if (state.spriteBuilder.selectedPaletteTileId === tile.tileId) {
+      button.classList.add('active');
     }
-
+    if (tile.sprite) {
+      button.style.backgroundImage = `url(${tile.sprite})`;
+      button.style.backgroundColor = tile.fill || '#ffffff';
+    } else {
+      button.style.backgroundImage = 'none';
+      button.style.backgroundColor = tile.fill || '#ffffff';
+    }
+    if (!tile.walkable) {
+      button.classList.add('tile-token-blocked');
+    }
     const label = document.createElement('span');
-    label.textContent = `${tile.tileId} • ${tile.walkable ? 'Walkable' : 'Blocked'} • ${
-      tile.fill || '#ffffff'
-    }`;
-
-    info.appendChild(swatch);
-    info.appendChild(label);
-
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-
-    const editButton = document.createElement('button');
-    editButton.type = 'button';
-    editButton.textContent = 'Edit';
-    editButton.addEventListener('click', () => loadTileIntoSpriteForm(tile));
-    actions.appendChild(editButton);
-
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    removeButton.textContent = 'Remove';
-    removeButton.addEventListener('click', () => removePaletteTile(tile.tileId));
-    actions.appendChild(removeButton);
-
-    item.appendChild(info);
-    item.appendChild(actions);
-    paletteTileList.appendChild(item);
+    label.className = 'tile-token-label';
+    label.textContent = tile.tileId;
+    button.appendChild(label);
+    button.addEventListener('click', () => setSelectedPaletteTile(tile.tileId));
+    paletteGridEl.appendChild(button);
   });
+}
+
+function getNextPaletteTileId() {
+  const tiles = state.activePalette?.tiles || [];
+  const used = new Set(tiles.map(tile => String(tile.tileId)));
+  let candidate = 0;
+  while (used.has(String(candidate))) {
+    candidate += 1;
+  }
+  return String(candidate);
+}
+
+function updateSelectedSpriteControls() {
+  if (selectedAssetPreview) {
+    selectedAssetPreview.innerHTML = '';
+    if (state.spriteBuilder.selectedAsset) {
+      const img = document.createElement('img');
+      img.src = state.spriteBuilder.selectedAsset;
+      img.alt = 'Selected sprite preview';
+      img.loading = 'lazy';
+      selectedAssetPreview.appendChild(img);
+    } else {
+      const message = document.createElement('p');
+      message.textContent = 'Select a sprite asset to add it to the palette.';
+      selectedAssetPreview.appendChild(message);
+    }
+  }
+  if (selectedAssetWalkableInput) {
+    selectedAssetWalkableInput.checked = Boolean(state.spriteBuilder.pendingWalkable);
+  }
+  const hasAsset = Boolean(state.spriteBuilder.selectedAsset);
+  const hasSelection = Boolean(state.spriteBuilder.selectedPaletteTileId);
+  if (addPaletteTileButton) {
+    addPaletteTileButton.disabled = !hasAsset;
+  }
+  if (updatePaletteTileButton) {
+    updatePaletteTileButton.disabled = !hasAsset || !hasSelection;
+  }
+  if (removePaletteTileButton) {
+    removePaletteTileButton.disabled = !hasSelection;
+  }
+}
+
+function setSelectedPaletteTile(tileId, options = {}) {
+  const tiles = state.activePalette?.tiles || [];
+  const target = tiles.find(entry => entry.tileId === tileId) || null;
+  if (target) {
+    state.spriteBuilder.selectedPaletteTileId = target.tileId;
+    state.spriteBuilder.selectedAsset = target.sprite || null;
+    state.spriteBuilder.pendingWalkable = Boolean(target.walkable);
+    state.selectedTileId = target.tileId;
+  } else {
+    state.spriteBuilder.selectedPaletteTileId = null;
+    if (!options.preserveAsset) {
+      state.spriteBuilder.selectedAsset = null;
+    }
+    state.spriteBuilder.pendingWalkable = true;
+  }
+  if (!options.skipTilePalette) {
+    renderTilePalette();
+  }
+  renderPaletteGrid();
+  renderSpriteAssets();
+  updateSelectedSpriteControls();
+}
+
+function addTileToPalette() {
+  if (!state.activePalette) {
+    state.activePalette = createDefaultPalette();
+  }
+  const asset = state.spriteBuilder.selectedAsset;
+  if (!asset) {
+    alert('Select a sprite asset to add to the palette.');
+    return;
+  }
+  if (!Array.isArray(state.activePalette.tiles)) {
+    state.activePalette.tiles = [];
+  }
+  const tileId = getNextPaletteTileId();
+  const tile = {
+    tileId,
+    sprite: asset,
+    fill: '#ffffff',
+    walkable: Boolean(state.spriteBuilder.pendingWalkable),
+  };
+  state.activePalette.tiles.push(tile);
+  rebuildPaletteState();
+  setSelectedPaletteTile(tileId, { preserveAsset: true });
+  renderZoneEditor();
+}
+
+function updateSelectedPaletteTile() {
+  const tileId = state.spriteBuilder.selectedPaletteTileId;
+  if (!tileId) {
+    alert('Select a tile from the palette to update.');
+    return;
+  }
+  const asset = state.spriteBuilder.selectedAsset;
+  if (!asset) {
+    alert('Select a sprite asset for this tile.');
+    return;
+  }
+  const tiles = state.activePalette?.tiles || [];
+  const target = tiles.find(entry => entry.tileId === tileId);
+  if (!target) {
+    return;
+  }
+  target.sprite = asset;
+  target.walkable = Boolean(state.spriteBuilder.pendingWalkable);
+  if (!target.fill) {
+    target.fill = '#ffffff';
+  }
+  rebuildPaletteState();
+  setSelectedPaletteTile(tileId, { preserveAsset: true });
+  renderZoneEditor();
+}
+
+function removePaletteTile(tileId) {
+  const tiles = state.activePalette?.tiles || [];
+  const index = tiles.findIndex(tile => tile.tileId === tileId);
+  if (index < 0) {
+    return;
+  }
+  tiles.splice(index, 1);
+  state.activePalette.tiles = tiles;
+  rebuildPaletteState();
+  const fallback = tiles[index] || tiles[index - 1] || tiles[0] || null;
+  if (fallback) {
+    setSelectedPaletteTile(fallback.tileId, { preserveAsset: true });
+  } else {
+    state.selectedTileId = null;
+    setSelectedPaletteTile(null, { preserveAsset: true });
+  }
+  renderZoneEditor();
+}
+
+function removeSelectedPaletteTile() {
+  const tileId = state.spriteBuilder.selectedPaletteTileId;
+  if (!tileId) {
+    alert('Select a tile from the palette to remove.');
+    return;
+  }
+  removePaletteTile(tileId);
 }
 
 function renderPaletteSelect() {
@@ -948,10 +1090,10 @@ function setActivePalette(palette, options = {}) {
   setPaletteInputsFromState();
   rebuildPaletteState();
   renderTilePalette();
+  setSelectedPaletteTile(state.selectedTileId || null, { preserveAsset: true, skipTilePalette: true });
   if (!options.skipZone) {
     renderZoneEditor();
   }
-  renderPaletteTiles();
   if (!options.skipSelect) {
     renderPaletteSelect();
   }
@@ -966,15 +1108,7 @@ function setActivePaletteById(id) {
     setActivePalette(palette, { skipSelect: true });
     state.selectedPaletteId = palette._id;
     renderPaletteSelect();
-    state.spriteBuilder.selectedAsset = null;
-    updateSpritePreview('');
-    renderSpriteAssets();
   }
-}
-
-function selectSpriteAsset(assetUrl) {
-  state.spriteBuilder.selectedAsset = assetUrl || null;
-  renderSpriteAssets();
 }
 
 function renderSpriteAssets() {
@@ -986,6 +1120,7 @@ function renderSpriteAssets() {
     spriteAssetList.appendChild(empty);
     renderEnemySpriteOptions();
     renderNpcSpriteOptions();
+    updateSelectedSpriteControls();
     return;
   }
   state.spriteAssets.forEach(asset => {
@@ -1002,30 +1137,15 @@ function renderSpriteAssets() {
     img.loading = 'lazy';
     button.appendChild(img);
     button.addEventListener('click', () => {
-      spriteAssetPathInput.value = asset.url;
-      selectSpriteAsset(asset.url);
-      updateSpritePreview(asset.url);
+      state.spriteBuilder.selectedAsset = asset.url;
+      updateSelectedSpriteControls();
+      renderSpriteAssets();
     });
     spriteAssetList.appendChild(button);
   });
   renderEnemySpriteOptions();
   renderNpcSpriteOptions();
-}
-
-function updateSpritePreview(assetUrl) {
-  if (!spritePreview) return;
-  spritePreview.innerHTML = '';
-  if (assetUrl) {
-    const img = document.createElement('img');
-    img.src = assetUrl;
-    img.alt = 'Sprite preview';
-    img.loading = 'lazy';
-    spritePreview.appendChild(img);
-  } else {
-    const message = document.createElement('p');
-    message.textContent = 'Select an asset to preview';
-    spritePreview.appendChild(message);
-  }
+  updateSelectedSpriteControls();
 }
 
 function renderEnemySpriteOptions(selectedValue = null) {
@@ -1119,69 +1239,6 @@ function updateNpcSpritePreview(assetUrl) {
   }
 }
 
-function loadTileIntoSpriteForm(tile) {
-  if (!spriteForm) return;
-  spriteTileIdInput.value = tile.tileId;
-  spriteFillInput.value = tile.fill || '#ffffff';
-  spriteAssetPathInput.value = tile.sprite || '';
-  spriteWalkableInput.checked = Boolean(tile.walkable);
-  updateSpritePreview(tile.sprite);
-  selectSpriteAsset(tile.sprite);
-  setActiveTab('sprites');
-}
-
-function removePaletteTile(tileId) {
-  const tiles = state.activePalette?.tiles || [];
-  const index = tiles.findIndex(tile => tile.tileId === tileId);
-  if (index < 0) {
-    return;
-  }
-  tiles.splice(index, 1);
-  state.activePalette.tiles = tiles;
-  if (state.selectedTileId === tileId) {
-    state.selectedTileId = tiles[0]?.tileId || null;
-  }
-  rebuildPaletteState();
-  renderPaletteTiles();
-  renderTilePalette();
-  renderZoneEditor();
-}
-
-function handleSpriteFormSubmit(event) {
-  event.preventDefault();
-  const tileId = spriteTileIdInput.value.trim();
-  const spritePath = spriteAssetPathInput.value.trim();
-  const fill = spriteFillInput.value.trim() || '#ffffff';
-  const walkable = spriteWalkableInput.checked;
-  if (!tileId) {
-    alert('Tile ID is required.');
-    return;
-  }
-  if (!spritePath) {
-    alert('Select a sprite asset for this tile.');
-    return;
-  }
-  const tiles = state.activePalette?.tiles || [];
-  const tile = { tileId, sprite: spritePath, fill, walkable };
-  const existingIndex = tiles.findIndex(entry => entry.tileId === tileId);
-  if (existingIndex >= 0) {
-    tiles.splice(existingIndex, 1, tile);
-  } else {
-    tiles.push(tile);
-  }
-  state.activePalette.tiles = tiles;
-  state.selectedTileId = tileId;
-  rebuildPaletteState();
-  renderPaletteTiles();
-  renderTilePalette();
-  renderZoneEditor();
-  spriteForm.reset();
-  spriteAssetPathInput.value = spritePath;
-  spriteWalkableInput.checked = walkable;
-  updateSpritePreview(spritePath);
-  selectSpriteAsset(spritePath);
-}
-
 async function saveActivePalette() {
   if (!state.activePalette) return;
   const name = paletteNameInput.value.trim();
@@ -1225,9 +1282,6 @@ async function saveActivePalette() {
     state.selectedPaletteId = saved._id;
     setPaletteInputsFromState();
     renderPaletteSelect();
-    renderPaletteTiles();
-    renderTilePalette();
-    renderZoneEditor();
   } catch (err) {
     console.error(err);
     alert('Failed to save palette.');
@@ -1260,12 +1314,6 @@ async function deleteActivePalette() {
   setActivePalette(fallback, { skipSelect: true });
   state.selectedPaletteId = fallback._id || null;
   renderPaletteSelect();
-  renderPaletteTiles();
-  renderTilePalette();
-  renderZoneEditor();
-  state.spriteBuilder.selectedAsset = null;
-  updateSpritePreview('');
-  renderSpriteAssets();
 }
 
 function startNewPalette() {
@@ -1277,9 +1325,7 @@ function startNewPalette() {
   setActivePalette(blank);
   state.selectedPaletteId = null;
   renderPaletteSelect();
-  state.spriteBuilder.selectedAsset = null;
-  updateSpritePreview('');
-  renderSpriteAssets();
+  setSelectedPaletteTile(null, { preserveAsset: false });
 }
 
 if (paletteSelect) {
@@ -1307,15 +1353,21 @@ if (deletePaletteButton) {
   deletePaletteButton.addEventListener('click', deleteActivePalette);
 }
 
-if (spriteForm) {
-  spriteForm.addEventListener('submit', handleSpriteFormSubmit);
+if (addPaletteTileButton) {
+  addPaletteTileButton.addEventListener('click', addTileToPalette);
 }
 
-if (spriteAssetPathInput) {
-  spriteAssetPathInput.addEventListener('input', event => {
-    const value = event.target.value.trim();
-    state.spriteBuilder.selectedAsset = value || null;
-    updateSpritePreview(value);
+if (updatePaletteTileButton) {
+  updatePaletteTileButton.addEventListener('click', updateSelectedPaletteTile);
+}
+
+if (removePaletteTileButton) {
+  removePaletteTileButton.addEventListener('click', removeSelectedPaletteTile);
+}
+
+if (selectedAssetWalkableInput) {
+  selectedAssetWalkableInput.addEventListener('change', event => {
+    state.spriteBuilder.pendingWalkable = event.target.checked;
   });
 }
 
@@ -3574,9 +3626,7 @@ function applyWorldData(rawWorld) {
   setActivePalette(loadedPalette, { skipSelect: true, skipZone: true });
   state.selectedPaletteId = null;
   renderPaletteSelect();
-  state.spriteBuilder.selectedAsset = null;
-  updateSpritePreview('');
-  renderSpriteAssets();
+  setSelectedPaletteTile(state.selectedTileId || null, { preserveAsset: false, skipTilePalette: true });
 
   const templates = Array.isArray(encounterSource?.templates)
     ? encounterSource.templates.map(normalizeEnemyTemplate).filter(Boolean)
@@ -3805,9 +3855,17 @@ async function initialize() {
       state.selectedPaletteId = normalizedPalettes[0]._id;
       renderPaletteSelect();
     } else {
-      renderPaletteTiles();
+      const blank = createDefaultPalette();
+      blank._id = null;
+      blank.tiles = [];
+      state.activePalette = blank;
+      state.selectedPaletteId = null;
+      setPaletteInputsFromState();
+      rebuildPaletteState();
       renderTilePalette();
+      renderPaletteGrid();
       renderPaletteSelect();
+      updateSelectedSpriteControls();
     }
 
     const normalizedTemplates = Array.isArray(templates)
