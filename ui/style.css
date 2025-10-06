@@ -2966,6 +2966,8 @@ button { background:#fff; color:#000; border:1px solid #000; padding:8px; cursor
   display: block;
   width: 100%;
   height: auto;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 
 #world-shop-canvas {
