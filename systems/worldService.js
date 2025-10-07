@@ -1059,6 +1059,18 @@ function spawnMissingEnemies(state, options = {}) {
     }
     const zoneWalkable = shuffleArray(zone.walkableTiles.slice());
     const placements = Array.isArray(zone.enemyPlacements) ? zone.enemyPlacements : [];
+    if (!placements.length) {
+      // Zones without explicit placements should not spawn enemies.
+      const existingEnemyIds = [];
+      enemyMap.forEach(enemy => {
+        if (enemy.zoneId === zone.id) {
+          existingEnemyIds.push(enemy.id);
+        }
+      });
+      existingEnemyIds.forEach(enemyId => enemyMap.delete(enemyId));
+      markZoneSpawned(state, zone.id);
+      return;
+    }
     const occupied = new Set();
     const enemyPositions = [];
     const playerPositions = [];
@@ -1070,9 +1082,6 @@ function spawnMissingEnemies(state, options = {}) {
         existingCount += 1;
       }
     });
-    if (!placements.length && existingCount >= desired) {
-      return;
-    }
     state.players.forEach(player => {
       if (!player) return;
       const playerZoneId = player.zoneId || world.defaultZoneId || null;
