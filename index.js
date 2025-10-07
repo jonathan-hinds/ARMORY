@@ -78,6 +78,9 @@ app.use(express.static(path.join(__dirname, "ui")));
 app.use("/assets", express.static(path.join(__dirname, "assets")));
 
 const SPRITE_EXTENSIONS = new Set([".png", ".gif", ".jpg", ".jpeg", ".webp"]);
+const MAX_PALETTE_DIMENSION = 20;
+const DEFAULT_PALETTE_ROWS = 3;
+const DEFAULT_PALETTE_COLUMNS = 3;
 
 async function listSpriteAssets() {
   const baseDir = path.join(__dirname, "assets");
@@ -134,9 +137,25 @@ function sanitizePaletteTiles(tiles) {
     }
     const fill = typeof tile.fill === "string" && tile.fill.trim() ? tile.fill.trim() : "#ffffff";
     const walkable = Boolean(tile.walkable);
-    byId.set(tileId, { tileId, sprite, fill, walkable });
+    const rowValue = Number(tile.row);
+    const columnValue = Number(tile.column);
+    const row = Number.isInteger(rowValue)
+      ? Math.max(0, Math.min(MAX_PALETTE_DIMENSION - 1, rowValue))
+      : 0;
+    const column = Number.isInteger(columnValue)
+      ? Math.max(0, Math.min(MAX_PALETTE_DIMENSION - 1, columnValue))
+      : 0;
+    byId.set(tileId, { tileId, sprite, fill, walkable, row, column });
   });
   return Array.from(byId.values());
+}
+
+function sanitizePaletteDimension(value, fallback) {
+  const numeric = Number(value);
+  if (Number.isInteger(numeric) && numeric > 0) {
+    return Math.max(1, Math.min(MAX_PALETTE_DIMENSION, numeric));
+  }
+  return fallback;
 }
 
 function sanitizeEnemyTemplatePayload(payload) {
@@ -217,31 +236,32 @@ app.get("/dev/palettes", async (req, res) => {
 });
 
 app.post("/dev/palettes", async (req, res) => {
-  const { id, name, description, tiles } = req.body || {};
+  const { id, name, description, tiles, rows, columns } = req.body || {};
   if (!name || !String(name).trim()) {
     return res.status(400).json({ error: "palette name required" });
   }
   const sanitizedTiles = sanitizePaletteTiles(tiles);
+  const sanitizedRows = sanitizePaletteDimension(rows, DEFAULT_PALETTE_ROWS);
+  const sanitizedColumns = sanitizePaletteDimension(columns, DEFAULT_PALETTE_COLUMNS);
+  const updatePayload = {
+    name: String(name).trim(),
+    description: description || "",
+    rows: sanitizedRows,
+    columns: sanitizedColumns,
+    tiles: sanitizedTiles,
+  };
   try {
     let palette;
     if (id) {
       palette = await SpritePalette.findByIdAndUpdate(
         id,
-        {
-          name: String(name).trim(),
-          description: description || "",
-          tiles: sanitizedTiles,
-        },
+        updatePayload,
         { new: true, runValidators: true }
       ).lean();
     } else {
       palette = await SpritePalette.findOneAndUpdate(
         { name: String(name).trim() },
-        {
-          name: String(name).trim(),
-          description: description || "",
-          tiles: sanitizedTiles,
-        },
+        updatePayload,
         {
           upsert: true,
           new: true,
