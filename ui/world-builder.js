@@ -820,7 +820,7 @@ function renderTilePalette() {
       label.textContent = tileId;
       button.appendChild(label);
       button.addEventListener('click', () => {
-        setSelectedPaletteTile(tileId, { skipTilePalette: true });
+        setSelectedPaletteTile(tileId);
         renderZoneEditor();
       });
       tilePaletteEl.appendChild(button);
