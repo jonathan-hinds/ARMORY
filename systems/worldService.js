@@ -84,7 +84,8 @@ function normalizeTileConfig(raw) {
         fill = rawFill.length === 4 ? (rawFill === '#000' ? '#000000' : '#ffffff') : rawFill;
       }
     }
-    if (!sprite && !fill) {
+    const hasWalkable = typeof value.walkable === 'boolean';
+    if (!sprite && !fill && !hasWalkable) {
       return;
     }
     tileConfig[String(key)] = {};
@@ -93,6 +94,9 @@ function normalizeTileConfig(raw) {
     }
     if (fill) {
       tileConfig[String(key)].fill = fill;
+    }
+    if (hasWalkable) {
+      tileConfig[String(key)].walkable = value.walkable;
     }
   });
   return tileConfig;
@@ -296,7 +300,7 @@ function uniqueZoneId(baseId, used) {
   return candidate;
 }
 
-function collectWalkableTiles(tiles) {
+function collectWalkableTiles(tiles, tileConfig = {}) {
   const walkable = [];
   if (!Array.isArray(tiles)) {
     return walkable;
@@ -306,7 +310,12 @@ function collectWalkableTiles(tiles) {
     if (!Array.isArray(row)) continue;
     for (let x = 0; x < row.length; x += 1) {
       const tile = row[x];
-      if (tile === 1 || tile === 2) {
+      const config = tileConfig[String(tile)] || {};
+      const walkableOverride =
+        typeof config.walkable === 'boolean' ? config.walkable : null;
+      const isWalkable =
+        walkableOverride != null ? walkableOverride : tile === 1 || tile === 2;
+      if (isWalkable) {
         walkable.push({ x, y });
       }
     }
@@ -426,14 +435,14 @@ function normalizeNpcs(entry, zones, defaultZoneId) {
   return { npcs, npcMap, zoneNpcMap };
 }
 
-function normalizeZoneEntry(entry, fallbackBaseId, usedIds) {
+function normalizeZoneEntry(entry, fallbackBaseId, usedIds, tileConfig) {
   const baseId = entry && entry.id ? String(entry.id) : fallbackBaseId;
   const id = uniqueZoneId(baseId, usedIds);
   const name = entry && entry.name ? String(entry.name) : id;
   const tiles = normalizeTiles(entry && entry.tiles ? entry.tiles : []);
   const width = tiles[0] ? tiles[0].length : 0;
   const height = tiles.length;
-  const walkableTiles = collectWalkableTiles(tiles);
+  const walkableTiles = collectWalkableTiles(tiles, tileConfig);
   const spawnCandidate = entry && entry.spawn ? entry.spawn : null;
   let spawn = { x: 0, y: 0 };
   if (spawnCandidate && typeof spawnCandidate === 'object') {
@@ -468,13 +477,13 @@ function normalizeZoneEntry(entry, fallbackBaseId, usedIds) {
   };
 }
 
-function normalizeZones(entry) {
+function normalizeZones(entry, tileConfig = {}) {
   const used = new Set();
   const zones = [];
   if (entry && Array.isArray(entry.zones) && entry.zones.length) {
     entry.zones.forEach((zoneEntry, index) => {
       const fallbackBase = entry && entry.id ? `${entry.id}_zone_${index + 1}` : `zone_${index + 1}`;
-      const normalized = normalizeZoneEntry(zoneEntry, fallbackBase, used);
+      const normalized = normalizeZoneEntry(zoneEntry, fallbackBase, used, tileConfig);
       zones.push(normalized);
     });
   }
@@ -492,6 +501,7 @@ function normalizeZones(entry) {
         },
         fallbackBase,
         used,
+        tileConfig,
       ),
     );
   }
@@ -529,7 +539,8 @@ function normalizeWorld(entry) {
   if (!entry || typeof entry !== 'object') {
     return null;
   }
-  const zones = normalizeZones(entry);
+  const tileConfig = normalizeTileConfig(entry.tileConfig);
+  const zones = normalizeZones(entry, tileConfig);
   const zoneMap = new Map();
   zones.forEach(zone => {
     zoneMap.set(zone.id, zone);
@@ -568,7 +579,7 @@ function normalizeWorld(entry) {
     width,
     height,
     palette: normalizePalette(entry.palette),
-    tileConfig: normalizeTileConfig(entry.tileConfig),
+    tileConfig,
     spawn,
     moveCooldownMs: Number.isFinite(entry.moveCooldownMs) ? Math.max(60, Math.round(entry.moveCooldownMs)) : 180,
     encounters: normalizeEncounter(entry.encounters),
@@ -794,6 +805,11 @@ function isWalkableTile(world, zoneId, x, y) {
   if (!Array.isArray(row)) return false;
   if (x < 0 || x >= row.length) return false;
   const tile = row[x];
+  const tileConfig = (world && world.tileConfig) || {};
+  const config = tileConfig[String(tile)] || {};
+  if (typeof config.walkable === 'boolean') {
+    return config.walkable;
+  }
   return tile === 1 || tile === 2;
 }
 
