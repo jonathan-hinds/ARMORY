@@ -18,17 +18,18 @@ const tilePaletteEl = document.getElementById('tile-palette');
 const paletteSelect = document.getElementById('palette-select');
 const paletteNameInput = document.getElementById('palette-name');
 const paletteDescriptionInput = document.getElementById('palette-description');
+const paletteRowsInput = document.getElementById('palette-rows');
+const paletteColumnsInput = document.getElementById('palette-columns');
 const createPaletteButton = document.getElementById('create-palette');
 const savePaletteButton = document.getElementById('save-palette');
 const deletePaletteButton = document.getElementById('delete-palette');
-const paletteTileList = document.getElementById('palette-tile-list');
+const paletteGridEl = document.getElementById('palette-grid');
 const spriteAssetList = document.getElementById('sprite-asset-list');
-const spriteForm = document.getElementById('sprite-form');
-const spriteTileIdInput = document.getElementById('sprite-tile-id');
-const spriteFillInput = document.getElementById('sprite-fill');
-const spriteAssetPathInput = document.getElementById('sprite-asset-path');
-const spriteWalkableInput = document.getElementById('sprite-walkable');
-const spritePreview = document.getElementById('sprite-preview');
+const selectedAssetPreview = document.getElementById('selected-asset-preview');
+const selectedAssetWalkableInput = document.getElementById('selected-asset-walkable');
+const addPaletteTileButton = document.getElementById('add-palette-tile');
+const updatePaletteTileButton = document.getElementById('update-palette-tile');
+const removePaletteTileButton = document.getElementById('remove-palette-tile');
 
 const addZoneButton = document.getElementById('add-zone');
 const zoneListEl = document.getElementById('zone-list');
@@ -87,6 +88,23 @@ const npcDialogAddButton = document.getElementById('npc-dialog-add');
 const npcDialogLoopSelect = document.getElementById('npc-dialog-loop');
 const npcDeleteButton = document.getElementById('npc-delete');
 
+function formatBackgroundImageValue(spriteUrl) {
+  if (!spriteUrl) {
+    return 'none';
+  }
+  const trimmed = String(spriteUrl).trim();
+  if (!trimmed) {
+    return 'none';
+  }
+  return `url(${JSON.stringify(trimmed)})`;
+}
+
+function applyBackgroundImage(element, spriteUrl) {
+  if (!element) return;
+  const value = formatBackgroundImageValue(spriteUrl);
+  element.style.backgroundImage = value === 'none' ? 'none' : value;
+}
+
 const generateWorldButton = document.getElementById('generate-world');
 const loadWorldButton = document.getElementById('load-world');
 const worldOutput = document.getElementById('world-output');
@@ -96,6 +114,10 @@ const DEFAULT_TILES = [
   { id: '1', fill: '#ffffff', sprite: '/assets/Sprite-0001.png' },
   { id: '2', fill: '#dcdcdc', sprite: '/assets/Sprite-0002.png' },
 ];
+
+const DEFAULT_PALETTE_ROWS = 3;
+const DEFAULT_PALETTE_COLUMNS = 3;
+const MAX_PALETTE_DIMENSION = 20;
 
 const DEFAULT_ENCOUNTER_TILES = [2];
 const DEFAULT_ENCOUNTER_CHANCE = 0.22;
@@ -573,6 +595,9 @@ const state = {
   selectedPaletteId: null,
   spriteBuilder: {
     selectedAsset: null,
+    selectedPaletteTileId: null,
+    pendingWalkable: true,
+    selectedCell: null,
   },
   world: {
     id: '',
@@ -586,6 +611,7 @@ const state = {
   },
   palette: {},
   tileConfig: {},
+  paletteLayout: [],
   zones: [],
   selectedZoneId: null,
   selectedTileId: null,
@@ -739,41 +765,84 @@ function attachWorldListeners() {
   }
 }
 
+function getDisplayTileSize() {
+  const value = Number(state.world.tileSize);
+  if (Number.isFinite(value) && value > 0) {
+    return Math.max(24, Math.min(96, value));
+  }
+  return 48;
+}
+
+function applyTileSizeToElement(element) {
+  if (!element) return;
+  element.style.setProperty('--tile-size', `${getDisplayTileSize()}px`);
+}
+
+function normalizePaletteDimension(value, fallback) {
+  const numeric = Number(value);
+  if (Number.isInteger(numeric) && numeric > 0) {
+    return Math.max(1, Math.min(MAX_PALETTE_DIMENSION, numeric));
+  }
+  return fallback;
+}
+
+function applyPaletteGridDimensions(element, rows, columns) {
+  if (!element) return;
+  element.style.setProperty('--palette-rows', `${Math.max(1, rows || 1)}`);
+  element.style.setProperty('--palette-columns', `${Math.max(1, columns || 1)}`);
+}
+
 function renderTilePalette() {
+  if (!tilePaletteEl) return;
   tilePaletteEl.innerHTML = '';
-  const tileEntries = Object.entries(state.tileConfig);
-  if (!tileEntries.length) {
+  applyTileSizeToElement(tilePaletteEl);
+  const rows = Number(state.activePalette?.rows) || 0;
+  const columns = Number(state.activePalette?.columns) || 0;
+  if (!rows || !columns) {
     const empty = document.createElement('p');
-    empty.textContent = 'No tiles defined';
+    empty.textContent = 'Define palette dimensions to view tiles.';
     tilePaletteEl.appendChild(empty);
     return;
   }
-  tileEntries.forEach(([id, config]) => {
-    const token = document.createElement('button');
-    token.type = 'button';
-    token.className = 'tile-token';
-    const hasSprite = Boolean(config.sprite);
-    if (hasSprite) {
-      token.classList.add('has-sprite');
-      token.style.backgroundImage = `url(${config.sprite})`;
-      token.style.backgroundSize = 'cover';
-      token.style.backgroundPosition = 'center';
-      token.style.backgroundColor = config.fill || '#ffffff';
-    } else {
-      token.style.background = config.fill || '#ffffff';
-      token.style.backgroundImage = '';
+  applyPaletteGridDimensions(tilePaletteEl, rows, columns);
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const tileId = state.paletteLayout?.[row]?.[column] || null;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tile-token';
+      if (!tileId || !state.tileConfig[tileId]) {
+        button.classList.add('tile-token-empty');
+        button.disabled = true;
+        tilePaletteEl.appendChild(button);
+        continue;
+      }
+      const config = state.tileConfig[tileId];
+      if (state.selectedTileId === tileId) {
+        button.classList.add('active');
+      }
+      if (config.sprite) {
+        applyBackgroundImage(button, config.sprite);
+        button.style.backgroundColor = config.fill || '#ffffff';
+      } else {
+        applyBackgroundImage(button, null);
+        button.style.backgroundColor = config.fill || '#ffffff';
+      }
+      if (!config.walkable) {
+        button.classList.add('tile-token-blocked');
+      }
+      button.title = config.walkable ? 'Walkable tile' : 'Blocked tile';
+      const label = document.createElement('span');
+      label.className = 'tile-token-label';
+      label.textContent = tileId;
+      button.appendChild(label);
+      button.addEventListener('click', () => {
+        setSelectedPaletteTile(tileId);
+        renderZoneEditor();
+      });
+      tilePaletteEl.appendChild(button);
     }
-    if (state.selectedTileId === id) {
-      token.classList.add('active');
-    }
-    token.innerHTML = `<strong>${id}</strong><span>${config.fill || ''}</span>`;
-    token.title = config.walkable ? 'Walkable' : 'Blocked';
-    token.addEventListener('click', () => {
-      state.selectedTileId = id;
-      renderTilePalette();
-    });
-    tilePaletteEl.appendChild(token);
-  });
+  }
 }
 
 function createDefaultPalette() {
@@ -781,11 +850,15 @@ function createDefaultPalette() {
     _id: null,
     name: 'Default Palette',
     description: '',
-    tiles: DEFAULT_TILES.map(tile => ({
+    rows: DEFAULT_PALETTE_ROWS,
+    columns: DEFAULT_PALETTE_COLUMNS,
+    tiles: DEFAULT_TILES.map((tile, index) => ({
       tileId: String(tile.id),
       sprite: tile.sprite,
       fill: tile.fill,
       walkable: true,
+      row: Math.floor(index / DEFAULT_PALETTE_COLUMNS),
+      column: index % DEFAULT_PALETTE_COLUMNS,
     })),
   };
 }
@@ -794,29 +867,57 @@ function normalizePalette(palette) {
   if (!palette || typeof palette !== 'object') {
     return createDefaultPalette();
   }
+  const baseRows = normalizePaletteDimension(palette.rows, DEFAULT_PALETTE_ROWS);
+  const baseColumns = normalizePaletteDimension(palette.columns, DEFAULT_PALETTE_COLUMNS);
   const tiles = Array.isArray(palette.tiles)
     ? palette.tiles
-        .map(tile => {
+        .map((tile, index) => {
           if (!tile || typeof tile !== 'object') {
             return null;
           }
           const tileId = String(tile.tileId || tile.id || '').trim();
-          const sprite = String(tile.sprite || tile.asset || '').trim();
           if (!tileId) {
             return null;
           }
+          const sprite =
+            typeof tile.sprite === 'string' && tile.sprite.trim() ? tile.sprite.trim() : '';
           const fill =
             typeof tile.fill === 'string' && tile.fill.trim() ? tile.fill.trim() : '#ffffff';
-          const walkable = Boolean(tile.walkable);
-          return { tileId, sprite, fill, walkable };
+          const walkable = tile.walkable !== false;
+          const rowValue = Number(tile.row);
+          const columnValue = Number(tile.column);
+          const row = Number.isInteger(rowValue) ? rowValue : Math.floor(index / baseColumns);
+          const column = Number.isInteger(columnValue) ? columnValue : index % baseColumns;
+          return { tileId, sprite, fill, walkable, row, column };
         })
         .filter(Boolean)
     : [];
+  const requiredRows = tiles.reduce((max, tile) => Math.max(max, tile.row + 1), 0);
+  const requiredColumns = tiles.reduce((max, tile) => Math.max(max, tile.column + 1), 0);
+  const rows = Math.max(baseRows, requiredRows || baseRows);
+  const columns = Math.max(baseColumns, requiredColumns || baseColumns);
+  const limitedRows = Math.max(1, Math.min(MAX_PALETTE_DIMENSION, rows));
+  const limitedColumns = Math.max(1, Math.min(MAX_PALETTE_DIMENSION, columns));
+  const normalizedTiles = tiles.map(tile => ({
+    tileId: tile.tileId,
+    sprite: tile.sprite,
+    fill: tile.fill,
+    walkable: tile.walkable,
+    row: Math.max(0, Math.min(limitedRows - 1, tile.row)),
+    column: Math.max(0, Math.min(limitedColumns - 1, tile.column)),
+  }));
+  normalizedTiles.sort((a, b) => {
+    if (a.row !== b.row) return a.row - b.row;
+    if (a.column !== b.column) return a.column - b.column;
+    return a.tileId.localeCompare(b.tileId);
+  });
   return {
     _id: palette._id || null,
     name: palette.name || 'Unnamed Palette',
     description: palette.description || '',
-    tiles,
+    rows: limitedRows,
+    columns: limitedColumns,
+    tiles: normalizedTiles,
   };
 }
 
@@ -826,6 +927,8 @@ function clonePalette(palette) {
     _id: normalized._id,
     name: normalized.name,
     description: normalized.description,
+    rows: normalized.rows,
+    columns: normalized.columns,
     tiles: normalized.tiles.map(tile => ({ ...tile })),
   };
 }
@@ -833,17 +936,136 @@ function clonePalette(palette) {
 function rebuildPaletteState() {
   state.palette = {};
   state.tileConfig = {};
-  const tiles = state.activePalette?.tiles || [];
-  tiles.forEach(tile => {
-    state.palette[tile.tileId] = tile.fill;
-    state.tileConfig[tile.tileId] = {
-      sprite: tile.sprite,
-      fill: tile.fill,
-      walkable: Boolean(tile.walkable),
-    };
+  const rows = normalizePaletteDimension(
+    state.activePalette?.rows,
+    state.activePalette ? state.activePalette.rows || DEFAULT_PALETTE_ROWS : DEFAULT_PALETTE_ROWS
+  );
+  const columns = normalizePaletteDimension(
+    state.activePalette?.columns,
+    state.activePalette ? state.activePalette.columns || DEFAULT_PALETTE_COLUMNS : DEFAULT_PALETTE_COLUMNS
+  );
+  if (!state.activePalette) {
+    state.activePalette = createDefaultPalette();
+  }
+  state.activePalette.rows = rows;
+  state.activePalette.columns = columns;
+  const layout = Array.from({ length: rows }, () => Array(columns).fill(null));
+  const sourceTiles = Array.isArray(state.activePalette.tiles)
+    ? state.activePalette.tiles.slice()
+    : [];
+  const normalizedTiles = [];
+  const findEmptyCell = () => {
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < columns; c += 1) {
+        if (!layout[r][c]) {
+          return { row: r, column: c };
+        }
+      }
+    }
+    return null;
+  };
+  sourceTiles.forEach((tile, index) => {
+    if (!tile || typeof tile !== 'object') {
+      return;
+    }
+    const tileId = String(tile.tileId || tile.id || index).trim();
+    if (!tileId) {
+      return;
+    }
+    const sprite =
+      typeof tile.sprite === 'string' && tile.sprite.trim() ? tile.sprite.trim() : '';
+    const fill =
+      typeof tile.fill === 'string' && tile.fill.trim() ? tile.fill.trim() : '#ffffff';
+    const walkable = tile.walkable !== false;
+    let row = Number(tile.row);
+    let column = Number(tile.column);
+    const validRow = Number.isInteger(row) ? row : Math.floor(index / columns);
+    const validColumn = Number.isInteger(column) ? column : index % columns;
+    row = validRow;
+    column = validColumn;
+    if (
+      row < 0 ||
+      column < 0 ||
+      row >= rows ||
+      column >= columns ||
+      layout[row][column]
+    ) {
+      const fallback = findEmptyCell();
+      if (!fallback) {
+        return;
+      }
+      row = fallback.row;
+      column = fallback.column;
+    }
+    layout[row][column] = tileId;
+    const normalized = { tileId, sprite, fill, walkable, row, column };
+    normalizedTiles.push(normalized);
+    state.palette[tileId] = fill;
+    state.tileConfig[tileId] = { sprite, fill, walkable, row, column };
   });
+  normalizedTiles.sort((a, b) => {
+    if (a.row !== b.row) return a.row - b.row;
+    if (a.column !== b.column) return a.column - b.column;
+    return a.tileId.localeCompare(b.tileId);
+  });
+  state.activePalette.tiles = normalizedTiles;
+  state.paletteLayout = layout;
+
+  const findFirstTileId = () => {
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < columns; c += 1) {
+        const cellId = layout[r][c];
+        if (cellId && state.tileConfig[cellId]) {
+          return cellId;
+        }
+      }
+    }
+    return null;
+  };
+
   if (!state.selectedTileId || !state.tileConfig[state.selectedTileId]) {
-    state.selectedTileId = tiles[0]?.tileId || null;
+    state.selectedTileId = findFirstTileId();
+  }
+
+  if (
+    state.spriteBuilder.selectedPaletteTileId &&
+    !state.tileConfig[state.spriteBuilder.selectedPaletteTileId]
+  ) {
+    state.spriteBuilder.selectedPaletteTileId = state.selectedTileId || null;
+  }
+
+  const currentCell = state.spriteBuilder.selectedCell;
+  if (
+    currentCell &&
+    (currentCell.row == null ||
+      currentCell.column == null ||
+      currentCell.row < 0 ||
+      currentCell.column < 0 ||
+      currentCell.row >= rows ||
+      currentCell.column >= columns)
+  ) {
+    state.spriteBuilder.selectedCell = null;
+  }
+
+  if (!state.spriteBuilder.selectedCell) {
+    if (state.selectedTileId && state.tileConfig[state.selectedTileId]) {
+      const config = state.tileConfig[state.selectedTileId];
+      state.spriteBuilder.selectedCell = { row: config.row, column: config.column };
+      state.spriteBuilder.selectedPaletteTileId = state.selectedTileId;
+    } else if (rows > 0 && columns > 0) {
+      state.spriteBuilder.selectedCell = { row: 0, column: 0 };
+      if (state.spriteBuilder.selectedPaletteTileId && !state.tileConfig[state.spriteBuilder.selectedPaletteTileId]) {
+        state.spriteBuilder.selectedPaletteTileId = null;
+      }
+    }
+  } else {
+    const { row, column } = state.spriteBuilder.selectedCell;
+    const tileIdAtCell = layout[row]?.[column] || null;
+    if (tileIdAtCell && state.tileConfig[tileIdAtCell]) {
+      state.spriteBuilder.selectedPaletteTileId = tileIdAtCell;
+    } else if (!tileIdAtCell) {
+      state.spriteBuilder.selectedPaletteTileId = null;
+    }
   }
 }
 
@@ -854,64 +1076,373 @@ function setPaletteInputsFromState() {
   if (paletteDescriptionInput) {
     paletteDescriptionInput.value = state.activePalette?.description || '';
   }
+  if (paletteRowsInput) {
+    const rows = normalizePaletteDimension(
+      state.activePalette?.rows,
+      state.activePalette ? state.activePalette.rows || DEFAULT_PALETTE_ROWS : DEFAULT_PALETTE_ROWS
+    );
+    paletteRowsInput.value = rows;
+  }
+  if (paletteColumnsInput) {
+    const columns = normalizePaletteDimension(
+      state.activePalette?.columns,
+      state.activePalette ? state.activePalette.columns || DEFAULT_PALETTE_COLUMNS : DEFAULT_PALETTE_COLUMNS
+    );
+    paletteColumnsInput.value = columns;
+  }
 }
 
-function renderPaletteTiles() {
-  if (!paletteTileList) return;
-  paletteTileList.innerHTML = '';
-  const tiles = state.activePalette?.tiles || [];
-  if (!tiles.length) {
-    const empty = document.createElement('p');
-    empty.textContent = 'No tiles in this palette yet.';
-    paletteTileList.appendChild(empty);
+function applyPaletteDimensions(rowsValue, columnsValue) {
+  if (!state.activePalette) {
+    state.activePalette = createDefaultPalette();
+  }
+  const currentRows = Number(state.activePalette.rows) || DEFAULT_PALETTE_ROWS;
+  const currentColumns = Number(state.activePalette.columns) || DEFAULT_PALETTE_COLUMNS;
+  const normalizedRows = normalizePaletteDimension(rowsValue, currentRows);
+  const normalizedColumns = normalizePaletteDimension(columnsValue, currentColumns);
+  if (normalizedRows === currentRows && normalizedColumns === currentColumns) {
+    setPaletteInputsFromState();
     return;
   }
-  tiles.forEach(tile => {
-    const item = document.createElement('div');
-    item.className = 'palette-tile';
+  state.activePalette.rows = normalizedRows;
+  state.activePalette.columns = normalizedColumns;
+  rebuildPaletteState();
+  if (state.selectedTileId) {
+    setSelectedPaletteTile(state.selectedTileId, { preserveAsset: true });
+  } else if (state.spriteBuilder.selectedCell) {
+    selectPaletteCell(state.spriteBuilder.selectedCell.row, state.spriteBuilder.selectedCell.column, {
+      preserveAsset: true,
+    });
+  } else {
+    renderPaletteGrid();
+    renderTilePalette();
+    renderSpriteAssets();
+    updateSelectedSpriteControls();
+  }
+  renderZoneEditor();
+  setPaletteInputsFromState();
+}
 
-    const info = document.createElement('div');
-    info.className = 'palette-tile-info';
-
-    const swatch = document.createElement('div');
-    swatch.className = 'palette-tile-swatch';
-    if (tile.sprite) {
-      const img = document.createElement('img');
-      img.src = tile.sprite;
-      img.alt = tile.tileId;
-      img.loading = 'lazy';
-      swatch.appendChild(img);
-    } else {
-      swatch.style.background = tile.fill || '#ffffff';
+function renderPaletteGrid() {
+  if (!paletteGridEl) return;
+  paletteGridEl.innerHTML = '';
+  applyTileSizeToElement(paletteGridEl);
+  const rows = Number(state.activePalette?.rows) || 0;
+  const columns = Number(state.activePalette?.columns) || 0;
+  if (!rows || !columns) {
+    const empty = document.createElement('div');
+    empty.className = 'palette-grid-empty';
+    empty.textContent = 'Set rows and columns to build a palette grid.';
+    paletteGridEl.appendChild(empty);
+    return;
+  }
+  applyPaletteGridDimensions(paletteGridEl, rows, columns);
+  const selectedCell = state.spriteBuilder.selectedCell;
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const tileId = state.paletteLayout?.[row]?.[column] || null;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'tile-token';
+      if (selectedCell && selectedCell.row === row && selectedCell.column === column) {
+        button.classList.add('active');
+      }
+      if (tileId && state.tileConfig[tileId]) {
+        const config = state.tileConfig[tileId];
+        if (config.sprite) {
+          applyBackgroundImage(button, config.sprite);
+          button.style.backgroundColor = config.fill || '#ffffff';
+        } else {
+          applyBackgroundImage(button, null);
+          button.style.backgroundColor = config.fill || '#ffffff';
+        }
+        if (!config.walkable) {
+          button.classList.add('tile-token-blocked');
+        }
+        const label = document.createElement('span');
+        label.className = 'tile-token-label';
+        label.textContent = tileId;
+        button.appendChild(label);
+        button.title = config.walkable ? 'Walkable tile' : 'Blocked tile';
+      } else {
+        button.classList.add('tile-token-empty');
+        button.title = 'Empty palette slot';
+      }
+      button.addEventListener('click', () => selectPaletteCell(row, column));
+      paletteGridEl.appendChild(button);
     }
+  }
+}
 
-    const label = document.createElement('span');
-    label.textContent = `${tile.tileId} • ${tile.walkable ? 'Walkable' : 'Blocked'} • ${
-      tile.fill || '#ffffff'
-    }`;
+function selectPaletteCell(row, column, options = {}) {
+  if (!Number.isInteger(row) || !Number.isInteger(column)) {
+    return;
+  }
+  const rows = Number(state.activePalette?.rows) || 0;
+  const columns = Number(state.activePalette?.columns) || 0;
+  if (!rows || !columns) {
+    state.spriteBuilder.selectedCell = null;
+    state.spriteBuilder.selectedPaletteTileId = null;
+    if (!options.preserveAsset) {
+      state.spriteBuilder.selectedAsset = null;
+      state.spriteBuilder.pendingWalkable = true;
+    }
+    updateSelectedSpriteControls();
+    return;
+  }
+  const clampedRow = Math.max(0, Math.min(rows - 1, row));
+  const clampedColumn = Math.max(0, Math.min(columns - 1, column));
+  state.spriteBuilder.selectedCell = { row: clampedRow, column: clampedColumn };
+  const tileId = state.paletteLayout?.[clampedRow]?.[clampedColumn] || null;
+  if (tileId && state.tileConfig[tileId]) {
+    state.spriteBuilder.selectedPaletteTileId = tileId;
+    const tile = state.activePalette?.tiles?.find(entry => entry.tileId === tileId) || null;
+    const config = state.tileConfig[tileId];
+    state.spriteBuilder.selectedAsset = tile?.sprite || config.sprite || null;
+    state.spriteBuilder.pendingWalkable = tile ? Boolean(tile.walkable) : config.walkable !== false;
+    state.selectedTileId = tileId;
+  } else {
+    state.spriteBuilder.selectedPaletteTileId = null;
+    if (!options.preserveAsset) {
+      state.spriteBuilder.selectedAsset = state.spriteBuilder.selectedAsset || null;
+    }
+    if (!options.preserveAsset) {
+      state.spriteBuilder.pendingWalkable = true;
+    }
+  }
+  if (!options.skipTilePalette) {
+    renderTilePalette();
+  }
+  if (!options.skipGrid) {
+    renderPaletteGrid();
+  }
+  renderSpriteAssets();
+  updateSelectedSpriteControls();
+}
 
-    info.appendChild(swatch);
-    info.appendChild(label);
+function findFirstEmptyPaletteCell() {
+  const rows = Number(state.activePalette?.rows) || 0;
+  const columns = Number(state.activePalette?.columns) || 0;
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      if (!state.paletteLayout?.[row]?.[column]) {
+        return { row, column };
+      }
+    }
+  }
+  return null;
+}
 
-    const actions = document.createElement('div');
-    actions.className = 'actions';
+function getNextPaletteTileId() {
+  const tiles = state.activePalette?.tiles || [];
+  const used = new Set(tiles.map(tile => String(tile.tileId)));
+  let candidate = 0;
+  while (used.has(String(candidate))) {
+    candidate += 1;
+  }
+  return String(candidate);
+}
 
-    const editButton = document.createElement('button');
-    editButton.type = 'button';
-    editButton.textContent = 'Edit';
-    editButton.addEventListener('click', () => loadTileIntoSpriteForm(tile));
-    actions.appendChild(editButton);
+function updateSelectedSpriteControls() {
+  if (selectedAssetPreview) {
+    selectedAssetPreview.innerHTML = '';
+    if (state.spriteBuilder.selectedAsset) {
+      const img = document.createElement('img');
+      img.src = state.spriteBuilder.selectedAsset;
+      img.alt = 'Selected sprite preview';
+      img.loading = 'lazy';
+      selectedAssetPreview.appendChild(img);
+    } else {
+      const message = document.createElement('p');
+      message.textContent = 'Select a sprite asset to add it to the palette.';
+      selectedAssetPreview.appendChild(message);
+    }
+  }
+  if (selectedAssetWalkableInput) {
+    selectedAssetWalkableInput.checked = Boolean(state.spriteBuilder.pendingWalkable);
+  }
+  const hasAsset = Boolean(state.spriteBuilder.selectedAsset);
+  const selectedCell = state.spriteBuilder.selectedCell;
+  const hasCellSelection =
+    selectedCell &&
+    Number.isInteger(selectedCell.row) &&
+    Number.isInteger(selectedCell.column);
+  const hasSelection = Boolean(state.spriteBuilder.selectedPaletteTileId);
+  if (addPaletteTileButton) {
+    addPaletteTileButton.disabled = !hasAsset || !hasCellSelection;
+  }
+  if (updatePaletteTileButton) {
+    updatePaletteTileButton.disabled = !hasAsset || !hasSelection;
+  }
+  if (removePaletteTileButton) {
+    removePaletteTileButton.disabled = !hasSelection;
+  }
+}
 
-    const removeButton = document.createElement('button');
-    removeButton.type = 'button';
-    removeButton.textContent = 'Remove';
-    removeButton.addEventListener('click', () => removePaletteTile(tile.tileId));
-    actions.appendChild(removeButton);
-
-    item.appendChild(info);
-    item.appendChild(actions);
-    paletteTileList.appendChild(item);
+function setSelectedPaletteTile(tileId, options = {}) {
+  if (!tileId) {
+    state.spriteBuilder.selectedPaletteTileId = null;
+    if (!options.preserveCell) {
+      state.spriteBuilder.selectedCell = null;
+    }
+    if (!options.preserveAsset) {
+      state.spriteBuilder.selectedAsset = null;
+      state.spriteBuilder.pendingWalkable = true;
+    }
+    if (!options.skipTilePalette) {
+      renderTilePalette();
+    }
+    if (!options.skipGrid) {
+      renderPaletteGrid();
+    }
+    renderSpriteAssets();
+    updateSelectedSpriteControls();
+    return;
+  }
+  const tile = state.activePalette?.tiles?.find(entry => entry.tileId === tileId) || null;
+  if (!tile) {
+    return;
+  }
+  selectPaletteCell(tile.row ?? 0, tile.column ?? 0, {
+    preserveAsset: false,
+    skipTilePalette: options.skipTilePalette,
+    skipGrid: options.skipGrid,
   });
+}
+
+function addTileToPalette() {
+  if (!state.activePalette) {
+    state.activePalette = createDefaultPalette();
+  }
+  const asset = state.spriteBuilder.selectedAsset;
+  if (!asset) {
+    alert('Select a sprite asset to add to the palette.');
+    return;
+  }
+  const rows = Number(state.activePalette.rows) || DEFAULT_PALETTE_ROWS;
+  const columns = Number(state.activePalette.columns) || DEFAULT_PALETTE_COLUMNS;
+  if (!rows || !columns) {
+    alert('Set palette rows and columns before adding tiles.');
+    return;
+  }
+  if (!Array.isArray(state.activePalette.tiles)) {
+    state.activePalette.tiles = [];
+  }
+  if (!Array.isArray(state.paletteLayout) || !state.paletteLayout.length) {
+    rebuildPaletteState();
+  }
+  const selectedCell = state.spriteBuilder.selectedCell;
+  let targetRow = Number.isInteger(selectedCell?.row) ? selectedCell.row : null;
+  let targetColumn = Number.isInteger(selectedCell?.column) ? selectedCell.column : null;
+  if (targetRow == null || targetColumn == null) {
+    const emptyCell = findFirstEmptyPaletteCell();
+    if (emptyCell) {
+      targetRow = emptyCell.row;
+      targetColumn = emptyCell.column;
+    } else {
+      alert('Palette grid is full. Increase rows or columns to add more tiles.');
+      return;
+    }
+  }
+  targetRow = Math.max(0, Math.min(rows - 1, targetRow));
+  targetColumn = Math.max(0, Math.min(columns - 1, targetColumn));
+  const existingTileId = state.paletteLayout?.[targetRow]?.[targetColumn] || null;
+  if (existingTileId) {
+    const existingTile = state.activePalette.tiles.find(tile => tile.tileId === existingTileId);
+    if (existingTile) {
+      existingTile.sprite = asset;
+      existingTile.walkable = Boolean(state.spriteBuilder.pendingWalkable);
+      if (!existingTile.fill) {
+        existingTile.fill = '#ffffff';
+      }
+    }
+  } else {
+    const tileId = getNextPaletteTileId();
+    const tile = {
+      tileId,
+      sprite: asset,
+      fill: '#ffffff',
+      walkable: Boolean(state.spriteBuilder.pendingWalkable),
+      row: targetRow,
+      column: targetColumn,
+    };
+    state.activePalette.tiles.push(tile);
+  }
+  rebuildPaletteState();
+  selectPaletteCell(targetRow, targetColumn, { preserveAsset: true });
+  renderZoneEditor();
+}
+
+function updateSelectedPaletteTile() {
+  const tileId = state.spriteBuilder.selectedPaletteTileId;
+  if (!tileId) {
+    alert('Select a tile from the palette to update.');
+    return;
+  }
+  const asset = state.spriteBuilder.selectedAsset;
+  if (!asset) {
+    alert('Select a sprite asset for this tile.');
+    return;
+  }
+  const tiles = state.activePalette?.tiles || [];
+  const target = tiles.find(entry => entry.tileId === tileId);
+  if (!target) {
+    return;
+  }
+  const targetRow = Number.isInteger(target.row) ? target.row : 0;
+  const targetColumn = Number.isInteger(target.column) ? target.column : 0;
+  target.sprite = asset;
+  target.walkable = Boolean(state.spriteBuilder.pendingWalkable);
+  if (!target.fill) {
+    target.fill = '#ffffff';
+  }
+  rebuildPaletteState();
+  const updated = state.activePalette?.tiles?.find(entry => entry.tileId === tileId) || target;
+  const row = Number.isInteger(updated?.row) ? updated.row : targetRow;
+  const column = Number.isInteger(updated?.column) ? updated.column : targetColumn;
+  selectPaletteCell(row, column, { preserveAsset: true });
+  renderZoneEditor();
+}
+
+function removePaletteTile(tileId) {
+  const tiles = state.activePalette?.tiles || [];
+  const index = tiles.findIndex(tile => tile.tileId === tileId);
+  if (index < 0) {
+    return;
+  }
+  const removed = tiles[index];
+  tiles.splice(index, 1);
+  state.activePalette.tiles = tiles;
+  const targetRow = Number.isInteger(removed?.row) ? removed.row : state.spriteBuilder.selectedCell?.row || 0;
+  const targetColumn = Number.isInteger(removed?.column)
+    ? removed.column
+    : state.spriteBuilder.selectedCell?.column || 0;
+  rebuildPaletteState();
+  if (state.activePalette.tiles.length) {
+    if (state.paletteLayout?.[targetRow]?.[targetColumn]) {
+      selectPaletteCell(targetRow, targetColumn, { preserveAsset: true });
+    } else if (state.selectedTileId) {
+      setSelectedPaletteTile(state.selectedTileId, { preserveAsset: true, preserveCell: true });
+    } else {
+      const fallbackTile = state.activePalette.tiles[0];
+      if (fallbackTile) {
+        setSelectedPaletteTile(fallbackTile.tileId, { preserveAsset: true, preserveCell: true });
+      }
+    }
+  } else {
+    state.selectedTileId = null;
+    selectPaletteCell(targetRow, targetColumn, { preserveAsset: true });
+  }
+  renderZoneEditor();
+}
+
+function removeSelectedPaletteTile() {
+  const tileId = state.spriteBuilder.selectedPaletteTileId;
+  if (!tileId) {
+    alert('Select a tile from the palette to remove.');
+    return;
+  }
+  removePaletteTile(tileId);
 }
 
 function renderPaletteSelect() {
@@ -947,11 +1478,19 @@ function setActivePalette(palette, options = {}) {
   state.selectedPaletteId = state.activePalette._id || null;
   setPaletteInputsFromState();
   rebuildPaletteState();
-  renderTilePalette();
+  if (state.selectedTileId) {
+    setSelectedPaletteTile(state.selectedTileId, { preserveAsset: true });
+  } else if (state.spriteBuilder.selectedCell) {
+    selectPaletteCell(state.spriteBuilder.selectedCell.row, state.spriteBuilder.selectedCell.column);
+  } else {
+    renderPaletteGrid();
+    renderTilePalette();
+    renderSpriteAssets();
+    updateSelectedSpriteControls();
+  }
   if (!options.skipZone) {
     renderZoneEditor();
   }
-  renderPaletteTiles();
   if (!options.skipSelect) {
     renderPaletteSelect();
   }
@@ -966,15 +1505,7 @@ function setActivePaletteById(id) {
     setActivePalette(palette, { skipSelect: true });
     state.selectedPaletteId = palette._id;
     renderPaletteSelect();
-    state.spriteBuilder.selectedAsset = null;
-    updateSpritePreview('');
-    renderSpriteAssets();
   }
-}
-
-function selectSpriteAsset(assetUrl) {
-  state.spriteBuilder.selectedAsset = assetUrl || null;
-  renderSpriteAssets();
 }
 
 function renderSpriteAssets() {
@@ -986,6 +1517,7 @@ function renderSpriteAssets() {
     spriteAssetList.appendChild(empty);
     renderEnemySpriteOptions();
     renderNpcSpriteOptions();
+    updateSelectedSpriteControls();
     return;
   }
   state.spriteAssets.forEach(asset => {
@@ -1002,30 +1534,15 @@ function renderSpriteAssets() {
     img.loading = 'lazy';
     button.appendChild(img);
     button.addEventListener('click', () => {
-      spriteAssetPathInput.value = asset.url;
-      selectSpriteAsset(asset.url);
-      updateSpritePreview(asset.url);
+      state.spriteBuilder.selectedAsset = asset.url;
+      updateSelectedSpriteControls();
+      renderSpriteAssets();
     });
     spriteAssetList.appendChild(button);
   });
   renderEnemySpriteOptions();
   renderNpcSpriteOptions();
-}
-
-function updateSpritePreview(assetUrl) {
-  if (!spritePreview) return;
-  spritePreview.innerHTML = '';
-  if (assetUrl) {
-    const img = document.createElement('img');
-    img.src = assetUrl;
-    img.alt = 'Sprite preview';
-    img.loading = 'lazy';
-    spritePreview.appendChild(img);
-  } else {
-    const message = document.createElement('p');
-    message.textContent = 'Select an asset to preview';
-    spritePreview.appendChild(message);
-  }
+  updateSelectedSpriteControls();
 }
 
 function renderEnemySpriteOptions(selectedValue = null) {
@@ -1119,69 +1636,6 @@ function updateNpcSpritePreview(assetUrl) {
   }
 }
 
-function loadTileIntoSpriteForm(tile) {
-  if (!spriteForm) return;
-  spriteTileIdInput.value = tile.tileId;
-  spriteFillInput.value = tile.fill || '#ffffff';
-  spriteAssetPathInput.value = tile.sprite || '';
-  spriteWalkableInput.checked = Boolean(tile.walkable);
-  updateSpritePreview(tile.sprite);
-  selectSpriteAsset(tile.sprite);
-  setActiveTab('sprites');
-}
-
-function removePaletteTile(tileId) {
-  const tiles = state.activePalette?.tiles || [];
-  const index = tiles.findIndex(tile => tile.tileId === tileId);
-  if (index < 0) {
-    return;
-  }
-  tiles.splice(index, 1);
-  state.activePalette.tiles = tiles;
-  if (state.selectedTileId === tileId) {
-    state.selectedTileId = tiles[0]?.tileId || null;
-  }
-  rebuildPaletteState();
-  renderPaletteTiles();
-  renderTilePalette();
-  renderZoneEditor();
-}
-
-function handleSpriteFormSubmit(event) {
-  event.preventDefault();
-  const tileId = spriteTileIdInput.value.trim();
-  const spritePath = spriteAssetPathInput.value.trim();
-  const fill = spriteFillInput.value.trim() || '#ffffff';
-  const walkable = spriteWalkableInput.checked;
-  if (!tileId) {
-    alert('Tile ID is required.');
-    return;
-  }
-  if (!spritePath) {
-    alert('Select a sprite asset for this tile.');
-    return;
-  }
-  const tiles = state.activePalette?.tiles || [];
-  const tile = { tileId, sprite: spritePath, fill, walkable };
-  const existingIndex = tiles.findIndex(entry => entry.tileId === tileId);
-  if (existingIndex >= 0) {
-    tiles.splice(existingIndex, 1, tile);
-  } else {
-    tiles.push(tile);
-  }
-  state.activePalette.tiles = tiles;
-  state.selectedTileId = tileId;
-  rebuildPaletteState();
-  renderPaletteTiles();
-  renderTilePalette();
-  renderZoneEditor();
-  spriteForm.reset();
-  spriteAssetPathInput.value = spritePath;
-  spriteWalkableInput.checked = walkable;
-  updateSpritePreview(spritePath);
-  selectSpriteAsset(spritePath);
-}
-
 async function saveActivePalette() {
   if (!state.activePalette) return;
   const name = paletteNameInput.value.trim();
@@ -1197,11 +1651,15 @@ async function saveActivePalette() {
     id: state.activePalette._id,
     name,
     description: paletteDescriptionInput.value.trim(),
+    rows: Number(state.activePalette.rows) || DEFAULT_PALETTE_ROWS,
+    columns: Number(state.activePalette.columns) || DEFAULT_PALETTE_COLUMNS,
     tiles: state.activePalette.tiles.map(tile => ({
       tileId: tile.tileId,
       sprite: tile.sprite,
       fill: tile.fill,
       walkable: Boolean(tile.walkable),
+      row: Number.isInteger(tile.row) ? tile.row : 0,
+      column: Number.isInteger(tile.column) ? tile.column : 0,
     })),
   };
   try {
@@ -1225,9 +1683,6 @@ async function saveActivePalette() {
     state.selectedPaletteId = saved._id;
     setPaletteInputsFromState();
     renderPaletteSelect();
-    renderPaletteTiles();
-    renderTilePalette();
-    renderZoneEditor();
   } catch (err) {
     console.error(err);
     alert('Failed to save palette.');
@@ -1260,12 +1715,6 @@ async function deleteActivePalette() {
   setActivePalette(fallback, { skipSelect: true });
   state.selectedPaletteId = fallback._id || null;
   renderPaletteSelect();
-  renderPaletteTiles();
-  renderTilePalette();
-  renderZoneEditor();
-  state.spriteBuilder.selectedAsset = null;
-  updateSpritePreview('');
-  renderSpriteAssets();
 }
 
 function startNewPalette() {
@@ -1274,12 +1723,13 @@ function startNewPalette() {
   blank.name = '';
   blank.description = '';
   blank.tiles = [];
+  state.spriteBuilder.selectedAsset = null;
+  state.spriteBuilder.pendingWalkable = true;
+  state.spriteBuilder.selectedPaletteTileId = null;
+  state.spriteBuilder.selectedCell = null;
   setActivePalette(blank);
   state.selectedPaletteId = null;
   renderPaletteSelect();
-  state.spriteBuilder.selectedAsset = null;
-  updateSpritePreview('');
-  renderSpriteAssets();
 }
 
 if (paletteSelect) {
@@ -1307,15 +1757,21 @@ if (deletePaletteButton) {
   deletePaletteButton.addEventListener('click', deleteActivePalette);
 }
 
-if (spriteForm) {
-  spriteForm.addEventListener('submit', handleSpriteFormSubmit);
+if (addPaletteTileButton) {
+  addPaletteTileButton.addEventListener('click', addTileToPalette);
 }
 
-if (spriteAssetPathInput) {
-  spriteAssetPathInput.addEventListener('input', event => {
-    const value = event.target.value.trim();
-    state.spriteBuilder.selectedAsset = value || null;
-    updateSpritePreview(value);
+if (updatePaletteTileButton) {
+  updatePaletteTileButton.addEventListener('click', updateSelectedPaletteTile);
+}
+
+if (removePaletteTileButton) {
+  removePaletteTileButton.addEventListener('click', removeSelectedPaletteTile);
+}
+
+if (selectedAssetWalkableInput) {
+  selectedAssetWalkableInput.addEventListener('change', event => {
+    state.spriteBuilder.pendingWalkable = event.target.checked;
   });
 }
 
@@ -1330,6 +1786,36 @@ if (paletteDescriptionInput) {
   paletteDescriptionInput.addEventListener('input', event => {
     if (!state.activePalette) return;
     state.activePalette.description = event.target.value;
+  });
+}
+
+if (paletteRowsInput) {
+  paletteRowsInput.addEventListener('change', event => {
+    if (!state.activePalette) {
+      state.activePalette = createDefaultPalette();
+    }
+    const currentColumns = Number(state.activePalette?.columns) || DEFAULT_PALETTE_COLUMNS;
+    const normalized = normalizePaletteDimension(
+      event.target.value,
+      state.activePalette?.rows || DEFAULT_PALETTE_ROWS
+    );
+    paletteRowsInput.value = normalized;
+    applyPaletteDimensions(normalized, currentColumns);
+  });
+}
+
+if (paletteColumnsInput) {
+  paletteColumnsInput.addEventListener('change', event => {
+    if (!state.activePalette) {
+      state.activePalette = createDefaultPalette();
+    }
+    const currentRows = Number(state.activePalette?.rows) || DEFAULT_PALETTE_ROWS;
+    const normalized = normalizePaletteDimension(
+      event.target.value,
+      state.activePalette?.columns || DEFAULT_PALETTE_COLUMNS
+    );
+    paletteColumnsInput.value = normalized;
+    applyPaletteDimensions(currentRows, normalized);
   });
 }
 
@@ -1860,13 +2346,13 @@ function renderZoneGrid() {
       const tileConfig = state.tileConfig[tileId] || {};
       cell.dataset.tileId = tileId;
       if (tileConfig.sprite) {
-        cell.style.backgroundImage = `url(${tileConfig.sprite})`;
+        applyBackgroundImage(cell, tileConfig.sprite);
         cell.style.backgroundSize = 'cover';
         cell.style.backgroundPosition = 'center';
         cell.style.backgroundColor = tileConfig.fill || '#ffffff';
         cell.textContent = '';
       } else {
-        cell.style.backgroundImage = '';
+        applyBackgroundImage(cell, null);
         cell.style.backgroundColor = tileConfig.fill || '#ffffff';
         cell.textContent = tileId;
       }
@@ -1886,7 +2372,7 @@ function renderZoneGrid() {
           cell.classList.add('has-enemy-sprite');
           const overlay = document.createElement('div');
           overlay.className = 'zone-cell-enemy';
-          overlay.style.backgroundImage = `url(${template.sprite})`;
+          applyBackgroundImage(overlay, template.sprite);
           const margin = Math.max(2, Math.floor(cellSize * 0.15));
           overlay.style.left = `${margin}px`;
           overlay.style.top = `${margin}px`;
@@ -1901,7 +2387,7 @@ function renderZoneGrid() {
         const overlay = document.createElement('div');
         overlay.className = 'zone-cell-npc';
         if (npcPlacement.sprite) {
-          overlay.style.backgroundImage = `url(${npcPlacement.sprite})`;
+          applyBackgroundImage(overlay, npcPlacement.sprite);
           overlay.style.backgroundSize = 'cover';
           overlay.style.backgroundPosition = 'center';
           overlay.style.backgroundRepeat = 'no-repeat';
@@ -3316,6 +3802,20 @@ function buildWorldData() {
   const enemyCount = Number.isFinite(Number(state.world.enemyCount))
     ? Math.max(1, Math.round(Number(state.world.enemyCount)))
     : DEFAULT_ENEMY_COUNT;
+  const paletteRows = Number(state.activePalette?.rows) || DEFAULT_PALETTE_ROWS;
+  const paletteColumns = Number(state.activePalette?.columns) || DEFAULT_PALETTE_COLUMNS;
+  const paletteLayout = Array.isArray(state.paletteLayout)
+    ? state.paletteLayout.map(row =>
+        Array.isArray(row) ? row.map(tileId => (tileId != null ? String(tileId) : null)) : []
+      )
+    : [];
+  const paletteTiles = Array.isArray(state.activePalette?.tiles)
+    ? state.activePalette.tiles.map(tile => ({
+        tileId: tile.tileId,
+        row: Number.isInteger(tile.row) ? tile.row : 0,
+        column: Number.isInteger(tile.column) ? tile.column : 0,
+      }))
+    : [];
   const world = {
     id: state.world.id || 'new_world',
     name: state.world.name || 'New World',
@@ -3324,6 +3824,10 @@ function buildWorldData() {
     tileConfig: Object.fromEntries(
       Object.entries(state.tileConfig).map(([id, config]) => [id, { ...config }])
     ),
+    paletteRows,
+    paletteColumns,
+    paletteLayout,
+    paletteTiles,
     moveCooldownMs: Number(state.world.moveCooldownMs) || 0,
     encounters: {
       tiles: encounterTiles,
@@ -3542,12 +4046,45 @@ function applyWorldData(rawWorld) {
     ...Object.keys(tileConfigSource),
     ...Object.keys(paletteEntries),
   ]);
+  const layoutSource = Array.isArray(worldSource.paletteLayout) ? worldSource.paletteLayout : [];
+  const positionMap = new Map();
+  layoutSource.forEach((row, rowIndex) => {
+    if (!Array.isArray(row)) {
+      return;
+    }
+    row.forEach((tileId, columnIndex) => {
+      if (tileId !== null && tileId !== undefined && tileId !== '') {
+        positionMap.set(String(tileId), { row: rowIndex, column: columnIndex });
+      }
+    });
+  });
+  if (Array.isArray(worldSource.paletteTiles)) {
+    worldSource.paletteTiles.forEach(entry => {
+      if (!entry || typeof entry !== 'object') {
+        return;
+      }
+      const tileId = String(entry.tileId || entry.id || '').trim();
+      if (!tileId) {
+        return;
+      }
+      const rowValue = Number(entry.row);
+      const columnValue = Number(entry.column);
+      if (Number.isInteger(rowValue) && Number.isInteger(columnValue)) {
+        positionMap.set(tileId, { row: rowValue, column: columnValue });
+      }
+    });
+  }
+  const loadedRows = normalizePaletteDimension(worldSource.paletteRows, DEFAULT_PALETTE_ROWS);
+  const loadedColumns = normalizePaletteDimension(worldSource.paletteColumns, DEFAULT_PALETTE_COLUMNS);
   const loadedPalette = {
     _id: null,
     name: worldSource.paletteName || state.activePalette?.name || 'Loaded Palette',
     description: worldSource.paletteDescription || '',
+    rows: loadedRows,
+    columns: loadedColumns,
     tiles: [],
   };
+  let paletteIndex = 0;
   tileIdSet.forEach(tileId => {
     const config = tileConfigSource[tileId] || {};
     const sprite = typeof config.sprite === 'string' ? config.sprite : '';
@@ -3561,22 +4098,32 @@ function applyWorldData(rawWorld) {
     const walkable = Object.prototype.hasOwnProperty.call(config, 'walkable')
       ? Boolean(config.walkable)
       : true;
+    const position = positionMap.get(String(tileId));
+    const row = Number.isInteger(position?.row)
+      ? position.row
+      : Math.floor(paletteIndex / loadedColumns);
+    const column = Number.isInteger(position?.column)
+      ? position.column
+      : paletteIndex % loadedColumns;
     loadedPalette.tiles.push({
       tileId: String(tileId),
       sprite,
       fill,
       walkable,
+      row,
+      column,
     });
+    paletteIndex += 1;
   });
   if (!loadedPalette.tiles.length) {
-    loadedPalette.tiles = createDefaultPalette().tiles;
+    const defaultPalette = createDefaultPalette();
+    loadedPalette.tiles = defaultPalette.tiles.map(tile => ({ ...tile }));
+    loadedPalette.rows = defaultPalette.rows;
+    loadedPalette.columns = defaultPalette.columns;
   }
   setActivePalette(loadedPalette, { skipSelect: true, skipZone: true });
   state.selectedPaletteId = null;
   renderPaletteSelect();
-  state.spriteBuilder.selectedAsset = null;
-  updateSpritePreview('');
-  renderSpriteAssets();
 
   const templates = Array.isArray(encounterSource?.templates)
     ? encounterSource.templates.map(normalizeEnemyTemplate).filter(Boolean)
@@ -3805,9 +4352,17 @@ async function initialize() {
       state.selectedPaletteId = normalizedPalettes[0]._id;
       renderPaletteSelect();
     } else {
-      renderPaletteTiles();
+      const blank = createDefaultPalette();
+      blank._id = null;
+      blank.tiles = [];
+      state.activePalette = blank;
+      state.selectedPaletteId = null;
+      setPaletteInputsFromState();
+      rebuildPaletteState();
       renderTilePalette();
+      renderPaletteGrid();
       renderPaletteSelect();
+      updateSelectedSpriteControls();
     }
 
     const normalizedTemplates = Array.isArray(templates)

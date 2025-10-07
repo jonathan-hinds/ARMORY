@@ -201,6 +201,14 @@
               Description
               <textarea id="palette-description" rows="2" placeholder="Optional notes..."></textarea>
             </label>
+            <label class="field-inline">
+              <span>Rows</span>
+              <input id="palette-rows" type="number" min="1" max="20" value="3" />
+            </label>
+            <label class="field-inline">
+              <span>Columns</span>
+              <input id="palette-columns" type="number" min="1" max="20" value="3" />
+            </label>
             <div class="sprite-actions">
               <button type="button" id="create-palette">New Palette</button>
               <button type="button" id="save-palette">Save Palette</button>
@@ -209,8 +217,9 @@
           </section>
 
           <section class="panel sprite-palette-panel">
-            <h2>Palette Tiles</h2>
-            <div id="palette-tile-list" class="palette-tile-list"></div>
+            <h2>Palette Grid</h2>
+            <div id="palette-grid" class="palette-grid"></div>
+            <p class="panel-note">Click a tile to edit its settings.</p>
           </section>
 
           <section class="panel sprite-assets-panel">
@@ -218,30 +227,20 @@
             <div id="sprite-asset-list" class="sprite-asset-list"></div>
           </section>
 
-          <section class="panel sprite-builder-panel">
-            <h2>Sprite Builder</h2>
-            <form id="sprite-form" class="sprite-form">
-              <label class="field-inline">
-                <span>Tile ID</span>
-                <input id="sprite-tile-id" type="text" placeholder="e.g. 5" />
-              </label>
-              <label class="field-inline">
-                <span>Fill</span>
-                <input id="sprite-fill" type="text" placeholder="#ffffff" />
-              </label>
-              <label class="field-label">
-                Sprite Path
-                <input id="sprite-asset-path" type="text" placeholder="/assets/Sprite.png" />
-              </label>
-              <label class="field-inline checkbox">
-                <input id="sprite-walkable" type="checkbox" checked />
-                <span>Walkable</span>
-              </label>
-              <div class="sprite-preview" id="sprite-preview">
-                <p>Select an asset to preview</p>
-              </div>
-              <button type="submit">Add / Update Tile</button>
-            </form>
+          <section class="panel sprite-selection-panel">
+            <h2>Sprite Selection</h2>
+            <div id="selected-asset-preview" class="selected-asset-preview">
+              <p>Select a sprite asset to add it to the palette.</p>
+            </div>
+            <label class="field-inline checkbox">
+              <input id="selected-asset-walkable" type="checkbox" checked />
+              <span>Walkable</span>
+            </label>
+            <div class="sprite-selection-actions">
+              <button type="button" id="add-palette-tile">Add to Palette</button>
+              <button type="button" id="update-palette-tile" disabled>Update Selected Tile</button>
+              <button type="button" id="remove-palette-tile" disabled>Remove Selected Tile</button>
+            </div>
           </section>
         </div>
       </section>
