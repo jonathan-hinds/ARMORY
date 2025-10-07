@@ -88,6 +88,23 @@ const npcDialogAddButton = document.getElementById('npc-dialog-add');
 const npcDialogLoopSelect = document.getElementById('npc-dialog-loop');
 const npcDeleteButton = document.getElementById('npc-delete');
 
+function formatBackgroundImageValue(spriteUrl) {
+  if (!spriteUrl) {
+    return 'none';
+  }
+  const trimmed = String(spriteUrl).trim();
+  if (!trimmed) {
+    return 'none';
+  }
+  return `url(${JSON.stringify(trimmed)})`;
+}
+
+function applyBackgroundImage(element, spriteUrl) {
+  if (!element) return;
+  const value = formatBackgroundImageValue(spriteUrl);
+  element.style.backgroundImage = value === 'none' ? 'none' : value;
+}
+
 const generateWorldButton = document.getElementById('generate-world');
 const loadWorldButton = document.getElementById('load-world');
 const worldOutput = document.getElementById('world-output');
@@ -805,10 +822,10 @@ function renderTilePalette() {
         button.classList.add('active');
       }
       if (config.sprite) {
-        button.style.backgroundImage = `url(${config.sprite})`;
+        applyBackgroundImage(button, config.sprite);
         button.style.backgroundColor = config.fill || '#ffffff';
       } else {
-        button.style.backgroundImage = 'none';
+        applyBackgroundImage(button, null);
         button.style.backgroundColor = config.fill || '#ffffff';
       }
       if (!config.walkable) {
@@ -1133,10 +1150,10 @@ function renderPaletteGrid() {
       if (tileId && state.tileConfig[tileId]) {
         const config = state.tileConfig[tileId];
         if (config.sprite) {
-          button.style.backgroundImage = `url(${config.sprite})`;
+          applyBackgroundImage(button, config.sprite);
           button.style.backgroundColor = config.fill || '#ffffff';
         } else {
-          button.style.backgroundImage = 'none';
+          applyBackgroundImage(button, null);
           button.style.backgroundColor = config.fill || '#ffffff';
         }
         if (!config.walkable) {
@@ -2329,13 +2346,13 @@ function renderZoneGrid() {
       const tileConfig = state.tileConfig[tileId] || {};
       cell.dataset.tileId = tileId;
       if (tileConfig.sprite) {
-        cell.style.backgroundImage = `url(${tileConfig.sprite})`;
+        applyBackgroundImage(cell, tileConfig.sprite);
         cell.style.backgroundSize = 'cover';
         cell.style.backgroundPosition = 'center';
         cell.style.backgroundColor = tileConfig.fill || '#ffffff';
         cell.textContent = '';
       } else {
-        cell.style.backgroundImage = '';
+        applyBackgroundImage(cell, null);
         cell.style.backgroundColor = tileConfig.fill || '#ffffff';
         cell.textContent = tileId;
       }
@@ -2355,7 +2372,7 @@ function renderZoneGrid() {
           cell.classList.add('has-enemy-sprite');
           const overlay = document.createElement('div');
           overlay.className = 'zone-cell-enemy';
-          overlay.style.backgroundImage = `url(${template.sprite})`;
+          applyBackgroundImage(overlay, template.sprite);
           const margin = Math.max(2, Math.floor(cellSize * 0.15));
           overlay.style.left = `${margin}px`;
           overlay.style.top = `${margin}px`;
@@ -2370,7 +2387,7 @@ function renderZoneGrid() {
         const overlay = document.createElement('div');
         overlay.className = 'zone-cell-npc';
         if (npcPlacement.sprite) {
-          overlay.style.backgroundImage = `url(${npcPlacement.sprite})`;
+          applyBackgroundImage(overlay, npcPlacement.sprite);
           overlay.style.backgroundSize = 'cover';
           overlay.style.backgroundPosition = 'center';
           overlay.style.backgroundRepeat = 'no-repeat';
