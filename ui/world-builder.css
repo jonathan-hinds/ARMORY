@@ -146,6 +146,10 @@ body.world-builder {
 
 .tile-palette {
   margin-bottom:12px;
+  overflow:auto;
+  max-width:100%;
+  min-width:0;
+  box-sizing:border-box;
 }
 
 .panel-header {
@@ -198,6 +202,18 @@ body.world-builder {
   inset:0;
   border:2px solid transparent;
   pointer-events:none;
+}
+
+.tile-token.tile-token-selected::after {
+  border-color:#000;
+}
+
+.tile-token.tile-token-anchor::after {
+  border-width:3px;
+}
+
+.brush-control--disabled {
+  opacity:0.6;
 }
 
 .tile-token.active::after {

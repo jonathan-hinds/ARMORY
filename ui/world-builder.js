@@ -615,6 +615,8 @@ const state = {
   zones: [],
   selectedZoneId: null,
   selectedTileId: null,
+  selectedPaletteRegion: null,
+  selectedTilePattern: null,
   editMode: 'tile',
   brushSize: 1,
   transportSelection: {
@@ -763,6 +765,7 @@ function attachWorldListeners() {
     brushSizeInput.addEventListener('input', e => updateBrushSize(e.target.value));
     brushSizeInput.addEventListener('change', e => updateBrushSize(e.target.value));
   }
+  updateBrushSizeControlAvailability();
 }
 
 function getDisplayTileSize() {
@@ -792,12 +795,325 @@ function applyPaletteGridDimensions(element, rows, columns) {
   element.style.setProperty('--palette-columns', `${Math.max(1, columns || 1)}`);
 }
 
+function getPaletteLayoutBounds() {
+  const layout = state.paletteLayout;
+  if (Array.isArray(layout) && layout.length) {
+    const rows = layout.length;
+    const columns = layout.reduce(
+      (max, row) => Math.max(max, Array.isArray(row) ? row.length : 0),
+      0
+    );
+    return { rows, columns };
+  }
+  return {
+    rows: Number(state.activePalette?.rows) || 0,
+    columns: Number(state.activePalette?.columns) || 0,
+  };
+}
+
+function normalizePaletteRegion(region) {
+  if (!region) {
+    return null;
+  }
+  const { rows, columns } = getPaletteLayoutBounds();
+  if (!rows || !columns) {
+    return null;
+  }
+  const values = {
+    startRow: Number(region.startRow),
+    endRow: Number(region.endRow),
+    startColumn: Number(region.startColumn),
+    endColumn: Number(region.endColumn),
+  };
+  if (
+    !Number.isFinite(values.startRow) ||
+    !Number.isFinite(values.endRow) ||
+    !Number.isFinite(values.startColumn) ||
+    !Number.isFinite(values.endColumn)
+  ) {
+    return null;
+  }
+  const clampRow = value => Math.max(0, Math.min(rows - 1, Math.round(value)));
+  const clampColumn = value => Math.max(0, Math.min(columns - 1, Math.round(value)));
+  const startRow = clampRow(values.startRow);
+  const endRow = clampRow(values.endRow);
+  const startColumn = clampColumn(values.startColumn);
+  const endColumn = clampColumn(values.endColumn);
+  return {
+    startRow: Math.min(startRow, endRow),
+    endRow: Math.max(startRow, endRow),
+    startColumn: Math.min(startColumn, endColumn),
+    endColumn: Math.max(startColumn, endColumn),
+  };
+}
+
+function buildTilePatternFromRegion(region) {
+  if (!region) {
+    return null;
+  }
+  const width = region.endColumn - region.startColumn + 1;
+  const height = region.endRow - region.startRow + 1;
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+  const tiles = [];
+  let hasTiles = false;
+  let firstTileId = null;
+  for (let row = 0; row < height; row += 1) {
+    const patternRow = [];
+    for (let column = 0; column < width; column += 1) {
+      const targetRow = region.startRow + row;
+      const targetColumn = region.startColumn + column;
+      const tileId = state.paletteLayout?.[targetRow]?.[targetColumn] || null;
+      if (tileId && state.tileConfig[tileId]) {
+        patternRow.push(tileId);
+        if (!firstTileId) {
+          firstTileId = tileId;
+        }
+        hasTiles = true;
+      } else {
+        patternRow.push(null);
+      }
+    }
+    tiles.push(patternRow);
+  }
+  return {
+    width,
+    height,
+    tiles,
+    hasTiles,
+    firstTileId,
+  };
+}
+
+function applyTilePaletteSelectionVisual(region = state.selectedPaletteRegion) {
+  if (!tilePaletteEl) {
+    return;
+  }
+  const tokens = tilePaletteEl.querySelectorAll('.tile-token');
+  tokens.forEach(token => {
+    token.classList.remove('tile-token-selected', 'tile-token-anchor');
+  });
+  if (!region) {
+    return;
+  }
+  tokens.forEach(token => {
+    const row = Number(token.dataset.row);
+    const column = Number(token.dataset.column);
+    if (
+      Number.isInteger(row) &&
+      Number.isInteger(column) &&
+      row >= region.startRow &&
+      row <= region.endRow &&
+      column >= region.startColumn &&
+      column <= region.endColumn
+    ) {
+      token.classList.add('tile-token-selected');
+      if (row === region.startRow && column === region.startColumn) {
+        token.classList.add('tile-token-anchor');
+      }
+    }
+  });
+}
+
+function commitPaletteSelection(region, { skipHighlight = false, skipZoneRender = false } = {}) {
+  const normalized = normalizePaletteRegion(region);
+  if (!normalized) {
+    state.selectedPaletteRegion = null;
+    state.selectedTilePattern = null;
+    state.selectedTileId = null;
+    if (!skipHighlight) {
+      applyTilePaletteSelectionVisual(null);
+    }
+    updateBrushSizeControlAvailability();
+    if (!skipZoneRender) {
+      renderZoneEditor();
+    }
+    return;
+  }
+  const pattern = buildTilePatternFromRegion(normalized);
+  if (!pattern || !pattern.hasTiles) {
+    state.selectedPaletteRegion = null;
+    state.selectedTilePattern = null;
+    state.selectedTileId = null;
+    if (!skipHighlight) {
+      applyTilePaletteSelectionVisual(null);
+    }
+    updateBrushSizeControlAvailability();
+    if (!skipZoneRender) {
+      renderZoneEditor();
+    }
+    return;
+  }
+  state.selectedPaletteRegion = normalized;
+  state.selectedTilePattern = pattern;
+  state.selectedTileId = pattern.firstTileId || null;
+  if (!skipHighlight) {
+    applyTilePaletteSelectionVisual(normalized);
+  }
+  updateBrushSizeControlAvailability();
+  if (!skipZoneRender) {
+    renderZoneEditor();
+  }
+}
+
+let palettePointerState = null;
+
+function getPaletteCellFromElement(element, { requireTile = false } = {}) {
+  if (!element || !tilePaletteEl) {
+    return null;
+  }
+  const button = element.closest('.tile-token');
+  if (!button || !tilePaletteEl.contains(button)) {
+    return null;
+  }
+  if (requireTile && button.disabled) {
+    return null;
+  }
+  const row = Number(button.dataset.row);
+  const column = Number(button.dataset.column);
+  if (!Number.isInteger(row) || !Number.isInteger(column)) {
+    return null;
+  }
+  return { row, column, button };
+}
+
+function getPaletteCellFromPoint(x, y) {
+  if (typeof x !== 'number' || typeof y !== 'number') {
+    return null;
+  }
+  const element = document.elementFromPoint(x, y);
+  return getPaletteCellFromElement(element);
+}
+
+function finalizePalettePointerSelection({ cancelled = false } = {}) {
+  if (!palettePointerState) {
+    return;
+  }
+  document.removeEventListener('pointermove', handlePalettePointerMove);
+  document.removeEventListener('pointerup', handlePalettePointerUp);
+  document.removeEventListener('pointercancel', handlePalettePointerCancel);
+  const region = palettePointerState.previewRegion;
+  palettePointerState = null;
+  if (cancelled) {
+    applyTilePaletteSelectionVisual();
+    return;
+  }
+  if (region) {
+    commitPaletteSelection(region);
+  } else {
+    applyTilePaletteSelectionVisual();
+  }
+}
+
+function handlePalettePointerDown(event) {
+  if (!tilePaletteEl || palettePointerState) {
+    return;
+  }
+  if (event.button !== 0 && event.pointerType !== 'touch' && event.pointerType !== 'pen') {
+    return;
+  }
+  const cell = getPaletteCellFromElement(event.target, { requireTile: true });
+  if (!cell) {
+    return;
+  }
+  event.preventDefault();
+  const region = normalizePaletteRegion({
+    startRow: cell.row,
+    endRow: cell.row,
+    startColumn: cell.column,
+    endColumn: cell.column,
+  });
+  palettePointerState = {
+    anchorRow: cell.row,
+    anchorColumn: cell.column,
+    pointerId: event.pointerId,
+    previewRegion: region,
+  };
+  if (cell.button && cell.button.setPointerCapture) {
+    try {
+      cell.button.setPointerCapture(event.pointerId);
+    } catch (error) {
+      // Ignore errors on unsupported elements.
+    }
+  }
+  if (region) {
+    applyTilePaletteSelectionVisual(region);
+  }
+  document.addEventListener('pointermove', handlePalettePointerMove);
+  document.addEventListener('pointerup', handlePalettePointerUp);
+  document.addEventListener('pointercancel', handlePalettePointerCancel);
+}
+
+function handlePalettePointerMove(event) {
+  if (!palettePointerState) {
+    return;
+  }
+  const cell = getPaletteCellFromPoint(event.clientX, event.clientY);
+  if (!cell) {
+    return;
+  }
+  const region = normalizePaletteRegion({
+    startRow: palettePointerState.anchorRow,
+    endRow: cell.row,
+    startColumn: palettePointerState.anchorColumn,
+    endColumn: cell.column,
+  });
+  if (!region) {
+    return;
+  }
+  const previous = palettePointerState.previewRegion;
+  if (
+    previous &&
+    previous.startRow === region.startRow &&
+    previous.endRow === region.endRow &&
+    previous.startColumn === region.startColumn &&
+    previous.endColumn === region.endColumn
+  ) {
+    return;
+  }
+  palettePointerState.previewRegion = region;
+  applyTilePaletteSelectionVisual(region);
+}
+
+function handlePalettePointerUp(event) {
+  if (!palettePointerState) {
+    return;
+  }
+  if (
+    palettePointerState.pointerId != null &&
+    event.pointerId != null &&
+    palettePointerState.pointerId !== event.pointerId
+  ) {
+    return;
+  }
+  finalizePalettePointerSelection({ cancelled: false });
+}
+
+function handlePalettePointerCancel() {
+  finalizePalettePointerSelection({ cancelled: true });
+}
+
+function handlePaletteButtonClick(event) {
+  if (event.detail !== 0) {
+    return;
+  }
+  const cell = getPaletteCellFromElement(event.currentTarget, { requireTile: true });
+  if (!cell) {
+    return;
+  }
+  event.preventDefault();
+  commitPaletteSelection(
+    { startRow: cell.row, endRow: cell.row, startColumn: cell.column, endColumn: cell.column },
+    { skipHighlight: false, skipZoneRender: false }
+  );
+}
+
 function renderTilePalette() {
   if (!tilePaletteEl) return;
   tilePaletteEl.innerHTML = '';
   applyTileSizeToElement(tilePaletteEl);
-  const rows = Number(state.activePalette?.rows) || 0;
-  const columns = Number(state.activePalette?.columns) || 0;
+  const { rows, columns } = getPaletteLayoutBounds();
   if (!rows || !columns) {
     const empty = document.createElement('p');
     empty.textContent = 'Define palette dimensions to view tiles.';
@@ -811,38 +1127,35 @@ function renderTilePalette() {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'tile-token';
+      button.dataset.row = String(row);
+      button.dataset.column = String(column);
       if (!tileId || !state.tileConfig[tileId]) {
         button.classList.add('tile-token-empty');
         button.disabled = true;
-        tilePaletteEl.appendChild(button);
-        continue;
-      }
-      const config = state.tileConfig[tileId];
-      if (state.selectedTileId === tileId) {
-        button.classList.add('active');
-      }
-      if (config.sprite) {
-        applyBackgroundImage(button, config.sprite);
-        button.style.backgroundColor = config.fill || '#ffffff';
       } else {
-        applyBackgroundImage(button, null);
-        button.style.backgroundColor = config.fill || '#ffffff';
+        const config = state.tileConfig[tileId];
+        if (config.sprite) {
+          applyBackgroundImage(button, config.sprite);
+          button.style.backgroundColor = config.fill || '#ffffff';
+        } else {
+          applyBackgroundImage(button, null);
+          button.style.backgroundColor = config.fill || '#ffffff';
+        }
+        if (!config.walkable) {
+          button.classList.add('tile-token-blocked');
+        }
+        button.title = config.walkable ? 'Walkable tile' : 'Blocked tile';
+        const label = document.createElement('span');
+        label.className = 'tile-token-label';
+        label.textContent = tileId;
+        button.appendChild(label);
       }
-      if (!config.walkable) {
-        button.classList.add('tile-token-blocked');
-      }
-      button.title = config.walkable ? 'Walkable tile' : 'Blocked tile';
-      const label = document.createElement('span');
-      label.className = 'tile-token-label';
-      label.textContent = tileId;
-      button.appendChild(label);
-      button.addEventListener('click', () => {
-        setSelectedPaletteTile(tileId);
-        renderZoneEditor();
-      });
+      button.addEventListener('pointerdown', handlePalettePointerDown);
+      button.addEventListener('click', handlePaletteButtonClick);
       tilePaletteEl.appendChild(button);
     }
   }
+  applyTilePaletteSelectionVisual();
 }
 
 function createDefaultPalette() {
@@ -931,6 +1244,45 @@ function clonePalette(palette) {
     columns: normalized.columns,
     tiles: normalized.tiles.map(tile => ({ ...tile })),
   };
+}
+
+function ensurePaletteSelection({ skipHighlight = false, skipZoneRender = true } = {}) {
+  const region = state.selectedPaletteRegion;
+  const normalized = normalizePaletteRegion(region);
+  if (normalized) {
+    const pattern = buildTilePatternFromRegion(normalized);
+    if (pattern && pattern.hasTiles) {
+      commitPaletteSelection(normalized, { skipHighlight, skipZoneRender });
+      return;
+    }
+  }
+  if (state.selectedTileId && state.tileConfig[state.selectedTileId]) {
+    const config = state.tileConfig[state.selectedTileId];
+    const fallbackRegion = normalizePaletteRegion({
+      startRow: config.row ?? 0,
+      endRow: config.row ?? 0,
+      startColumn: config.column ?? 0,
+      endColumn: config.column ?? 0,
+    });
+    if (fallbackRegion) {
+      commitPaletteSelection(fallbackRegion, { skipHighlight, skipZoneRender });
+      return;
+    }
+  }
+  const { rows, columns } = getPaletteLayoutBounds();
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      const tileId = state.paletteLayout?.[row]?.[column];
+      if (tileId && state.tileConfig[tileId]) {
+        commitPaletteSelection(
+          { startRow: row, endRow: row, startColumn: column, endColumn: column },
+          { skipHighlight, skipZoneRender }
+        );
+        return;
+      }
+    }
+  }
+  commitPaletteSelection(null, { skipHighlight, skipZoneRender });
 }
 
 function rebuildPaletteState() {
@@ -1067,6 +1419,7 @@ function rebuildPaletteState() {
       state.spriteBuilder.selectedPaletteTileId = null;
     }
   }
+  ensurePaletteSelection({ skipHighlight: true, skipZoneRender: true });
 }
 
 function setPaletteInputsFromState() {
@@ -1192,6 +1545,7 @@ function selectPaletteCell(row, column, options = {}) {
   }
   const clampedRow = Math.max(0, Math.min(rows - 1, row));
   const clampedColumn = Math.max(0, Math.min(columns - 1, column));
+  const skipWorldSelection = options.skipWorldSelection === true;
   state.spriteBuilder.selectedCell = { row: clampedRow, column: clampedColumn };
   const tileId = state.paletteLayout?.[clampedRow]?.[clampedColumn] || null;
   if (tileId && state.tileConfig[tileId]) {
@@ -1201,6 +1555,12 @@ function selectPaletteCell(row, column, options = {}) {
     state.spriteBuilder.selectedAsset = tile?.sprite || config.sprite || null;
     state.spriteBuilder.pendingWalkable = tile ? Boolean(tile.walkable) : config.walkable !== false;
     state.selectedTileId = tileId;
+    if (!skipWorldSelection) {
+      commitPaletteSelection(
+        { startRow: clampedRow, endRow: clampedRow, startColumn: clampedColumn, endColumn: clampedColumn },
+        { skipHighlight: Boolean(options.skipTilePalette), skipZoneRender: true }
+      );
+    }
   } else {
     state.spriteBuilder.selectedPaletteTileId = null;
     if (!options.preserveAsset) {
@@ -1208,6 +1568,12 @@ function selectPaletteCell(row, column, options = {}) {
     }
     if (!options.preserveAsset) {
       state.spriteBuilder.pendingWalkable = true;
+    }
+    if (!skipWorldSelection) {
+      commitPaletteSelection(null, {
+        skipHighlight: Boolean(options.skipTilePalette),
+        skipZoneRender: true,
+      });
     }
   }
   if (!options.skipTilePalette) {
@@ -1297,6 +1663,10 @@ function setSelectedPaletteTile(tileId, options = {}) {
     }
     renderSpriteAssets();
     updateSelectedSpriteControls();
+    commitPaletteSelection(null, {
+      skipHighlight: Boolean(options.skipTilePalette),
+      skipZoneRender: true,
+    });
     return;
   }
   const tile = state.activePalette?.tiles?.find(entry => entry.tileId === tileId) || null;
@@ -1979,9 +2349,7 @@ function setEditMode(mode) {
   if (tileControls) {
     tileControls.classList.toggle('hidden', mode !== 'tile');
   }
-  if (brushSizeInput) {
-    brushSizeInput.disabled = mode !== 'tile';
-  }
+  updateBrushSizeControlAvailability();
   if (mode === 'transport') {
     updateTransportOptions();
   }
@@ -2213,16 +2581,60 @@ function getBrushSize() {
   return clampBrushSize(Number(state.brushSize));
 }
 
-function applyTileBrush(zone, centerX, centerY, tileId) {
+function getSelectedTilePattern() {
+  if (state.selectedTilePattern && state.selectedTilePattern.hasTiles) {
+    return state.selectedTilePattern;
+  }
+  const tileId = state.selectedTileId;
+  if (tileId && state.tileConfig[tileId]) {
+    return {
+      width: 1,
+      height: 1,
+      tiles: [[tileId]],
+      hasTiles: true,
+    };
+  }
+  return null;
+}
+
+function hasActiveTileSelection() {
+  return Boolean(getSelectedTilePattern());
+}
+
+function isMultiTileSelectionActive() {
+  const pattern = getSelectedTilePattern();
+  if (!pattern) {
+    return false;
+  }
+  return pattern.width > 1 || pattern.height > 1;
+}
+
+function updateBrushSizeControlAvailability() {
+  if (!brushSizeInput) {
+    return;
+  }
+  const disabled = state.editMode !== 'tile' || isMultiTileSelectionActive();
+  brushSizeInput.disabled = disabled;
+  if (brushSizeInput.parentElement) {
+    brushSizeInput.parentElement.classList.toggle('brush-control--disabled', disabled);
+  }
+  if (state.editMode === 'tile' && isMultiTileSelectionActive()) {
+    brushSizeInput.title = 'Brush size is disabled while a multi-tile selection is active.';
+  } else {
+    brushSizeInput.title = '';
+  }
+}
+
+function fillSquareBrush(zone, centerX, centerY, tileId, size = getBrushSize()) {
   if (!zone || tileId == null) {
     return;
   }
-  const size = getBrushSize();
-  const offset = Math.floor((size - 1) / 2);
+  const normalizedSize = clampBrushSize(size);
+  const offset = Math.floor((normalizedSize - 1) / 2);
   const startX = centerX - offset;
   const startY = centerY - offset;
-  for (let dy = 0; dy < size; dy += 1) {
-    for (let dx = 0; dx < size; dx += 1) {
+  for (let dy = 0; dy < normalizedSize; dy += 1) {
+    for (let dx = 0; dx < normalizedSize; dx += 1) {
       const targetX = startX + dx;
       const targetY = startY + dy;
       if (
@@ -2237,6 +2649,46 @@ function applyTileBrush(zone, centerX, centerY, tileId) {
   }
 }
 
+function applyTilePattern(zone, startX, startY, pattern) {
+  if (!zone || !pattern || !pattern.hasTiles) {
+    return;
+  }
+  for (let row = 0; row < pattern.height; row += 1) {
+    for (let column = 0; column < pattern.width; column += 1) {
+      const tileId = pattern.tiles[row]?.[column];
+      if (tileId == null) {
+        continue;
+      }
+      const targetX = startX + column;
+      const targetY = startY + row;
+      if (
+        targetX >= 0 &&
+        targetX < zone.width &&
+        targetY >= 0 &&
+        targetY < zone.height
+      ) {
+        zone.tiles[targetY][targetX] = tileId;
+      }
+    }
+  }
+}
+
+function applyTileBrush(zone, x, y) {
+  const pattern = getSelectedTilePattern();
+  if (!zone || !pattern) {
+    return;
+  }
+  if (pattern.width === 1 && pattern.height === 1) {
+    const tileId = pattern.tiles[0]?.[0];
+    if (tileId == null) {
+      return;
+    }
+    fillSquareBrush(zone, x, y, tileId);
+    return;
+  }
+  applyTilePattern(zone, x, y, pattern);
+}
+
 function handleZoneCellClick(event) {
   const zone = getSelectedZone();
   if (!zone) return;
@@ -2244,11 +2696,11 @@ function handleZoneCellClick(event) {
   const y = Number(event.currentTarget.dataset.y);
   switch (state.editMode) {
     case 'tile':
-      if (!state.selectedTileId) {
-        alert('Select a tile from the palette first.');
+      if (!hasActiveTileSelection()) {
+        alert('Select a tile or tile region from the palette first.');
         return;
       }
-      applyTileBrush(zone, x, y, state.selectedTileId);
+      applyTileBrush(zone, x, y);
       break;
     case 'enemy':
       handleEnemyPlacement(zone, x, y);
@@ -2315,7 +2767,7 @@ function handleZoneCellContextMenu(event) {
   } else if (state.editMode === 'tile') {
     const defaultTile = Object.keys(state.tileConfig)[0];
     if (defaultTile) {
-      applyTileBrush(zone, x, y, defaultTile);
+      fillSquareBrush(zone, x, y, defaultTile);
     }
   }
   renderZoneEditor();
