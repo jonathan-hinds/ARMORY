@@ -68,8 +68,6 @@ const {
   readyWorldMatch,
   getWorldQueueStatus,
 } = require("./systems/worldMatchmakingService");
-const { listCards, seedCardCatalog } = require("./systems/cardService");
-const { listDecks, saveDeck, MAX_DECK_SIZE } = require("./systems/deckService");
 const app = express();
 const connectDB = require("./db");
 const SpritePalette = require("./models/SpritePalette");
@@ -369,48 +367,6 @@ app.post("/login", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(404).json({ error: "login failed" });
-  }
-});
-
-app.get("/cards", async (req, res) => {
-  try {
-    const cards = await listCards();
-    res.json({ cards });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "failed to load cards" });
-  }
-});
-
-app.get("/decks", async (req, res) => {
-  const playerId = parseInt(req.query.playerId, 10);
-  if (!Number.isFinite(playerId)) {
-    return res.status(400).json({ error: "playerId required" });
-  }
-  try {
-    const decks = await listDecks(playerId);
-    res.json({ decks, maxDeckSize: MAX_DECK_SIZE });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message || "failed to load decks" });
-  }
-});
-
-app.post("/decks", async (req, res) => {
-  const { playerId, name, cards } = req.body || {};
-  const pid = parseInt(playerId, 10);
-  if (!Number.isFinite(pid)) {
-    return res.status(400).json({ error: "playerId required" });
-  }
-  if (!name) {
-    return res.status(400).json({ error: "deck name required" });
-  }
-  try {
-    const deck = await saveDeck(pid, name, cards);
-    res.json({ deck, maxDeckSize: MAX_DECK_SIZE });
-  } catch (err) {
-    console.error(err);
-    res.status(400).json({ error: err.message || "failed to save deck" });
   }
 });
 
@@ -1319,8 +1275,6 @@ async function start() {
   try {
     await connectDB();
     console.log("Connected to MongoDB");
-    await seedCardCatalog();
-    console.log("Card catalog ready");
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });

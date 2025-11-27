@@ -8,12 +8,6 @@ let rotationInitialized = false;
 let rotationDamageType = 'melee';
 let rotationViewMode = 'planner';
 let rotationTabsInitialized = false;
-let cardCatalog = [];
-let cardCatalogIndex = new Map();
-let cardCatalogLoaded = false;
-let savedDecks = [];
-let deckCardCounts = new Map();
-let deckLimit = 30;
 
 const rotationDamageTypeSelect = document.getElementById('rotation-damage-type');
 
@@ -4995,24 +4989,6 @@ const nameDialog = document.getElementById('name-dialog');
 const newCharName = document.getElementById('new-char-name');
 const nameOk = document.getElementById('name-ok');
 const nameCancel = document.getElementById('name-cancel');
-const mainMenuDiv = document.getElementById('main-menu');
-const deckBuilderDiv = document.getElementById('deck-builder');
-const deckNameInput = document.getElementById('deck-name');
-const deckCountEl = document.getElementById('deck-count');
-const deckLimitEl = document.getElementById('deck-limit');
-const deckMessageEl = document.getElementById('deck-message');
-const deckCardListEl = document.getElementById('deck-card-list');
-const savedDecksListEl = document.getElementById('saved-decks-list');
-const cardGridEl = document.getElementById('card-grid');
-const cardSearchInput = document.getElementById('card-search');
-const deckSubtitleEl = document.getElementById('deck-subtitle');
-const cardFilterSummary = document.getElementById('card-filter-summary');
-const deckCloseBtn = document.getElementById('deck-close');
-const deckSaveBtn = document.getElementById('deck-save');
-const menuCharactersBtn = document.getElementById('menu-characters');
-const menuDecksBtn = document.getElementById('menu-decks');
-const menuEnterWorldBtn = document.getElementById('menu-enter-world');
-const backToMenuBtn = document.getElementById('back-to-menu');
 
 async function postJSON(url, data) {
   const res = await fetch(url, {
@@ -5029,277 +5005,6 @@ async function postJSON(url, data) {
     throw new Error(message);
   }
   return res.json();
-}
-
-function showMainMenu() {
-  if (mainMenuDiv) mainMenuDiv.classList.remove('hidden');
-  if (deckBuilderDiv) deckBuilderDiv.classList.add('hidden');
-  if (charSelectDiv) charSelectDiv.classList.add('hidden');
-  if (gameDiv) gameDiv.classList.add('hidden');
-}
-
-function showCharacterSelect() {
-  if (mainMenuDiv) mainMenuDiv.classList.add('hidden');
-  if (deckBuilderDiv) deckBuilderDiv.classList.add('hidden');
-  if (charSelectDiv) charSelectDiv.classList.remove('hidden');
-}
-
-function setDeckMessage(message, isError = false) {
-  if (!deckMessageEl) return;
-  if (!message) {
-    deckMessageEl.classList.add('hidden');
-    deckMessageEl.textContent = '';
-    return;
-  }
-  deckMessageEl.textContent = message;
-  deckMessageEl.classList.toggle('hidden', false);
-  deckMessageEl.style.color = isError ? '#ff7b7b' : '#b3f7ff';
-}
-
-function totalDeckCards() {
-  let total = 0;
-  deckCardCounts.forEach(qty => {
-    total += qty;
-  });
-  return total;
-}
-
-function updateDeckCountDisplay() {
-  if (deckCountEl) deckCountEl.textContent = totalDeckCards();
-  if (deckLimitEl) deckLimitEl.textContent = deckLimit;
-  if (deckSubtitleEl) {
-    const total = totalDeckCards();
-    deckSubtitleEl.textContent = total ? `${total} / ${deckLimit} cards` : 'Tap a card to add it to your deck.';
-  }
-}
-
-async function fetchCardCatalog(force = false) {
-  if (cardCatalogLoaded && !force) return cardCatalog;
-  const res = await fetch('/cards');
-  if (!res.ok) {
-    throw new Error('Unable to load cards');
-  }
-  const data = await res.json();
-  cardCatalog = data.cards || [];
-  cardCatalogIndex = new Map(cardCatalog.map(card => [card.slug, card]));
-  cardCatalogLoaded = true;
-  return cardCatalog;
-}
-
-function renderDeckList() {
-  if (!deckCardListEl) return;
-  deckCardListEl.innerHTML = '';
-  const entries = Array.from(deckCardCounts.entries());
-  entries.sort((a, b) => {
-    const cardA = cardCatalogIndex.get(a[0]);
-    const cardB = cardCatalogIndex.get(b[0]);
-    const nameA = (cardA?.name || a[0]).toLowerCase();
-    const nameB = (cardB?.name || b[0]).toLowerCase();
-    return nameA.localeCompare(nameB);
-  });
-  entries.forEach(([slug, quantity]) => {
-    const card = cardCatalogIndex.get(slug);
-    const row = document.createElement('div');
-    row.className = 'deck-entry';
-    const label = document.createElement('span');
-    label.textContent = `${quantity}x ${card ? card.name : slug}`;
-    row.appendChild(label);
-    const removeBtn = document.createElement('button');
-    removeBtn.textContent = '-';
-    removeBtn.addEventListener('click', () => {
-      removeCardFromDeck(slug);
-    });
-    row.appendChild(removeBtn);
-    deckCardListEl.appendChild(row);
-  });
-  updateDeckCountDisplay();
-}
-
-function renderSavedDecks() {
-  if (!savedDecksListEl) return;
-  savedDecksListEl.innerHTML = '';
-  savedDecks.forEach(deck => {
-    const btn = document.createElement('button');
-    btn.className = 'saved-deck';
-    const totalCards = (deck.cards || []).reduce((sum, c) => sum + (c.quantity || 0), 0);
-    btn.innerHTML = `<strong>${deck.name}</strong><br/><small>${totalCards} cards</small>`;
-    btn.addEventListener('click', () => {
-      setDeckFromSaved(deck);
-    });
-    savedDecksListEl.appendChild(btn);
-  });
-}
-
-function formatEffect(effect) {
-  const parts = [];
-  if (effect.id) {
-    parts.push(effect.id.replace(/_/g, ' ').toLowerCase());
-  }
-  if (effect.amount) {
-    parts.push(effect.amount);
-  }
-  if (effect.resource) {
-    parts.push(effect.resource.toLowerCase());
-  }
-  if (effect.status) {
-    parts.push(effect.status.toLowerCase());
-  }
-  if (effect.condition) {
-    parts.push(`(${effect.condition.toLowerCase()})`);
-  }
-  return parts.join(' ');
-}
-
-function renderCardGrid() {
-  if (!cardGridEl) return;
-  const search = (cardSearchInput?.value || '').trim().toLowerCase();
-  const filtered = cardCatalog.filter(card => {
-    if (!search) return true;
-    return (
-      card.name.toLowerCase().includes(search) ||
-      card.school.toLowerCase().includes(search) ||
-      card.tags.some(t => t.toLowerCase().includes(search))
-    );
-  });
-  cardGridEl.innerHTML = '';
-  filtered.forEach(card => {
-    const tile = document.createElement('div');
-    tile.className = 'card-tile';
-    const title = document.createElement('h4');
-    title.textContent = card.name;
-    tile.appendChild(title);
-    const meta = document.createElement('div');
-    meta.className = 'card-meta';
-    meta.textContent = `${card.school} • ${card.type} • Cost ${card.cost.amount} ${card.cost.resource}`;
-    tile.appendChild(meta);
-    const text = document.createElement('div');
-    text.className = 'card-effects';
-    text.textContent = card.text || card.role;
-    tile.appendChild(text);
-    if (card.effects?.length) {
-      const effects = document.createElement('div');
-      effects.className = 'card-effects';
-      effects.textContent = card.effects.map(formatEffect).join(' • ');
-      tile.appendChild(effects);
-    }
-    const actions = document.createElement('div');
-    actions.className = 'card-actions';
-    const addBtn = document.createElement('button');
-    addBtn.textContent = 'Add';
-    addBtn.addEventListener('click', () => addCardToDeck(card.slug));
-    actions.appendChild(addBtn);
-    tile.appendChild(actions);
-    cardGridEl.appendChild(tile);
-  });
-  if (cardFilterSummary) {
-    cardFilterSummary.textContent = `${filtered.length} / ${cardCatalog.length} cards`;
-  }
-}
-
-function addCardToDeck(slug) {
-  const total = totalDeckCards();
-  if (total >= deckLimit) {
-    setDeckMessage(`Deck is limited to ${deckLimit} cards.`, true);
-    return;
-  }
-  deckCardCounts.set(slug, (deckCardCounts.get(slug) || 0) + 1);
-  setDeckMessage('');
-  renderDeckList();
-}
-
-function removeCardFromDeck(slug) {
-  if (!deckCardCounts.has(slug)) return;
-  const current = deckCardCounts.get(slug);
-  if (current <= 1) {
-    deckCardCounts.delete(slug);
-  } else {
-    deckCardCounts.set(slug, current - 1);
-  }
-  renderDeckList();
-}
-
-function setDeckFromSaved(deck) {
-  const entries = Array.isArray(deck.cards) ? deck.cards : [];
-  deckCardCounts = new Map(entries.map(entry => [entry.slug, entry.quantity]));
-  if (deckNameInput) deckNameInput.value = deck.name;
-  renderDeckList();
-  setDeckMessage('Loaded deck.');
-}
-
-function getFlatDeckList() {
-  const list = [];
-  deckCardCounts.forEach((qty, slug) => {
-    for (let i = 0; i < qty; i++) {
-      list.push(slug);
-    }
-  });
-  return list;
-}
-
-async function loadDecks() {
-  if (!currentPlayer) return;
-  const res = await fetch(`/decks?playerId=${currentPlayer.playerId}`);
-  if (!res.ok) {
-    throw new Error('Unable to load decks');
-  }
-  const data = await res.json();
-  savedDecks = data.decks || [];
-  deckLimit = data.maxDeckSize || deckLimit;
-  renderSavedDecks();
-  if (deckLimitEl) deckLimitEl.textContent = deckLimit;
-  if (savedDecks.length && deckCardCounts.size === 0) {
-    setDeckFromSaved(savedDecks[0]);
-  }
-  updateDeckCountDisplay();
-}
-
-async function openDeckBuilder() {
-  if (!currentPlayer) return;
-  try {
-    await fetchCardCatalog();
-    await loadDecks();
-    renderCardGrid();
-    renderDeckList();
-    if (deckNameInput && !deckNameInput.value) {
-      deckNameInput.value = `${currentPlayer.name}'s Deck`;
-    }
-    if (mainMenuDiv) mainMenuDiv.classList.add('hidden');
-    if (charSelectDiv) charSelectDiv.classList.add('hidden');
-    if (gameDiv) gameDiv.classList.add('hidden');
-    if (deckBuilderDiv) deckBuilderDiv.classList.remove('hidden');
-    setDeckMessage('Add cards to reach your target size.');
-  } catch (err) {
-    setDeckMessage(err.message || 'Unable to open deck builder', true);
-  }
-}
-
-async function saveDeck() {
-  if (!currentPlayer) return;
-  const name = (deckNameInput?.value || '').trim();
-  if (!name) {
-    setDeckMessage('Name your deck before saving.', true);
-    return;
-  }
-  if (!deckCardCounts.size) {
-    setDeckMessage('Add cards to your deck first.', true);
-    return;
-  }
-  const cards = getFlatDeckList();
-  try {
-    const result = await postJSON('/decks', { playerId: currentPlayer.playerId, name, cards });
-    if (result?.deck) {
-      const existingIndex = savedDecks.findIndex(d => d.deckId === result.deck.deckId);
-      if (existingIndex >= 0) {
-        savedDecks[existingIndex] = result.deck;
-      } else {
-        savedDecks.unshift(result.deck);
-      }
-      renderSavedDecks();
-    }
-    setDeckMessage('Deck saved.');
-  } catch (err) {
-    setDeckMessage(err.message || 'Failed to save deck', true);
-  }
 }
 
 async function loadAbilityCatalog(force = false) {
@@ -8385,8 +8090,8 @@ document.getElementById('login-btn').addEventListener('click', async () => {
     characters = data.characters;
     renderCharacters();
     authDiv.classList.add('hidden');
+    charSelectDiv.classList.remove('hidden');
     authError.classList.add('hidden');
-    showMainMenu();
   } catch (err) {
     authError.textContent = err.message;
     authError.classList.remove('hidden');
@@ -8403,51 +8108,13 @@ document.getElementById('register-btn').addEventListener('click', async () => {
     characters = data.characters;
     renderCharacters();
     authDiv.classList.add('hidden');
+    charSelectDiv.classList.remove('hidden');
     authError.classList.add('hidden');
-    showMainMenu();
   } catch (err) {
     authError.textContent = err.message;
     authError.classList.remove('hidden');
   }
 });
-
-if (menuCharactersBtn) {
-  menuCharactersBtn.addEventListener('click', () => {
-    renderCharacters();
-    showCharacterSelect();
-  });
-}
-
-if (menuDecksBtn) {
-  menuDecksBtn.addEventListener('click', () => {
-    openDeckBuilder();
-  });
-}
-
-if (menuEnterWorldBtn) {
-  menuEnterWorldBtn.addEventListener('click', () => {
-    renderCharacters();
-    showCharacterSelect();
-  });
-}
-
-if (backToMenuBtn) {
-  backToMenuBtn.addEventListener('click', () => {
-    showMainMenu();
-  });
-}
-
-if (deckCloseBtn) {
-  deckCloseBtn.addEventListener('click', () => showMainMenu());
-}
-
-if (deckSaveBtn) {
-  deckSaveBtn.addEventListener('click', () => saveDeck());
-}
-
-if (cardSearchInput) {
-  cardSearchInput.addEventListener('input', () => renderCardGrid());
-}
 
 document.getElementById('create-character').addEventListener('click', () => {
   newCharName.value = '';
