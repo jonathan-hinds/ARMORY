@@ -1,0 +1,484 @@
+[
+  {
+    "slug": "sanguine-bargain",
+    "name": "Sanguine Bargain",
+    "school": "BLOOD",
+    "type": "SPELL_ATTACK",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["resource", "draw"],
+    "keywords": ["CHANNEL"],
+    "effects": [
+      { "id": "LOSE_RESOURCE", "resource": "VITALITY", "amount": 2, "target": "SELF" },
+      { "id": "CHANNEL", "amount": 2, "target": "SELF" },
+      { "id": "DRAW", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Lose 2 Vitality. CHANNEL 2. Draw 1 card.",
+    "role": "Pays life to accelerate and filter, enabling explosive turns."
+  },
+  {
+    "slug": "blood-needle",
+    "name": "Blood Needle",
+    "school": "BLOOD",
+    "type": "ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["poke", "life-cost"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 3, "target": "ENEMY" },
+      { "id": "LOSE_RESOURCE", "resource": "VITALITY", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Deal 3 damage. Lose 1 Vitality.",
+    "role": "Efficient ping that bleeds the caster for tempo."
+  },
+  {
+    "slug": "hemomancer-ward",
+    "name": "Hemomancer's Ward",
+    "school": "BLOOD",
+    "type": "REACTION",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["defense"],
+    "keywords": ["LINGER"],
+    "effects": [
+      { "id": "SHIELD", "amount": 6, "target": "SELF" },
+      { "id": "LOSE_RESOURCE", "resource": "VITALITY", "amount": 2, "target": "SELF" }
+    ],
+    "text": "Gain 6 shield. Lose 2 Vitality.",
+    "role": "Converts life to protection in clutch moments."
+  },
+  {
+    "slug": "artery-surge",
+    "name": "Artery Surge",
+    "school": "BLOOD",
+    "type": "SPELL_SKILL",
+    "rarity": "RARE",
+    "cost": { "resource": "MANA", "amount": 3 },
+    "tags": ["buff", "self"],
+    "keywords": ["OVERLOAD"],
+    "effects": [
+      { "id": "BUFF", "stat": "power", "amount": 3, "target": "SELF" },
+      { "id": "GAIN_RESOURCE", "resource": "CHANNEL", "amount": 1, "target": "SELF" },
+      { "id": "LOSE_RESOURCE", "resource": "VITALITY", "amount": 3, "target": "SELF" }
+    ],
+    "text": "Gain +3 Power and 1 Channel. Lose 3 Vitality.",
+    "role": "Turns blood into burst damage potential."
+  },
+  {
+    "slug": "frost-bolt",
+    "name": "Frost Bolt",
+    "school": "FROST",
+    "type": "SPELL_ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["slow"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 4, "target": "ENEMY" },
+      { "id": "APPLY_STATUS", "status": "CHILL", "amount": 1, "target": "ENEMY" }
+    ],
+    "text": "Deal 4 damage. Apply 1 Chill.",
+    "role": "Bread-and-butter control bolt that chills foes."
+  },
+  {
+    "slug": "ice-lance",
+    "name": "Ice Lance",
+    "school": "FROST",
+    "type": "ATTACK",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["burst"],
+    "keywords": ["QUICK"],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 7, "target": "ENEMY" },
+      { "id": "DEBUFF", "status": "SLOW", "amount": 2, "target": "ENEMY" }
+    ],
+    "text": "Quick. Deal 7 damage and apply 2 Slow.",
+    "role": "Fast finisher against chilled targets."
+  },
+  {
+    "slug": "glacial-barrier",
+    "name": "Glacial Barrier",
+    "school": "FROST",
+    "type": "REACTION",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["defense"],
+    "keywords": ["LINGER"],
+    "effects": [
+      { "id": "SHIELD", "amount": 8, "target": "SELF" },
+      { "id": "APPLY_STATUS", "status": "CHILL", "amount": 1, "target": "ENEMY" }
+    ],
+    "text": "Gain 8 shield. Apply 1 Chill to attacker.",
+    "role": "Defensive wall that also slows aggressors."
+  },
+  {
+    "slug": "hailstorm",
+    "name": "Hailstorm",
+    "school": "FROST",
+    "type": "SPELL_ATTACK",
+    "rarity": "RARE",
+    "cost": { "resource": "MANA", "amount": 4 },
+    "tags": ["aoe"],
+    "keywords": ["OVERLOAD"],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 5, "target": "ALL_ENEMIES" },
+      { "id": "APPLY_STATUS", "status": "CHILL", "amount": 2, "target": "ALL_ENEMIES" }
+    ],
+    "text": "Deal 5 damage to all enemies and apply 2 Chill.",
+    "role": "Board control sweep that sets up slows across the field."
+  },
+  {
+    "slug": "ember-spark",
+    "name": "Ember Spark",
+    "school": "FLAME",
+    "type": "ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["ignite"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 4, "target": "ENEMY" },
+      { "id": "APPLY_STATUS", "status": "BURN", "amount": 1, "target": "ENEMY" }
+    ],
+    "text": "Deal 4 damage and apply 1 Burn.",
+    "role": "Ignites targets to enable burn synergies."
+  },
+  {
+    "slug": "flame-burst",
+    "name": "Flame Burst",
+    "school": "FLAME",
+    "type": "SPELL_ATTACK",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["burst"],
+    "keywords": ["OVERLOAD"],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 8, "target": "ENEMY" },
+      { "id": "APPLY_STATUS", "status": "BURN", "amount": 2, "target": "ENEMY" }
+    ],
+    "text": "Deal 8 damage and apply 2 Burn.",
+    "role": "Direct burn that scales with fire synergies."
+  },
+  {
+    "slug": "phoenix-rekindle",
+    "name": "Phoenix Rekindle",
+    "school": "FLAME",
+    "type": "SUPPORT",
+    "rarity": "RARE",
+    "cost": { "resource": "MANA", "amount": 3 },
+    "tags": ["heal", "resilience"],
+    "keywords": ["LINGER"],
+    "effects": [
+      { "id": "GAIN_RESOURCE", "resource": "VITALITY", "amount": 5, "target": "SELF" },
+      { "id": "CLEANSE", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Heal 5 Vitality and cleanse 1 debuff.",
+    "role": "Sustain tool that keeps flame casters alive."
+  },
+  {
+    "slug": "inferno-wheel",
+    "name": "Inferno Wheel",
+    "school": "FLAME",
+    "type": "SPELL_ATTACK",
+    "rarity": "LEGENDARY",
+    "cost": { "resource": "MANA", "amount": 5 },
+    "tags": ["aoe", "finisher"],
+    "keywords": ["OVERLOAD", "EXHAUST"],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 10, "target": "ALL_ENEMIES" },
+      { "id": "APPLY_STATUS", "status": "BURN", "amount": 3, "target": "ALL_ENEMIES" }
+    ],
+    "text": "Exhaust. Deal 10 damage and apply 3 Burn to all enemies.",
+    "role": "Massive closer that scorches entire boards."
+  },
+  {
+    "slug": "storm-jolt",
+    "name": "Storm Jolt",
+    "school": "STORM",
+    "type": "ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["charge"],
+    "keywords": ["QUICK"],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 4, "target": "ENEMY" },
+      { "id": "DRAW", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Quick. Deal 4 damage. Draw a card.",
+    "role": "Keeps hands full while zapping foes."
+  },
+  {
+    "slug": "lightning-chain",
+    "name": "Lightning Chain",
+    "school": "STORM",
+    "type": "SPELL_ATTACK",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["aoe"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 3, "target": "ALL_ENEMIES" },
+      { "id": "REPEAT_NEXT", "amount": 1, "target": "ENEMY" }
+    ],
+    "text": "Deal 3 damage to all enemies. Repeat on a random enemy.",
+    "role": "Chain lightning that bounces for extra zap."
+  },
+  {
+    "slug": "ion-shield",
+    "name": "Ion Shield",
+    "school": "STORM",
+    "type": "REACTION",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["defense"],
+    "keywords": [],
+    "effects": [
+      { "id": "SHIELD", "amount": 7, "target": "SELF" },
+      { "id": "GAIN_RESOURCE", "resource": "FOCUS", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Gain 7 shield and 1 Focus.",
+    "role": "Protects while charging the mind."
+  },
+  {
+    "slug": "tempest-overload",
+    "name": "Tempest Overload",
+    "school": "STORM",
+    "type": "SPELL_ATTACK",
+    "rarity": "RARE",
+    "cost": { "resource": "MANA", "amount": 4 },
+    "tags": ["finisher"],
+    "keywords": ["OVERLOAD"],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 12, "target": "ENEMY" },
+      { "id": "REPEAT_NEXT", "amount": 1, "target": "ENEMY", "condition": "FOCUS_3" }
+    ],
+    "text": "Deal 12 damage. If you have 3+ Focus, repeat this spell.",
+    "role": "High-voltage spike that rewards built-up focus."
+  },
+  {
+    "slug": "stonefist",
+    "name": "Stonefist",
+    "school": "EARTH",
+    "type": "ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["stun"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 5, "target": "ENEMY" },
+      { "id": "DEBUFF", "status": "ROOT", "amount": 1, "target": "ENEMY" }
+    ],
+    "text": "Deal 5 damage and apply Root.",
+    "role": "Heavy punch that stops enemies in place."
+  },
+  {
+    "slug": "granite-wall",
+    "name": "Granite Wall",
+    "school": "EARTH",
+    "type": "REACTION",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["defense"],
+    "keywords": ["LINGER"],
+    "effects": [
+      { "id": "SHIELD", "amount": 10, "target": "SELF" },
+      { "id": "BUFF", "stat": "armor", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Gain 10 shield and +1 Armor this turn.",
+    "role": "Stalwart defense that thickens skin."
+  },
+  {
+    "slug": "tectonic-shift",
+    "name": "Tectonic Shift",
+    "school": "EARTH",
+    "type": "SPELL_ATTACK",
+    "rarity": "RARE",
+    "cost": { "resource": "MANA", "amount": 3 },
+    "tags": ["control"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 6, "target": "ALL_ENEMIES" },
+      { "id": "DEBUFF", "status": "DISPLACE", "amount": 1, "target": "ALL_ENEMIES" }
+    ],
+    "text": "Deal 6 damage to all enemies and Displace them.",
+    "role": "Shakes the battlefield to reposition foes."
+  },
+  {
+    "slug": "verdant-ritual",
+    "name": "Verdant Ritual",
+    "school": "EARTH",
+    "type": "SUPPORT",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["ramp"],
+    "keywords": ["CHANNEL"],
+    "effects": [
+      { "id": "GAIN_RESOURCE", "resource": "MANA", "amount": 1, "target": "SELF" },
+      { "id": "DRAW", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Channel. Gain 1 Mana next turn and draw a card.",
+    "role": "Grows resources while cycling."
+  },
+  {
+    "slug": "void-grasp",
+    "name": "Void Grasp",
+    "school": "VOID",
+    "type": "SPELL_ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["drain"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 4, "target": "ENEMY" },
+      { "id": "GAIN_RESOURCE", "resource": "VITALITY", "amount": 2, "target": "SELF" }
+    ],
+    "text": "Deal 4 damage. Leech 2 Vitality.",
+    "role": "Siphons life to sustain the caster."
+  },
+  {
+    "slug": "abyssal-echo",
+    "name": "Abyssal Echo",
+    "school": "VOID",
+    "type": "SUPPORT",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["copy"],
+    "keywords": [],
+    "effects": [
+      { "id": "COPY", "amount": 1, "target": "SELF" },
+      { "id": "DRAW", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Copy the next spell you cast this turn. Draw a card.",
+    "role": "Doubles up key spells while replacing itself."
+  },
+  {
+    "slug": "entropy-bleed",
+    "name": "Entropy Bleed",
+    "school": "VOID",
+    "type": "SPELL_ATTACK",
+    "rarity": "RARE",
+    "cost": { "resource": "MANA", "amount": 3 },
+    "tags": ["mill"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 7, "target": "ENEMY" },
+      { "id": "MILL", "amount": 2, "target": "ENEMY" }
+    ],
+    "text": "Deal 7 damage. Mill 2 from enemy deck.",
+    "role": "Attacks the library while pressuring life total."
+  },
+  {
+    "slug": "event-horizon",
+    "name": "Event Horizon",
+    "school": "VOID",
+    "type": "REACTION",
+    "rarity": "LEGENDARY",
+    "cost": { "resource": "MANA", "amount": 4 },
+    "tags": ["lockdown"],
+    "keywords": ["EXHAUST"],
+    "effects": [
+      { "id": "SHIELD", "amount": 12, "target": "SELF" },
+      { "id": "DEBUFF", "status": "SILENCE", "amount": 1, "target": "ALL_ENEMIES" }
+    ],
+    "text": "Exhaust. Gain 12 shield and Silence all enemies this turn.",
+    "role": "Shuts down enemy actions for a moment of calm."
+  },
+  {
+    "slug": "radiant-strike",
+    "name": "Radiant Strike",
+    "school": "LIGHT",
+    "type": "ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["cleanse"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 5, "target": "ENEMY" },
+      { "id": "CLEANSE", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Deal 5 damage and cleanse 1 debuff.",
+    "role": "Bright slash that purifies the wielder."
+  },
+  {
+    "slug": "luminous-aegis",
+    "name": "Luminous Aegis",
+    "school": "LIGHT",
+    "type": "REACTION",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["defense"],
+    "keywords": [],
+    "effects": [
+      { "id": "SHIELD", "amount": 9, "target": "SELF" },
+      { "id": "BUFF", "stat": "resist", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Gain 9 shield and +1 Resist this turn.",
+    "role": "Holy barrier that tempers incoming harm."
+  },
+  {
+    "slug": "sanctify",
+    "name": "Sanctify",
+    "school": "LIGHT",
+    "type": "SUPPORT",
+    "rarity": "RARE",
+    "cost": { "resource": "MANA", "amount": 3 },
+    "tags": ["heal"],
+    "keywords": [],
+    "effects": [
+      { "id": "GAIN_RESOURCE", "resource": "VITALITY", "amount": 6, "target": "ALLY" },
+      { "id": "BUFF", "stat": "power", "amount": 1, "target": "ALLY" }
+    ],
+    "text": "Heal an ally for 6 and give them +1 Power this turn.",
+    "role": "Protective blessing that also sharpens blades."
+  },
+  {
+    "slug": "prismatic-vision",
+    "name": "Prismatic Vision",
+    "school": "LIGHT",
+    "type": "SUPPORT",
+    "rarity": "UNCOMMON",
+    "cost": { "resource": "MANA", "amount": 2 },
+    "tags": ["scry"],
+    "keywords": [],
+    "effects": [
+      { "id": "DRAW", "amount": 2, "target": "SELF" },
+      { "id": "DISCARD", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Draw 2 cards, then discard 1.",
+    "role": "Filters the deck to find the perfect answer."
+  },
+  {
+    "slug": "shadow-feint",
+    "name": "Shadow Feint",
+    "school": "VOID",
+    "type": "ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["evasion"],
+    "keywords": ["QUICK"],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 3, "target": "ENEMY" },
+      { "id": "BUFF", "stat": "dodge", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Quick. Deal 3 damage and gain +1 Dodge this turn.",
+    "role": "Slippery poke that raises evasion."
+  },
+  {
+    "slug": "mind-spike",
+    "name": "Mind Spike",
+    "school": "STORM",
+    "type": "SPELL_ATTACK",
+    "rarity": "COMMON",
+    "cost": { "resource": "MANA", "amount": 1 },
+    "tags": ["focus"],
+    "keywords": [],
+    "effects": [
+      { "id": "DEAL_DAMAGE", "amount": 3, "target": "ENEMY" },
+      { "id": "GAIN_RESOURCE", "resource": "FOCUS", "amount": 1, "target": "SELF" }
+    ],
+    "text": "Deal 3 damage. Gain 1 Focus.",
+    "role": "Soft poke that tunes concentration."
+  }
+]

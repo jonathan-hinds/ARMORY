@@ -16,10 +16,63 @@
     <div class="character-select-header">
       <h2>Select Your Champion</h2>
       <p>Scroll through your roster and choose who answers the call.</p>
+      <button id="back-to-menu" type="button" class="ghost">Main Menu</button>
     </div>
     <div id="character-list" class="character-card-list"></div>
     <div class="character-select-actions">
       <button id="create-character">Create Character</button>
+    </div>
+  </div>
+  <div id="main-menu" class="hidden main-menu">
+    <div class="menu-card">
+      <h1>ARMORY TERMINAL</h1>
+      <p>Choose where to start.</p>
+      <div class="menu-grid">
+        <button id="menu-characters" class="menu-button">Characters</button>
+        <button id="menu-decks" class="menu-button">Decks</button>
+        <button id="menu-enter-world" class="menu-button">Enter World</button>
+      </div>
+    </div>
+  </div>
+  <div id="deck-builder" class="hidden deck-builder">
+    <div class="deck-builder-header">
+      <div>
+        <h2>Deck Builder</h2>
+        <p>Build your first deck with cards from the Armory archives.</p>
+      </div>
+      <button id="deck-close" type="button" class="ghost">Back to Menu</button>
+    </div>
+    <div class="deck-builder-toolbar">
+      <label class="deck-field">
+        <span>Deck Name</span>
+        <input id="deck-name" type="text" value="First Strike" maxlength="40" />
+      </label>
+      <div class="deck-count">Cards: <span id="deck-count">0</span>/<span id="deck-limit">30</span></div>
+      <button id="deck-save" type="button">Save Deck</button>
+      <div id="deck-message" class="deck-message hidden"></div>
+    </div>
+    <div class="deck-builder-layout">
+      <div class="deck-library">
+        <div class="library-header">
+          <input id="card-search" type="search" placeholder="Search cards" />
+          <div id="card-filter-summary" class="card-filter-summary"></div>
+        </div>
+        <div id="card-grid" class="card-grid"></div>
+      </div>
+      <div class="deck-panel">
+        <div class="deck-panel-header">
+          <h3>Your Deck</h3>
+          <div id="deck-subtitle" class="deck-subtitle">Drag or tap to add cards.</div>
+        </div>
+        <div id="deck-card-list" class="deck-card-list"></div>
+        <div class="saved-decks">
+          <div class="saved-decks-header">
+            <h4>Saved Decks</h4>
+            <div class="deck-note">Load and tweak without losing progress.</div>
+          </div>
+          <div id="saved-decks-list" class="saved-decks-list"></div>
+        </div>
+      </div>
     </div>
   </div>
   <div id="name-dialog" class="hidden">
